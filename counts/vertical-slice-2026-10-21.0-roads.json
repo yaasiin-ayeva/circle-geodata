@@ -1,0 +1,64 @@
+{
+  "note": "segments that touch the area, each measured whole",
+  "road_km_total": 291.3,
+  "road_km_arterial": 46.4,
+  "road_km_by_class": [
+    {
+      "class": "residential",
+      "segments": 1367,
+      "km": 142.5
+    },
+    {
+      "class": "service",
+      "segments": 846,
+      "km": 67.4
+    },
+    {
+      "class": "primary",
+      "segments": 211,
+      "km": 28.0
+    },
+    {
+      "class": "unclassified",
+      "segments": 248,
+      "km": 22.7
+    },
+    {
+      "class": "tertiary",
+      "segments": 121,
+      "km": 11.0
+    },
+    {
+      "class": "footway",
+      "segments": 65,
+      "km": 9.1
+    },
+    {
+      "class": "secondary",
+      "segments": 74,
+      "km": 5.6
+    },
+    {
+      "class": "path",
+      "segments": 32,
+      "km": 2.3
+    },
+    {
+      "class": "trunk",
+      "segments": 7,
+      "km": 1.8
+    },
+    {
+      "class": "unknown",
+      "segments": 10,
+      "km": 0.8
+    },
+    {
+      "class": "pedestrian",
+      "segments": 1,
+      "km": 0.0
+    }
+  ],
+  "aoi": "vertical-slice",
+  "release": "2026-10-21.0"
+}

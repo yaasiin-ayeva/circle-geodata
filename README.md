@@ -42,7 +42,7 @@ Black Star Square, Osu, Danquah Circle, Ring Road and Labadi.
 
   Road segments: 2,982 in all. Arterial: 7 trunk, 211 primary, 74 secondary, 121 tertiary (413). Local: 1,367 residential, 846 service, 248 unclassified. Paths and other: 65 footway, 32 path, 1 pedestrian, 10 unknown.
 - Heights: almost none come with the footprints, so the 2.5D Temporal raster and the typology rules set nearly every height (pipeline step 3).
-- Road length in kilometres is still the earlier estimate (200–350 km, of which 40–60 km arterial) until `scripts/overture_slice.py export` measures it.
+- Road length, from `scripts/overture_slice.py export` ([counts/vertical-slice-2026-10-21.0-roads.json](counts/vertical-slice-2026-10-21.0-roads.json)): **291.3 km**, of which **46.4 km arterial** (28.0 primary, 11.0 tertiary, 5.6 secondary, 1.8 trunk). Local: 142.5 km residential, 67.4 km service, 22.7 km unclassified. Segments that touch the area are measured whole, so the figures run slightly high. Both sit inside the earlier estimate (200–350 km, 40–60 km arterial).
 - Milestone 2 moves the west edge to −0.220, which adds Circle through 2.8 km of Ring Road Central.
 
 ## Quick start

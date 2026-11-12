@@ -64,8 +64,31 @@ def check_latest_release_parsing():
     assert mod.parse_releases(xml)[-1] == "2026-10-22.0"
 
 
+def check_road_summary():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("overture_slice", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    with tempfile.TemporaryDirectory() as root:
+        path = os.path.join(root, "roads.parquet")
+        con = duckdb.connect()
+        con.execute(
+            f"""
+            COPY (SELECT * FROM (VALUES ('primary', 1200.0), ('primary', 800.0),
+                                        ('residential', 500.0), (NULL, 250.0)) t(class, length_m))
+            TO '{path}' (FORMAT parquet)
+            """
+        )
+        res = mod.summarize_roads(con, path)
+    assert res["road_km_total"] == 2.8, res
+    assert res["road_km_arterial"] == 2.0, res
+    assert res["road_km_by_class"][0] == {"class": "primary", "segments": 2, "km": 2.0}, res
+
+
 def main():
     check_latest_release_parsing()
+    check_road_summary()
     with tempfile.TemporaryDirectory() as root:
         build_fixture(root)
         out = subprocess.run(
@@ -79,7 +102,7 @@ def main():
         assert sources["OpenStreetMap"]["with_height"] == 1
         classes = {x["class"]: x["segments"] for x in res["road_segments_by_class"]}
         assert classes == {"primary": 1, "residential": 1}, classes
-    print("ok: count filters the slice bbox, groups buildings by source and roads by class")
+    print("ok: count filters the slice bbox, groups buildings by source and roads by class; road summary adds up")
 
 
 if __name__ == "__main__":
