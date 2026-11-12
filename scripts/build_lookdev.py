@@ -86,6 +86,17 @@ MATERIALS = {
     "M_Wall_White": (0.90, 0.89, 0.86), "M_Wall_Cream": (0.86, 0.80, 0.66), "M_Wall_Ochre": (0.78, 0.60, 0.38),
     "M_Wall_Grey": (0.66, 0.66, 0.64),
 }
+MATERIALS.update({
+    # Step 2 palette, from research/look-reference.md: the main street is white, off-white, cream and light grey
+    # with a dark fascia band; older houses off it are beige, ochre and cream under red roofs.
+    "M_Facade_White": (0.90, 0.90, 0.87), "M_Facade_OffWhite": (0.86, 0.85, 0.80), "M_Facade_LightGrey": (0.74, 0.75, 0.74),
+    "M_Facade_Beige": (0.82, 0.74, 0.58), "M_Facade_Orange": (0.90, 0.45, 0.16), "M_Fascia": (0.09, 0.09, 0.10),
+    "M_Concrete_Raw": (0.58, 0.57, 0.54), "M_Rebar": (0.25, 0.15, 0.10), "M_BalconyGlass": (0.10, 0.13, 0.15),
+    "M_RoofTile_Red": (0.55, 0.20, 0.13), "M_RoofSheet_Rust": (0.45, 0.25, 0.17), "M_Lattice": (0.86, 0.82, 0.70),
+    "M_Hoarding": (0.15, 0.30, 0.55),
+})
+MAIN_PALETTE = ["M_Facade_White"] * 3 + ["M_Facade_OffWhite"] * 2 + ["M_Facade_Cream", "M_Facade_LightGrey", "M_Facade_LightGrey"]
+OLD_PALETTE = ["M_Facade_Beige", "M_Facade_Beige", "M_Facade_Cream", "M_Facade_Ochre", "M_Facade_OffWhite", "M_Facade_Terracotta"]
 COMPOUND_WALLS = ["M_Wall_White", "M_Wall_Cream", "M_Wall_Ochre", "M_Wall_Grey"]
 FORECOURT_MAX = 18.0    # deeper than this from the sidewalk and the frontage counts as a gap
 FORECOURT_Z = 0.30
@@ -168,9 +179,26 @@ def opening(B, obj, wall, back, a, t, n, s0, s1, z0, z1, depth, back_uv=None):
         wall_rect(B, obj, back, a, t, n, s0, s1, z0, z1, depth=-depth)
 
 
-def facade(B, bid, poly, height, storeys, street, street_dir, rng):
+def building_type(bid, poly, street, s_along, side, n_storeys):
+    """Pick a type for a footprint from its size and its place on the street (research/look-reference.md)."""
+    d = poly.distance(street)
+    main = d < 24
+    if main and poly.area > 900 and side < 0 and s_along < 40:
+        return "tower"                       # the white apartment tower by Danquah Circle (its footprint is not in the block yet)
+    if poly.area < 40:
+        return "shed"
+    r = bd.unit_hash(bid, "type")
+    if r < 0.12 and poly.area < 700:
+        return "unfinished"
+    if main and poly.area >= 100:
+        return "commercial"
+    return "house"
+
+
+def facade(B, bid, poly, height, storeys, street, street_dir, rng, kind="commercial", wall=None):
     obj = bd.cell_name("LookDev_Buildings", poly.centroid.x, poly.centroid.y)
-    wall = FACADES[int(bd.unit_hash(bid, "paint") * len(FACADES))]
+    wall = wall or FACADES[int(bd.unit_hash(bid, "paint") * len(FACADES))]
+    fascia = kind in ("commercial", "tower")
     rings = [poly.exterior] + list(poly.interiors)
     for ring_index, ring in enumerate(rings):
         exterior = ring_index == 0
@@ -197,15 +225,146 @@ def facade(B, bid, poly, height, storeys, street, street_dir, rng):
                 for f in range(storeys):
                     z0, z1 = f * STOREY, (f + 1) * STOREY
                     r = bd.unit_hash(bid, i, k, f)
-                    if f == 0 and faces_street:
+                    if f == 0 and faces_street and kind != "house":
                         shopfront(B, obj, wall, bid, a, t, n, s0, s1, z0, z1, r, (i, k))
                     elif f > 0 and bw > 2.2:
                         window(B, obj, wall, a, t, n, s0, s1, z0, z1, r)
                     else:
                         wall_rect(B, obj, wall, a, t, n, s0, s1, z0, z1)
                 wall_rect(B, obj, wall, a, t, n, s0, s1, storeys * STOREY, height)
+            if faces_street and fascia:
+                # The dark band over the ground floor that carries the shop signs.
+                yaw = math.atan2(t[1], t[0])
+                c = wall_point(a, t, n, L / 2, 0.11)
+                B.box(obj, "M_Fascia", (c[0], c[1], 3.2), (L + 0.1, 0.22, 1.0), yaw=yaw, bottom=True)
+            if kind == "house" and faces_street and storeys >= 2 and L >= 5 and bd.unit_hash(bid, i, "balcony") < 0.7:
+                lattice_balcony(B, obj, wall, a, t, n, L)
+    if kind == "house" and hip_roof(B, bid, poly, storeys * STOREY):
+        return
     # Parapet cap and roof
     rooftop(B, bid, poly, height)
+
+
+def lattice_balcony(B, obj, wall, a, t, n, L):
+    """A first-floor balcony with a concrete lattice parapet (breeze blocks with round openings), as on Osu's older houses."""
+    w = min(L - 1.0, max(3.0, L * 0.6))
+    s0, s1 = (L - w) / 2, (L + w) / 2
+    yaw = math.atan2(t[1], t[0])
+    c = wall_point(a, t, n, L / 2, 0.65)
+    B.box(obj, wall, (c[0], c[1], STOREY - 0.08), (w, 1.3, 0.16), yaw=yaw, bottom=True)              # slab
+    wall_rect(B, obj, "M_Lattice", a, t, n, s0, s1, STOREY, STOREY + 1.0, depth=1.3, uv_scale=1.0)   # lattice front
+    for s in (s0, s1):                                                                                # returns
+        p0, p1 = wall_point(a, t, n, s, 0), wall_point(a, t, n, s, 1.3)
+        B.quad(obj, "M_Lattice", (*p0, STOREY), (*p1, STOREY), (*p1, STOREY + 1.0), (*p0, STOREY + 1.0))
+        B.quad(obj, "M_Lattice", (*p1, STOREY), (*p0, STOREY), (*p0, STOREY + 1.0), (*p1, STOREY + 1.0))
+    B.count("lattice_balconies")
+
+
+def hip_roof(B, bid, poly, eave_z):
+    """A hipped roof over the footprint's best-fit rectangle, 0.5 m overhang, red tile or rusty sheet."""
+    rect = poly.minimum_rotated_rectangle
+    if rect.area <= 0 or poly.area / rect.area < 0.78:
+        return False
+    c = list(rect.exterior.coords)[:4]
+    e = [np.array(c[(k + 1) % 4]) - np.array(c[k]) for k in range(4)]
+    k = 0 if np.linalg.norm(e[0]) >= np.linalg.norm(e[1]) else 1      # long side
+    u = e[k] / np.linalg.norm(e[k]); v = e[(k + 1) % 4] / np.linalg.norm(e[(k + 1) % 4])
+    Lu, Lv = np.linalg.norm(e[k]) + 1.0, np.linalg.norm(e[(k + 1) % 4]) + 1.0
+    o = np.array(rect.centroid.coords[0])
+    rise = min(2.2, 0.3 * Lv)
+    corner = lambda su, sv: o + u * su * Lu / 2 + v * sv * Lv / 2
+    r0, r1 = o - u * (Lu / 2 - Lv / 2), o + u * (Lu / 2 - Lv / 2)
+    if Lu <= Lv:
+        r0 = r1 = o
+    mat = "M_RoofTile_Red" if bd.unit_hash(bid, "roof") < 0.55 else "M_RoofSheet_Rust"
+    obj = bd.cell_name("LookDev_Roofs", o[0], o[1])
+    z0, z1 = eave_z, eave_z + rise
+    A, Bc, C, D = corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)
+    # Ensure counter-clockwise order seen from above.
+    if (Bc[0] - A[0]) * (C[1] - A[1]) - (Bc[1] - A[1]) * (C[0] - A[0]) < 0:
+        A, Bc, C, D = A, D, C, Bc
+        r0, r1 = r1, r0 if False else r0
+    ridge = sorted([r0, r1], key=lambda p: np.dot(p - o, (Bc - A)))
+    q0, q1 = ridge
+    B.quad(obj, mat, (*A, z0), (*Bc, z0), (*q1, z1), (*q0, z1))       # long slope
+    B.quad(obj, mat, (*C, z0), (*D, z0), (*q0, z1), (*q1, z1))        # other long slope
+    B.mesh.tri(obj, mat, (*Bc, z0), (*C, z0), (*q1, z1))              # hips
+    B.mesh.tri(obj, mat, (*D, z0), (*A, z0), (*q0, z1))
+    for a, b in ((A, Bc), (Bc, C), (C, D), (D, A)):                  # fascia board under the eaves
+        B.quad(obj, "M_Fascia", (*b, z0 - 0.25), (*a, z0 - 0.25), (*a, z0), (*b, z0))
+    B.count("hip_roofs")
+    return True
+
+
+def tower_balconies(B, bid, poly, storeys):
+    """Continuous balcony slabs with rounded corners and dark glass balustrades on every floor above the ground."""
+    obj = bd.cell_name("LookDev_Buildings", poly.centroid.x, poly.centroid.y)
+    ring = poly.buffer(1.2, join_style=1, quad_segs=4)
+    for f in range(1, storeys):
+        z = f * STOREY
+        slab = orient(ring.difference(poly.buffer(-0.05)), 1.0) if isinstance(ring.difference(poly.buffer(-0.05)), Polygon) else None
+        if slab is None:
+            continue
+        rings = [slab.exterior] + list(slab.interiors)
+        verts = np.array([p for r in rings for p in list(r.coords)[:-1]], dtype=np.float64)
+        ends = np.cumsum([len(r.coords) - 1 for r in rings]).astype(np.uint32)
+        idx = bd.earcut.triangulate_float64(verts, ends)
+        for k in range(0, len(idx), 3):
+            a, b, c = (tuple(verts[idx[k + j]]) for j in range(3))
+            if (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) < 0:
+                b, c = c, b
+            B.mesh.tri(obj, "M_Facade_White", (*a, z + 0.2), (*b, z + 0.2), (*c, z + 0.2))
+            B.mesh.tri(obj, "M_Facade_White", (*a, z), (*c, z), (*b, z))
+        pts = list(orient(ring, 1.0).exterior.coords)[:-1]
+        for i in range(len(pts)):
+            a, b = pts[i], pts[(i + 1) % len(pts)]
+            B.quad(obj, "M_Facade_White", (*a, z), (*b, z), (*b, z + 0.2), (*a, z + 0.2))
+            B.quad(obj, "M_BalconyGlass", (*a, z + 0.2), (*b, z + 0.2), (*b, z + 1.15), (*a, z + 1.15))
+            B.quad(obj, "M_BalconyGlass", (*b, z + 0.2), (*a, z + 0.2), (*a, z + 1.15), (*b, z + 1.15))
+    B.count("tower_floors", storeys)
+
+
+def unfinished_frame(B, bid, poly, storeys, street):
+    """An unfinished concrete frame: columns, floor slabs, rebar stubs on top, a hoarding along the street."""
+    obj = bd.cell_name("LookDev_Buildings", poly.centroid.x, poly.centroid.y)
+    pts = list(poly.exterior.coords)[:-1]
+    cols = []
+    for i in range(len(pts)):
+        a, b = np.array(pts[i]), np.array(pts[(i + 1) % len(pts)])
+        L = float(np.linalg.norm(b - a))
+        for k in range(max(1, int(L // 4))):
+            cols.append(a + (b - a) * k / max(1, int(L // 4)))
+    top = storeys * STOREY
+    for c in cols:
+        inner = np.array(poly.centroid.coords[0]) - c
+        c = c + inner / (np.linalg.norm(inner) + 1e-9) * 0.2
+        B.box(obj, "M_Concrete_Raw", (c[0], c[1], top / 2), (0.3, 0.3, top))
+        for dx, dy in ((-0.08, -0.08), (0.08, 0.08), (-0.08, 0.08), (0.08, -0.08)):
+            B.box(obj, "M_Rebar", (c[0] + dx, c[1] + dy, top + 0.35), (0.025, 0.025, 0.7), top=False)
+    rings = [poly.exterior]
+    verts = np.array(list(poly.exterior.coords)[:-1], dtype=np.float64)
+    idx = bd.earcut.triangulate_float64(verts, np.array([len(verts)], dtype=np.uint32))
+    for f in range(1, storeys + 1):
+        z = f * STOREY
+        for k in range(0, len(idx), 3):
+            a, b, c = (tuple(verts[idx[k + j]]) for j in range(3))
+            if (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) < 0:
+                b, c = c, b
+            B.mesh.tri(obj, "M_Concrete_Raw", (*a, z), (*b, z), (*c, z))
+            B.mesh.tri(obj, "M_Concrete_Raw", (*a, z - 0.2), (*c, z - 0.2), (*b, z - 0.2))
+        for i in range(len(verts)):
+            a, b = verts[i], verts[(i + 1) % len(verts)]
+            B.quad(obj, "M_Concrete_Raw", (*a, z - 0.2), (*b, z - 0.2), (*b, z), (*a, z))
+    # Hoarding on the street side.
+    near = min(range(len(verts)), key=lambda i: Point(*(verts[i] + verts[(i + 1) % len(verts)]) / 2).distance(street))
+    a, b = verts[near], verts[(near + 1) % len(verts)]
+    L = float(np.linalg.norm(b - a))
+    if L > 3 and poly.distance(street) < 26:
+        t = (b - a) / L
+        n = np.array([t[1], -t[0]])
+        c = (a + b) / 2 + n * 1.5
+        B.box(obj, "M_Hoarding", (c[0], c[1], 1.3), (L, 0.08, 2.6), yaw=math.atan2(t[1], t[0]))
+    B.count("unfinished_frames")
 
 
 def window(B, obj, wall, a, t, n, s0, s1, z0, z1, r):
@@ -733,8 +892,39 @@ def build(args):
             n = int(floors) if floors else max(2, bd.storeys(poly.area, r, True))
             if poly.area < 40:
                 n = 1
-            facade(B, bid, poly, n * STOREY + 0.6, n, street, street_dir, rng)
+            s_along = street.project(poly.centroid)
+            a0 = np.array(street.interpolate(s_along).coords[0])
+            tv = np.array(street.interpolate(min(s_along + 1, street.length)).coords[0]) - a0
+            cv = np.array(poly.centroid.coords[0]) - a0
+            side = 1 if tv[0] * cv[1] - tv[1] * cv[0] > 0 else -1          # +1 east (left of a southbound street)
+            kind = building_type(bid, poly, street, s_along, side, n)
+            if os.environ.get("LOOKDEV_DEBUG"):
+                print(f"{bid[:8]} s={s_along:.0f} side={side} dx_east={cv[0]:.1f} t=({tv[0]:.2f},{tv[1]:.2f}) d={poly.distance(street):.1f} area={poly.area:.0f} n={n} -> {kind}")
+            if kind == "tower":
+                n = 10
+            elif kind == "house":
+                n = min(n, 2)
+            elif kind == "commercial":
+                n = min(max(n, 2), 4)
+            elif kind == "unfinished":
+                n = 2 + int(bd.unit_hash(bid, "floors") * 3)
+            palette = OLD_PALETTE if kind in ("house", "shed") else MAIN_PALETTE
+            wall = palette[int(bd.unit_hash(bid, "paint") * len(palette))]
+            if kind == "tower":
+                wall = "M_Facade_White"
+            if kind == "commercial" and side > 0 and 90 < s_along < 130 and not B.counts.get("orange"):
+                wall = "M_Facade_Orange"                     # the one bright orange building, as on the real street
+                B.count("orange")
             footprints.append(poly)
+            B.count("type_" + kind)
+            if kind == "unfinished":
+                unfinished_frame(B, bid, poly, n, street)
+                B.count("buildings")
+                done = True
+                continue
+            facade(B, bid, poly, n * STOREY + 0.6, n, street, street_dir, rng, kind, wall)
+            if kind == "tower":
+                tower_balconies(B, bid, poly, n)
             B.count("buildings")
             done = True
         if done:
