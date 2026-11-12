@@ -115,6 +115,10 @@ MATERIALS.update({
     # Step 4: shade trees (trunk, branches, alpha-clipped leaf cards) and coconut palms (trunk, fronds).
     "M_Trunk": (0.30, 0.25, 0.20), "M_LeafCard": (0.20, 0.32, 0.14), "M_PalmTrunk": (0.45, 0.40, 0.33), "M_Frond": (0.30, 0.42, 0.16),
 })
+MATERIALS.update({
+    # Step 6: the road surface. Step 5: bulbs at the stalls.
+    "M_Patch": (0.16, 0.16, 0.16), "M_Manhole": (0.30, 0.30, 0.31), "M_Bulb": (1.0, 0.85, 0.6),
+})
 MAIN_PALETTE = ["M_Facade_White"] * 3 + ["M_Facade_OffWhite"] * 2 + ["M_Facade_Cream", "M_Facade_LightGrey", "M_Facade_LightGrey"]
 OLD_PALETTE = ["M_Facade_Beige", "M_Facade_Beige", "M_Facade_Cream", "M_Facade_Ochre", "M_Facade_OffWhite", "M_Facade_Terracotta"]
 COMPOUND_WALLS = ["M_Wall_White", "M_Wall_Cream", "M_Wall_Ochre", "M_Wall_Grey"]
@@ -718,6 +722,11 @@ def street_furniture(B, line, rng, mouths=None):
         elif roll < 0.78:
             B.prism(obj, "M_SignFrame", tuple(c), 0.03, SIDEWALK_Z, SIDEWALK_Z + 2.3, sides=4, cap=False)
             umbrella(B, obj, c, SIDEWALK_Z + 2.3, 1.15, int(d))
+            if bd.unit_hash("bulb", int(d)) < 0.55:
+                # A bare bulb hanging under the umbrella: the warm point of light at a night stall.
+                B.box(obj, "M_Bulb", (c[0], c[1], SIDEWALK_Z + 2.05), (0.09, 0.09, 0.12), yaw=yaw)
+                B.lights.append({"x": round(float(c[0]), 2), "y": round(SIDEWALK_Z + 2.0, 2), "z": round(float(c[1]), 2), "kind": "bulb"})
+                B.count("stall_bulbs")
             t = c + N[i] * side * 0.2
             B.box(obj, "M_Table", (t[0], t[1], SIDEWALK_Z + 0.4), (1.1, 0.6, 0.8), yaw=yaw)
             B.count("umbrellas")
@@ -838,6 +847,32 @@ def billboards(B, street, mouths, footprints):
             pts = [(*l0, 4.3), (*l1, 4.3), (*l1, 7.7), (*l0, 7.7)] if sgn > 0 else [(*l1, 4.3), (*l0, 4.3), (*l0, 7.7), (*l1, 7.7)]
             B.quad(obj, "M_Billboard", *pts, ((u0, v0), (u1, v0), (u1, v1), (u0, v1)))
         B.count("pylon_signs")
+
+
+def road_surface(B, street):
+    """Darker asphalt patches and manhole covers on Oxford Street, a few millimetres above the road ribbon."""
+    z = bd.ROAD_LIFT["secondary"] + 0.006
+    for k, d in enumerate(np.arange(4, street.length - 4, 7)):
+        r = bd.unit_hash("patch", k)
+        p = np.array(street.interpolate(d).coords[0])
+        q = np.array(street.interpolate(min(d + 1, street.length)).coords[0])
+        t = (q - p) / (np.linalg.norm(q - p) + 1e-9)
+        n = np.array([-t[1], t[0]])
+        obj = bd.cell_name("LookDev_Street", p[0], p[1])
+        if r < 0.45:
+            c = p + n * (ROAD_HALF * (2 * bd.unit_hash("px", k) - 1) * 0.8)
+            L, W = 1.2 + 3 * bd.unit_hash("pl", k), 0.8 + 1.6 * bd.unit_hash("pw", k)
+            a = math.atan2(t[1], t[0]) + (bd.unit_hash("pa", k) - 0.5) * 0.4
+            u, v = np.array([math.cos(a), math.sin(a)]), np.array([-math.sin(a), math.cos(a)])
+            pts = [c - u * L / 2 - v * W / 2, c + u * L / 2 - v * W / 2, c + u * L / 2 + v * W / 2, c - u * L / 2 + v * W / 2]
+            B.quad(obj, "M_Patch", *[(*x, z) for x in pts], tuple((x[0] / 3, x[1] / 3) for x in pts))
+            B.count("road_patches")
+        elif r < 0.6:
+            c = p + n * (ROAD_HALF * 0.45 * (1 if k % 2 else -1))
+            ring = [(c[0] + 0.35 * math.cos(2 * math.pi * j / 10), c[1] + 0.35 * math.sin(2 * math.pi * j / 10)) for j in range(10)]
+            for j in range(1, 9):
+                B.mesh.tri(obj, "M_Manhole", (*ring[0], z + 0.004), (*ring[j], z + 0.004), (*ring[j + 1], z + 0.004))
+            B.count("manholes")
 
 
 def shade_tree(B, obj, base, seed):
@@ -1201,6 +1236,7 @@ def build(args):
     street_furniture(B, street, rng, mouths)
     billboards(B, street, mouths, footprints)
     trees(B, street, mouths, footprints, zone)
+    road_surface(B, street)
 
     os.makedirs(args.out, exist_ok=True)
     base = os.path.join(args.out, "osu-lookdev")

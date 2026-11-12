@@ -241,6 +241,9 @@ def build(args):
             ribbon(mesh, line, w, lift, mat, "Roads")
             if cls in ("primary", "secondary", "trunk"):
                 for d0 in np.arange(2.0, line.length - 3.0, 6.0):
+                    # Centre lines in Accra are worn: about a third of the dashes are gone.
+                    if unit_hash(rid, "dash", int(d0)) < 0.35:
+                        continue
                     seg = shapely.ops.substring(line, d0, d0 + 3.0)
                     if isinstance(seg, LineString) and seg.length > 0.5:
                         ribbon(mesh, seg, 0.15, lift + 0.01, "M_RoadPaint", "Roads")
@@ -324,13 +327,14 @@ def ribbon(mesh, line, w, lift, mat, prefix):
 
 
 def place_lights(rid, cls, name, line, w):
-    """Poles along major roads. Oxford Street gets both sides every 22 m; others one side, alternating.
+    """Poles along major roads, one side at a time, alternating: Oxford Street every 24 m, others every 32 m, so
+    the night has dark gaps between pools, as in the 2026 photos of Oxford Street.
     About one stretch in eight stays dark on purpose. Accra's streets are mostly lit by white LED now, with
     some older sodium heads left: per stretch of six poles, about 65% neutral white LED, 15% cold white LED
     and 20% sodium; on ring roads and Oxford Street only about 8% of stretches keep sodium."""
     out = []
     oxford = name == "Oxford Street"
-    step = 22.0 if oxford else 32.0
+    step = 24.0 if oxford else 32.0
     modern = "Ring Road" in name or oxford
     for k, d in enumerate(np.arange(step / 2, line.length, step)):
         stretch = int(d // (step * 6))
@@ -344,7 +348,7 @@ def place_lights(rid, cls, name, line, w):
             continue
         t = (q - p) / np.linalg.norm(q - p)
         left = np.array([-t[1], t[0]])
-        sides = (1, -1) if oxford else ((1,) if k % 2 == 0 else (-1,))
+        sides = (1,) if k % 2 == 0 else (-1,)
         for s in sides:
             pos = p + left * s * (w / 2 + 1.2)
             face = -left * s  # the lamp arm points over the road
