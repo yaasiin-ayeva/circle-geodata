@@ -11,6 +11,8 @@ Writes, next to the district files (same axes and origin, see build_district.py)
   osu-lookdev.json        shop and kiosk lights, the zone outline, counts
   osu-lookdev-ids.txt     building ids the detailed versions replace, for build_district.py --exclude
   signs-atlas.png         32 invented shop signs (4 x 8 cells), no real brand or phone number
+  interiors-atlas.png     what a lit window or shopfront shows (4 x 4 cells): 8 rooms behind curtains,
+                          8 shop interiors with shelves, goods and a counter
 
 Everything is generated from the footprints and the street line; shapes, colours and sign choices are seeded
 by building id, so reruns give the same street.
@@ -136,7 +138,14 @@ def wall_rect(B, obj, mat, a, t, n, s0, s1, z0, z1, depth=0.0, uv_scale=3.0, fli
         B.quad(obj, mat, (*p0, z0), (*p1, z0), (*p1, z1), (*p0, z1), uv)
 
 
-def opening(B, obj, wall, back, a, t, n, s0, s1, z0, z1, depth):
+def interior_uv(cell):
+    """UVs of one cell of the interiors atlas (4 x 4), inset a little so mipmaps don't bleed."""
+    col, row, e = cell % 4, cell // 4, 0.004
+    u0, u1, v0, v1 = col / 4 + e, (col + 1) / 4 - e, 1 - (row + 1) / 4 + e, 1 - row / 4 - e
+    return ((u0, v0), (u1, v0), (u1, v1), (u0, v1))
+
+
+def opening(B, obj, wall, back, a, t, n, s0, s1, z0, z1, depth, back_uv=None):
     """A recessed opening: four reveal faces into the wall and a back face at -depth."""
     p = lambda s, d: wall_point(a, t, n, s, d)
     l0, l1, r0, r1 = p(s0, 0), p(s0, -depth), p(s1, 0), p(s1, -depth)
@@ -144,7 +153,10 @@ def opening(B, obj, wall, back, a, t, n, s0, s1, z0, z1, depth):
     B.quad(obj, wall, (*r1, z0), (*r0, z0), (*r0, z1), (*r1, z1))            # right reveal, faces -t
     B.quad(obj, wall, (*r0, z0), (*r1, z0), (*l1, z0), (*l0, z0))            # sill, faces up
     B.quad(obj, wall, (*r1, z1), (*r0, z1), (*l0, z1), (*l1, z1))            # head, faces down
-    if back:
+    if back and back_uv:
+        b0, b1 = p(s0, -depth), p(s1, -depth)
+        B.quad(obj, back, (*b0, z0), (*b1, z0), (*b1, z1), (*b0, z1), back_uv)
+    elif back:
         wall_rect(B, obj, back, a, t, n, s0, s1, z0, z1, depth=-depth)
 
 
@@ -197,7 +209,8 @@ def window(B, obj, wall, a, t, n, s0, s1, z0, z1, r):
     wall_rect(B, obj, wall, a, t, n, w0, w1, z0, h0)
     wall_rect(B, obj, wall, a, t, n, w0, w1, h1, z1)
     glass = "M_WindowLit_Warm" if r < 0.2 else ("M_WindowLit_Cool" if r < 0.28 else "M_WindowDark")
-    opening(B, obj, wall, glass, a, t, n, w0, w1, h0, h1, 0.18)
+    room = interior_uv(int(r * 1000) % 8) if glass != "M_WindowDark" else None
+    opening(B, obj, wall, glass, a, t, n, w0, w1, h0, h1, 0.18, room)
     B.count("windows")
     if glass != "M_WindowDark":
         B.count("lit_windows")
@@ -220,7 +233,8 @@ def shopfront(B, obj, wall, bid, a, t, n, s0, s1, z0, z1, r, key):
     wall_rect(B, obj, wall, a, t, n, o0, o1, top, z1)
     lit = r < 0.62
     back = ("M_ShopGlass_Warm" if r < 0.42 else "M_ShopGlass_Cool") if lit else "M_Shutter"
-    opening(B, obj, wall, back, a, t, n, o0, o1, z0, top, 0.45)
+    shop = interior_uv(8 + int(bd.unit_hash(bid, key, "interior") * 8)) if lit else None
+    opening(B, obj, wall, back, a, t, n, o0, o1, z0, top, 0.45, shop)
     B.count("shops_lit" if lit else "shops_shuttered")
     # Sign board above the opening, front face mapped to one atlas cell.
     cell = int(bd.unit_hash(bid, key, "sign") * len(SIGNS))
@@ -426,6 +440,89 @@ def sign_atlas(path):
     Image.fromarray(arr).filter(ImageFilter.GaussianBlur(0.6)).save(path)
 
 
+ROOM_WALLS = [(222, 210, 180), (196, 214, 190), (190, 205, 222), (228, 196, 196), (236, 232, 220), (232, 214, 150)]
+CURTAINS = [(150, 40, 40), (40, 70, 140), (200, 150, 40), (60, 120, 70), (120, 60, 120), (210, 120, 60), (230, 225, 210)]
+GOODS = [(220, 40, 40), (240, 190, 30), (30, 110, 200), (40, 160, 80), (250, 250, 245), (240, 120, 30),
+         (130, 40, 140), (20, 20, 20), (200, 60, 120), (90, 190, 210)]
+
+
+def interiors_atlas(path):
+    """Interiors seen through lit windows (cells 0-7) and lit shopfronts (8-15), 512 px each.
+
+    Drawn bright enough to read as lit but with real dark areas, so the glass stops blowing out to white;
+    the material tints them warm or cool. Pure invention: no brand, no text."""
+    S, N = 512, 4
+    img = Image.new("RGB", (S * N, S * N), (0, 0, 0))
+    rng = np.random.default_rng(11)
+    for cell in range(16):
+        x0, y0 = (cell % N) * S, (cell // N) * S
+        tile = Image.new("RGB", (S, S))
+        dr = ImageDraw.Draw(tile)
+        if cell < 8:
+            wall = ROOM_WALLS[cell % len(ROOM_WALLS)]
+            dr.rectangle([0, 0, S, S], fill=wall)
+            dr.rectangle([0, int(S * 0.82), S, S], fill=tuple(int(c * 0.45) for c in wall))      # floor
+            if cell % 3 == 0:   # a framed picture or a calendar on the back wall
+                fx = int(rng.uniform(0.3, 0.6) * S)
+                dr.rectangle([fx, int(S * 0.3), fx + 90, int(S * 0.45)], fill=(60, 50, 40))
+                dr.rectangle([fx + 8, int(S * 0.3) + 8, fx + 82, int(S * 0.45) - 8], fill=tuple(int(v) for v in rng.integers(80, 200, 3)))
+            if cell % 4 == 1:   # a television's blue glow low in the room
+                dr.rectangle([int(S * 0.38), int(S * 0.55), int(S * 0.62), int(S * 0.72)], fill=(150, 190, 255))
+                dr.rectangle([int(S * 0.45), int(S * 0.72), int(S * 0.55), int(S * 0.82)], fill=(30, 25, 25))
+            if cell % 2 == 0:   # a ceiling fan
+                cx = S // 2
+                dr.line([cx, 0, cx, 50], fill=(40, 40, 40), width=6)
+                dr.polygon([(cx - 150, 58), (cx + 150, 52), (cx + 150, 62), (cx - 150, 68)], fill=(50, 45, 40))
+            # Curtains: one or two panels with folds, sometimes a sheer across the whole window.
+            colour = CURTAINS[(cell * 3) % len(CURTAINS)]
+            arr = np.asarray(tile).astype(np.float32)
+            xs = np.arange(S)
+            folds = 0.75 + 0.25 * np.sin(xs / S * math.pi * 18)
+            left, right = int(S * rng.uniform(0.15, 0.4)), int(S * rng.uniform(0.6, 0.9))
+            for x in list(range(0, left)) + list(range(right, S)):
+                arr[:, x] = np.array(colour) * folds[x]
+            if cell in (3, 6):
+                arr = arr * 0.55 + np.array(CURTAINS[6]) * 0.45 * folds[None, :, None]
+            # Light from a bulb near the ceiling, falling off to the corners.
+            yy, xx = np.mgrid[0:S, 0:S] / S
+            light = np.clip(1.15 - 1.3 * np.hypot(xx - 0.5, (yy - 0.12) * 1.2), 0.25, 1.0)
+        else:
+            wall = [(235, 235, 228), (200, 225, 240), (240, 220, 180), (215, 230, 205)][cell % 4]
+            dr.rectangle([0, 0, S, S], fill=wall)
+            kind = cell % 4
+            shelf_rows = [0.18, 0.36, 0.54] if kind != 3 else []
+            for y in shelf_rows:
+                ys = int(y * S)
+                dr.rectangle([12, ys + 70, S - 12, ys + 78], fill=(110, 85, 60))
+                x = 18
+                while x < S - 30:   # goods packed on the shelf
+                    w = int(rng.integers(14, 42 if kind == 0 else 26))
+                    h = int(rng.integers(30, 66))
+                    col = GOODS[int(rng.integers(0, len(GOODS)))]
+                    dr.rectangle([x, ys + 70 - h, x + w, ys + 69], fill=col)
+                    dr.rectangle([x, ys + 70 - h, x + w, ys + 70 - h + 5], fill=tuple(min(255, c + 40) for c in col))
+                    x += w + int(rng.integers(2, 7))
+            if kind == 3:   # cloth and wax-print stalls: fabrics hanging in stripes
+                x = 10
+                while x < S - 10:
+                    w = int(rng.integers(30, 60))
+                    c1, c2 = GOODS[int(rng.integers(0, 10))], GOODS[int(rng.integers(0, 10))]
+                    dr.rectangle([x, 40, x + w, int(S * 0.7)], fill=c1)
+                    for yb in range(60, int(S * 0.7), 36):
+                        dr.ellipse([x + 6, yb, x + w - 6, yb + 18], fill=c2)
+                    x += w + 6
+            # Counter across the front, a fluorescent tube on the ceiling.
+            dr.rectangle([0, int(S * 0.74), S, S], fill=(70, 60, 55))
+            dr.rectangle([0, int(S * 0.74), S, int(S * 0.76)], fill=(150, 140, 130))
+            dr.rectangle([int(S * 0.2), 10, int(S * 0.8), 22], fill=(255, 255, 250))
+            arr = np.asarray(tile).astype(np.float32)
+            yy, xx = np.mgrid[0:S, 0:S] / S
+            light = np.clip(1.1 - 0.9 * np.hypot((xx - 0.5) * 0.8, yy - 0.05), 0.3, 1.0)
+        arr = arr * light[..., None] + rng.normal(0, 4, (S, S, 1))
+        img.paste(Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(1.2)), (x0, y0))
+    img.save(path)
+
+
 def build(args):
     area = bd.AREAS[args.name]
     to_utm = bd.Transformer.from_crs("EPSG:4326", "EPSG:32630", always_xy=True)
@@ -498,6 +595,7 @@ def build(args):
     with open(base + "-ids.txt", "w") as f:
         f.write("\n".join(ids) + "\n")
     sign_atlas(os.path.join(args.out, "signs-atlas.png"))
+    interiors_atlas(os.path.join(args.out, "interiors-atlas.png"))
     meta = {"zone_m": ZONE_LENGTH, "street_start": list(map(lambda v: round(v, 2), street.coords[0])),
             "triangles": tris, "vertices": verts, "objects": objs, "counts": B.counts, "lights": B.lights,
             "outline": [[round(x, 1), round(z, 1)] for x, z in zone.exterior.coords]}

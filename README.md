@@ -17,7 +17,7 @@ Pre-production. The area files and the Overture counting and extraction script w
 | [aoi/slices.geojson](aoi/slices.geojson) | The vertical slice (milestone 1) and its milestone 2 extension to Circle |
 | [aoi/landmarks.geojson](aoi/landmarks.geojson) | Hero landmarks, with how each one is built |
 | [scripts/overture_slice.py](scripts/overture_slice.py) | Counts or extracts Overture buildings and roads inside an area |
-| [scripts/build_lookdev.py](scripts/build_lookdev.py) | Dresses the first 220 m of Oxford Street at target quality: facades with windows, bars, AC units and shopfronts, invented shop signs, sidewalks, gutters, power lines, kiosks, umbrellas |
+| [scripts/build_lookdev.py](scripts/build_lookdev.py) | Dresses the first 220 m of Oxford Street at target quality: facades with windows, bars, AC units and shopfronts, invented shop signs, rooms and shop interiors behind lit glass, sidewalks, gutters, power lines, kiosks, umbrellas |
 | [scripts/build_district.py](scripts/build_district.py) | Turns an export into a drivable district for the engines: OBJ meshes, streetlights, a benchmark lap ([requirements-district.txt](requirements-district.txt)) |
 | [tests/](tests/) | A test of the script against a synthetic release |
 | [pipeline/README.md](pipeline/README.md) | The ten pipeline steps, from download to baked tiles |
