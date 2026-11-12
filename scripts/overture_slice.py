@@ -4,7 +4,7 @@ Examples
 --------
 Count buildings by source and roads by class for the vertical slice:
 
-    python3 scripts/overture_slice.py count --release 2026-10-22.0
+    python3 scripts/overture_slice.py count --release latest
 
 Extract both layers to GeoParquet (needs DuckDB's spatial extension):
 
@@ -42,11 +42,44 @@ def load_aoi(path, name):
     sys.exit(f"AOI '{name}' not found in {path}")
 
 
+LIST_URL = (
+    "https://overturemaps-us-west-2.s3.us-west-2.amazonaws.com/"
+    "?list-type=2&prefix=release/&delimiter=/"
+)
+
+
+def parse_releases(xml_text):
+    """Release names from an S3 ListObjectsV2 response, oldest first."""
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(xml_text)
+    names = []
+    for el in root.iter():
+        if el.tag.endswith("Prefix") and el.text and el.text.startswith("release/"):
+            name = el.text[len("release/"):].strip("/")
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}\.\d+", name):
+                names.append(name)
+    return sorted(set(names))
+
+
+def latest_release():
+    from urllib.request import urlopen
+
+    with urlopen(LIST_URL, timeout=30) as resp:
+        names = parse_releases(resp.read().decode("utf-8"))
+    if not names:
+        sys.exit("Could not find any Overture release; pass --release explicitly")
+    return names[-1]
+
+
 def source_glob(args, layer):
     if args.source:
         return os.path.join(args.source, LAYERS[layer])
+    if args.release == "latest":
+        args.release = latest_release()
+        print(f"Using Overture release {args.release}", file=sys.stderr)
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}\.\d+", args.release or ""):
-        sys.exit("--release must look like 2026-10-22.0 (see docs.overturemaps.org/release)")
+        sys.exit("--release must look like 2026-10-22.0, or 'latest' (see docs.overturemaps.org/release)")
     return f"{S3_ROOT}/{args.release}/{LAYERS[layer]}"
 
 
@@ -146,7 +179,7 @@ def export(args):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("mode", choices=["count", "export"])
-    ap.add_argument("--release", help="Overture release, for example 2026-10-22.0")
+    ap.add_argument("--release", help="Overture release, for example 2026-10-22.0, or 'latest'")
     ap.add_argument("--source", help="local folder holding theme=.../type=... partitions, instead of S3")
     ap.add_argument("--aoi", default=os.path.join(os.path.dirname(__file__), "..", "aoi", "slices.geojson"))
     ap.add_argument("--name", default="vertical-slice", help="feature name in the AOI file")

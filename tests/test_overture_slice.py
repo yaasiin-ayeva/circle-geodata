@@ -48,7 +48,24 @@ def build_fixture(root):
     )
 
 
+def check_latest_release_parsing():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("overture_slice", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    xml = (
+        '<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
+        "<CommonPrefixes><Prefix>release/2026-09-17.0/</Prefix></CommonPrefixes>"
+        "<CommonPrefixes><Prefix>release/2026-10-22.0/</Prefix></CommonPrefixes>"
+        "<CommonPrefixes><Prefix>release/beta/</Prefix></CommonPrefixes>"
+        "</ListBucketResult>"
+    )
+    assert mod.parse_releases(xml)[-1] == "2026-10-22.0"
+
+
 def main():
+    check_latest_release_parsing()
     with tempfile.TemporaryDirectory() as root:
         build_fixture(root)
         out = subprocess.run(

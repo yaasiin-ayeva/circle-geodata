@@ -39,11 +39,11 @@ Black Star Square, Osu, Danquah Circle, Ring Road and Labadi.
 ```sh
 python3 -m pip install -r requirements.txt
 python3 tests/test_overture_slice.py                       # offline check
-python3 scripts/overture_slice.py count --release <release> # needs internet
-python3 scripts/overture_slice.py export --release <release> --out data/work/slice
+python3 scripts/overture_slice.py count --release latest   # needs internet
+python3 scripts/overture_slice.py export --release latest --out data/work/slice
 ```
 
-Pick `<release>` from Overture's [release list](https://docs.overturemaps.org/release/). Downloads and working files go under `data/`, which is not committed.
+`latest` picks the newest release on Overture's public bucket; a fixed name from the [release list](https://docs.overturemaps.org/release/) works too. Downloads and working files go under `data/`, which is not committed.
 
 ## Publishing under ODbL
 
