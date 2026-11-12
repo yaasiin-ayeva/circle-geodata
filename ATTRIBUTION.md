@@ -13,7 +13,7 @@ Produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defenc
 and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA;
 all rights reserved.
 
-The CIRCLE map database (roads, building footprints and heights) is available
+The CHALE map database (roads, building footprints and heights) is available
 free under the ODbL 1.0 at: [URL of the published database]
 ```
 

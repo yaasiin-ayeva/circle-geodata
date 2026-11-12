@@ -1,6 +1,6 @@
 # circle-geodata
 
-The open-data pipeline that rebuilds Accra for **CIRCLE**: roads, buildings, heights and terrain, from sources that allow commercial use. It feeds the Unity game in `circle-game` and produces the merged map database that the ODbL requires us to publish.
+The open-data pipeline that rebuilds Accra for **CHALE**: roads, buildings, heights and terrain, from sources that allow commercial use. It feeds the Unity game in `circle-game` and produces the merged map database that the ODbL requires us to publish.
 
 **Never used, not even as a tracing reference:** Google Earth, Google Photorealistic 3D Tiles, Google imagery and Street View, Esri or Mapbox imagery outside OSM editing, and any data whose licence forbids commercial use (FABDEM, Maxar Open Data). See [SOURCES.md](SOURCES.md).
 
