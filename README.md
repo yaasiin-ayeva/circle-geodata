@@ -17,6 +17,7 @@ Pre-production. The area files and the Overture counting and extraction script w
 | [aoi/slices.geojson](aoi/slices.geojson) | The vertical slice (milestone 1) and its milestone 2 extension to Circle |
 | [aoi/landmarks.geojson](aoi/landmarks.geojson) | Hero landmarks, with how each one is built |
 | [scripts/overture_slice.py](scripts/overture_slice.py) | Counts or extracts Overture buildings and roads inside an area |
+| [scripts/build_district.py](scripts/build_district.py) | Turns an export into a drivable district for the engines: OBJ meshes, streetlights, a benchmark lap ([requirements-district.txt](requirements-district.txt)) |
 | [tests/](tests/) | A test of the script against a synthetic release |
 | [pipeline/README.md](pipeline/README.md) | The ten pipeline steps, from download to baked tiles |
 
@@ -53,6 +54,15 @@ python3 tests/test_overture_slice.py                       # offline check
 python3 scripts/overture_slice.py count --release latest   # needs internet
 python3 scripts/overture_slice.py export --release latest --out data/work/slice
 ```
+
+Then, for the proof-of-concept district (about 1.3 km² around Danquah Circle, Oxford Street and Ring Road East):
+
+```sh
+python3 -m pip install -r requirements-district.txt
+python3 scripts/build_district.py --slice data/work/slice --out data/work/osu-poc
+```
+
+It writes `osu-poc.obj`/`.mtl` (3,184 buildings, 26 km of road, 41,000 triangles), `osu-poc.json` (143 streetlights, a 2.55 km benchmark lap, the spawn point) and a top-down preview. Building heights there come from typology rules until the 2.5D heights are merged. The same files feed the Unity and Unreal sides of the test, standing in for the Houdini asset set the plan names.
 
 `latest` picks the newest release on Overture's public bucket; a fixed name from the [release list](https://docs.overturemaps.org/release/) works too. Downloads and working files go under `data/`, which is not committed.
 
