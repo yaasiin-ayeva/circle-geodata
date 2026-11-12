@@ -118,6 +118,7 @@ MATERIALS.update({
 MATERIALS.update({
     # Step 6: the road surface. Step 5: bulbs at the stalls.
     "M_Patch": (0.16, 0.16, 0.16), "M_Manhole": (0.30, 0.30, 0.31), "M_Bulb": (1.0, 0.85, 0.6),
+    "M_RoofSheet_Grey": (0.58, 0.58, 0.56),
 })
 MAIN_PALETTE = ["M_Facade_White"] * 3 + ["M_Facade_OffWhite"] * 2 + ["M_Facade_Cream", "M_Facade_LightGrey", "M_Facade_LightGrey"]
 OLD_PALETTE = ["M_Facade_Beige", "M_Facade_Beige", "M_Facade_Cream", "M_Facade_Ochre", "M_Facade_OffWhite", "M_Facade_Terracotta"]
@@ -300,7 +301,9 @@ def hip_roof(B, bid, poly, eave_z):
     r0, r1 = o - u * (Lu / 2 - Lv / 2), o + u * (Lu / 2 - Lv / 2)
     if Lu <= Lv:
         r0 = r1 = o
-    mat = "M_RoofTile_Red" if bd.unit_hash(bid, "roof") < 0.55 else "M_RoofSheet_Rust"
+    # About 45% of roofs in the old city are grey asbestos-cement sheet (2010 census, research/landscape-look.md).
+    rr = bd.unit_hash(bid, "roof")
+    mat = "M_RoofSheet_Grey" if rr < 0.4 else ("M_RoofTile_Red" if rr < 0.75 else "M_RoofSheet_Rust")
     obj = bd.cell_name("LookDev_Roofs", o[0], o[1])
     z0, z1 = eave_z, eave_z + rise
     A, Bc, C, D = corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)

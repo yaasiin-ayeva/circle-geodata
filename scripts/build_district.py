@@ -338,10 +338,12 @@ def place_lights(rid, cls, name, line, w):
     modern = "Ring Road" in name or oxford
     for k, d in enumerate(np.arange(step / 2, line.length, step)):
         stretch = int(d // (step * 6))
-        if unit_hash(rid, stretch) < 0.12:
-            continue
         r = unit_hash(rid, stretch, "kind")
         kind = "led_cool" if 0.65 <= r < 0.80 else ("sodium" if r >= (0.92 if modern else 0.80) else "led")
+        # Dead poles: whole dark stretches (about one in eight), and off the main routes about one pole in four more
+        # (research/landscape-look.md: about half of Accra's MiDA-era lights were off in a 2024 sample).
+        if unit_hash(rid, stretch) < 0.12 or (not modern and unit_hash(rid, "dead", k) < 0.25):
+            kind = "dead"
         p = np.array(line.interpolate(d).coords[0])
         q = np.array(line.interpolate(min(d + 1.0, line.length)).coords[0])
         if np.linalg.norm(q - p) < 1e-6:
@@ -438,7 +440,7 @@ def preview(path, roads, clip, mesh, lights, lap):
         dr.line([P(*c) for c in wp] + [P(*wp[0])], fill=(228, 0, 43), width=3)
     for l in lights:
         x, y = P(l["x"], l["z"])
-        col = {"sodium": (255, 194, 13), "led_cool": (200, 225, 255)}.get(l["kind"], (245, 240, 230))
+        col = {"sodium": (255, 194, 13), "led_cool": (200, 225, 255), "dead": (60, 60, 60)}.get(l["kind"], (245, 240, 230))
         dr.ellipse([x - 2, y - 2, x + 2, y + 2], fill=col)
     img.save(path)
 
