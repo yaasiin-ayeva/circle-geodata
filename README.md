@@ -31,7 +31,18 @@ Black Star Square, Osu, Danquah Circle, Ring Road and Labadi.
 
 - Bounding box (WGS84): south 5.542, north 5.575, west −0.1945, east −0.1370.
 - In UTM 30N that is about 6.4 km east–west by 3.7 km north–south; about 16 km² of it is land.
-- Estimates: 25,000–50,000 buildings and 200–350 km of OSM roads, of which 40–60 km of arterial race network. The first run of `scripts/overture_slice.py count` replaces these estimates with counts.
+- Counted on Overture release 2026-10-21.0, 12 November 2026 ([counts/vertical-slice-2026-10-21.0.json](counts/vertical-slice-2026-10-21.0.json)):
+
+  | Buildings | Count | With height | With floors |
+  | --- | ---: | ---: | ---: |
+  | Google Open Buildings | 22,946 | 0 | 0 |
+  | OpenStreetMap | 10,424 | 9 | 49 |
+  | Microsoft ML Buildings | 2,806 | 0 | 0 |
+  | **Total** | **36,176** | **9** | **49** |
+
+  Road segments: 2,982 in all. Arterial: 7 trunk, 211 primary, 74 secondary, 121 tertiary (413). Local: 1,367 residential, 846 service, 248 unclassified. Paths and other: 65 footway, 32 path, 1 pedestrian, 10 unknown.
+- Heights: almost none come with the footprints, so the 2.5D Temporal raster and the typology rules set nearly every height (pipeline step 3).
+- Road length in kilometres is still the earlier estimate (200–350 km, of which 40–60 km arterial) until `scripts/overture_slice.py export` measures it.
 - Milestone 2 moves the west edge to −0.220, which adds Circle through 2.8 km of Ring Road Central.
 
 ## Quick start

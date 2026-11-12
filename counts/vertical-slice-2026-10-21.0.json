@@ -1,0 +1,45 @@
+{
+  "aoi": "vertical-slice",
+  "bbox": [
+    -0.1945,
+    5.542,
+    -0.137,
+    5.575
+  ],
+  "release": "2026-10-21.0",
+  "buildings_by_source": [
+    {
+      "source": "Google Open Buildings",
+      "buildings": 22946,
+      "with_height": 0,
+      "with_floors": 0
+    },
+    {
+      "source": "OpenStreetMap",
+      "buildings": 10424,
+      "with_height": 9,
+      "with_floors": 49
+    },
+    {
+      "source": "Microsoft ML Buildings",
+      "buildings": 2806,
+      "with_height": 0,
+      "with_floors": 0
+    }
+  ],
+  "road_segments_by_class": [
+    {"class": "residential", "segments": 1367},
+    {"class": "service", "segments": 846},
+    {"class": "unclassified", "segments": 248},
+    {"class": "primary", "segments": 211},
+    {"class": "tertiary", "segments": 121},
+    {"class": "secondary", "segments": 74},
+    {"class": "footway", "segments": 65},
+    {"class": "path", "segments": 32},
+    {"class": "unknown", "segments": 10},
+    {"class": "trunk", "segments": 7},
+    {"class": "pedestrian", "segments": 1}
+  ],
+  "buildings_total": 36176,
+  "road_segments_total": 2982
+}
