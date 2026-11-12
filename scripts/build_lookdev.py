@@ -129,11 +129,39 @@ CAR_COLOURS = ["white"] * 6 + ["silver"] * 5 + ["grey"] * 3 + ["black"] * 4 + ["
 FACADES = [m for m in MATERIALS if m.startswith("M_Facade_")]
 
 
+# With --models, the trees, kiosks, container shops and bougainvillea that have a converted 3D model are not built
+# as geometry: their places go to the JSON ("models") and Unity puts the generated models there (circle-game
+# OsuLookDev.Models). A kind with no model yet keeps its procedural geometry.
+MODEL_KINDS = set()
+DEFAULT_MODEL_DIR = "../circle-game/Assets/_Circle/Art/Models"
+
+
+def has_model(kind):
+    return kind in MODEL_KINDS
+
+
+def model_kinds(arg):
+    """The kinds named on the command line (comma list), or the converted models found in a folder (<kind>/<kind>.obj)."""
+    if os.path.isdir(arg):
+        return {k for k in os.listdir(arg) if os.path.exists(os.path.join(arg, k, k + ".obj"))}
+    return {k.strip() for k in arg.split(",") if k.strip()}
+
+
+def yaw_of(face):
+    """Unity yaw in degrees for a facing direction (east, north): 0 faces north, 90 east."""
+    return round(math.degrees(math.atan2(face[0], face[1])), 1)
+
+
 class Builder:
     def __init__(self):
         self.mesh = bd.Mesh()
         self.lights = []
         self.counts = {}
+        self.models = []
+
+    def model(self, kind, p, y, yaw, scale=1.0):
+        self.models.append({"kind": kind, "x": round(float(p[0]), 2), "y": round(float(y), 2), "z": round(float(p[1]), 2),
+                            "yaw": round(float(yaw), 1), "scale": round(float(scale), 3)})
 
     def count(self, key, n=1):
         self.counts[key] = self.counts.get(key, 0) + n
@@ -585,6 +613,11 @@ def frontage(B, street, footprints, mouths, step=1.0):
                     for i in range(i0, min(i1, len(ds) - 2) + 1):
                         quad_ground(i, w1, w1 + 14, w1, w1 + 14, 0.03, "M_Sand")
                     B.count("sandy_lot_m", int(L))
+                    if has_model("container_shop") and L >= 7:
+                        # A container shop on the sand, its open side to the street.
+                        im = (i0 + min(i1, len(ds) - 2)) // 2
+                        B.model("container_shop", edge(im, w1 + 3.0), 0.05, yaw_of(-N[im] * side))
+                        B.count("container_shops")
             elif kind == "mouth":
                 # Sand where the side street's asphalt edge breaks up, on both flanks of the mouth.
                 for i in list(range(max(0, i0 - 3), i0)) + list(range(i1 + 1, min(len(ds) - 2, i1 + 3) + 1)):
@@ -630,6 +663,10 @@ def compound_wall(B, obj_of, edge, T, side, i0, i1, off, mat):
         B.box(obj, "M_WallCoping", (mid[0], mid[1], 2.25), (1.04, 0.28, 0.1), yaw=yaw)
         if (i - i0) % 3 == 0:
             B.box(obj, mat, (a[0], a[1], 1.2), (0.36, 0.36, 2.4), yaw=yaw)
+        if has_model("bougainvillea") and (i - i0) % 7 == 3 and bd.unit_hash("bougain", side, i) < 0.6:
+            # Bougainvillea planted inside the wall, spilling over the coping.
+            B.model("bougainvillea", edge(i, off + 1.1), 0.0, 360 * bd.unit_hash("bgy", side, i), 0.9 + 0.3 * bd.unit_hash("bgs", side, i))
+            B.count("bougainvilleas")
     B.count("compound_wall_m", L)
 
 
@@ -722,10 +759,16 @@ def street_furniture(B, line, rng, mouths=None):
         c = P[i] + N[i] * side * mid
         obj = obj_of(c)
         if roll < 0.22:
-            colour = ["M_Kiosk_Blue", "M_Kiosk_Yellow", "M_Kiosk_Red"][int(bd.unit_hash("kc", int(d)) * 3)]
-            B.box(obj, colour, (c[0], c[1], SIDEWALK_Z + 1.25), (2.2, 1.9, 2.5), yaw=yaw)
             front = c - N[i] * side * 0.97
-            B.box(obj, "M_ShopGlass_Warm", (front[0], front[1], SIDEWALK_Z + 1.3), (1.4, 0.05, 1.0), yaw=yaw)
+            kind = "kiosk_wood" if bd.unit_hash("kk", int(d)) < 0.6 else "momo_booth"
+            if not has_model(kind):
+                kind = "momo_booth" if kind == "kiosk_wood" else "kiosk_wood"
+            if has_model(kind):
+                B.model(kind, c, SIDEWALK_Z, yaw_of(-N[i] * side))
+            else:
+                colour = ["M_Kiosk_Blue", "M_Kiosk_Yellow", "M_Kiosk_Red"][int(bd.unit_hash("kc", int(d)) * 3)]
+                B.box(obj, colour, (c[0], c[1], SIDEWALK_Z + 1.25), (2.2, 1.9, 2.5), yaw=yaw)
+                B.box(obj, "M_ShopGlass_Warm", (front[0], front[1], SIDEWALK_Z + 1.3), (1.4, 0.05, 1.0), yaw=yaw)
             B.lights.append({"x": round(float(front[0] - N[i][0] * side * 1.0), 2), "y": 2.4,
                              "z": round(float(front[1] - N[i][1] * side * 1.0), 2), "kind": "kiosk"})
             B.count("kiosks")
@@ -978,7 +1021,14 @@ def trees(B, street, mouths, footprints, zone):
             if not free(base) or r > 0.75:
                 continue
             obj = bd.cell_name("LookDev_Trees", base[0], base[1])
-            if r < (0.45 if d < 70 else 0.2):
+            palm = r < (0.45 if d < 70 else 0.2)
+            kind = "palm" if palm else ("almond_tree" if bd.unit_hash("sp", side, int(d)) < 0.4 else "shade_tree")
+            if kind == "almond_tree" and not has_model(kind):
+                kind = "shade_tree"
+            if has_model(kind):
+                B.model(kind, base, 0.0, 360 * bd.unit_hash("ty", side, int(d)), 0.85 + 0.3 * bd.unit_hash("ts", side, int(d)))
+                B.count("palms" if palm else "shade_trees")
+            elif palm:
                 coconut_palm(B, obj, base, (side, int(d)))
             else:
                 shade_tree(B, obj, base, (side, int(d)))
@@ -991,7 +1041,15 @@ def trees(B, street, mouths, footprints, zone):
         if not zone.contains(Point(*p)) or street.distance(Point(*p)) < w1 + 10 or not free(p, 9.0):
             continue
         obj = bd.cell_name("LookDev_Trees", p[0], p[1])
-        (coconut_palm if bd.unit_hash("bt", j) < 0.3 else shade_tree)(B, obj, p, ("b", j))
+        roll = bd.unit_hash("bt", j)
+        kind = "palm" if roll < 0.3 else "banana" if roll < 0.42 else "almond_tree" if roll < 0.62 else "shade_tree"
+        if kind in ("banana", "almond_tree") and not has_model(kind):
+            kind = "shade_tree"
+        if has_model(kind):
+            B.model(kind, p, 0.0, 360 * bd.unit_hash("by2", j), 0.8 + 0.4 * bd.unit_hash("bs", j))
+            B.count({"palm": "palms", "shade_tree": "shade_trees", "almond_tree": "shade_trees", "banana": "banana_clumps"}[kind])
+        else:
+            (coconut_palm if bd.unit_hash("bt", j) < 0.3 else shade_tree)(B, obj, p, ("b", j))
         taken.append(p)
         k += 1
         if k >= 14:
@@ -1269,7 +1327,7 @@ def build(args):
     billboard_atlas(os.path.join(args.out, "billboards-atlas.png"))
     meta = {"zone_m": ZONE_LENGTH, "street_start": list(map(lambda v: round(v, 2), street.coords[0])),
             "triangles": tris, "vertices": verts, "objects": objs, "counts": B.counts, "lights": B.lights,
-            "parked": getattr(B, "parked", []),
+            "parked": getattr(B, "parked", []), "models": B.models,
             "outline": [[round(x, 1), round(z, 1)] for x, z in zone.exterior.coords]}
     with open(base + ".json", "w") as f:
         json.dump(meta, f, indent=1)
@@ -1281,7 +1339,16 @@ def main():
     ap.add_argument("--slice", default="data/work/slice")
     ap.add_argument("--name", default="osu-poc", choices=sorted(bd.AREAS))
     ap.add_argument("--out", default="data/work/osu-poc")
-    build(ap.parse_args())
+    ap.add_argument("--models", nargs="?", const=DEFAULT_MODEL_DIR, default="",
+                    help="leave trees, kiosks, container shops and bougainvillea to generated 3D models (listed under "
+                         "'models' in the JSON): a folder of converted models (default " + DEFAULT_MODEL_DIR + ") "
+                         "or a comma list of kinds; kinds without a model stay procedural")
+    args = ap.parse_args()
+    MODEL_KINDS.update(model_kinds(args.models) if args.models else set())
+    if args.models:
+        print("models for:", ", ".join(sorted(MODEL_KINDS & {"palm", "shade_tree", "almond_tree", "banana", "bougainvillea",
+                                                              "kiosk_wood", "momo_booth", "container_shop"})) or "none")
+    build(args)
 
 
 if __name__ == "__main__":
