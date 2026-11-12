@@ -175,10 +175,15 @@ def build(args):
         roads.append((rid, cls, name or "", local(g)))
     oxford = shapely.union_all([g for _, _, n, g in roads if n == "Oxford Street"]) if roads else None
 
-    # Buildings.
+    # Buildings, minus those a detailed look-dev version replaces.
+    exclude = set()
+    if args.exclude and os.path.exists(args.exclude):
+        exclude = {l.strip() for l in open(args.exclude) if l.strip()}
     nb = 0
     heights = []
     for bid, src, height, floors, blob in load(con, os.path.join(args.slice, "buildings.parquet"), "id, source, height, num_floors"):
+        if bid in exclude:
+            continue
         g = shapely.from_wkb(bytes(blob))
         if not lonlat_box.contains(g.centroid):
             continue
@@ -435,6 +440,7 @@ def main():
     ap.add_argument("--slice", default="data/work/slice", help="folder from overture_slice.py export")
     ap.add_argument("--name", default="osu-poc", choices=sorted(AREAS))
     ap.add_argument("--out", default="data/work/osu-poc")
+    ap.add_argument("--exclude", help="file of building ids to leave out (from build_lookdev.py)")
     build(ap.parse_args())
 
 
