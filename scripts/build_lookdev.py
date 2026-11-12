@@ -208,7 +208,7 @@ def window(B, obj, wall, a, t, n, s0, s1, z0, z1, r):
     wall_rect(B, obj, wall, a, t, n, w1, s1, z0, z1)
     wall_rect(B, obj, wall, a, t, n, w0, w1, z0, h0)
     wall_rect(B, obj, wall, a, t, n, w0, w1, h1, z1)
-    glass = "M_WindowLit_Warm" if r < 0.2 else ("M_WindowLit_Cool" if r < 0.28 else "M_WindowDark")
+    glass = "M_WindowLit_Warm" if r < 0.09 else ("M_WindowLit_Cool" if r < 0.28 else "M_WindowDark")   # mostly white tubes and LED
     room = interior_uv(int(r * 1000) % 8) if glass != "M_WindowDark" else None
     opening(B, obj, wall, glass, a, t, n, w0, w1, h0, h1, 0.18, room)
     B.count("windows")
@@ -232,7 +232,7 @@ def shopfront(B, obj, wall, bid, a, t, n, s0, s1, z0, z1, r, key):
     wall_rect(B, obj, wall, a, t, n, o1, s1, z0, z1)
     wall_rect(B, obj, wall, a, t, n, o0, o1, top, z1)
     lit = r < 0.62
-    back = ("M_ShopGlass_Warm" if r < 0.42 else "M_ShopGlass_Cool") if lit else "M_Shutter"
+    back = ("M_ShopGlass_Warm" if r < 0.16 else "M_ShopGlass_Cool") if lit else "M_Shutter"
     shop = interior_uv(8 + int(bd.unit_hash(bid, key, "interior") * 8)) if lit else None
     opening(B, obj, wall, back, a, t, n, o0, o1, z0, top, 0.45, shop)
     B.count("shops_lit" if lit else "shops_shuttered")

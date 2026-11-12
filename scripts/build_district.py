@@ -325,15 +325,19 @@ def ribbon(mesh, line, w, lift, mat, prefix):
 
 def place_lights(rid, cls, name, line, w):
     """Poles along major roads. Oxford Street gets both sides every 22 m; others one side, alternating.
-    About one stretch in eight stays dark on purpose. Ring roads get LED heads, the rest sodium:
-    an art-direction choice to check against the photo board."""
+    About one stretch in eight stays dark on purpose. Accra's streets are mostly lit by white LED now, with
+    some older sodium heads left: per stretch of six poles, about 65% neutral white LED, 15% cold white LED
+    and 20% sodium; on ring roads and Oxford Street only about 8% of stretches keep sodium."""
     out = []
     oxford = name == "Oxford Street"
     step = 22.0 if oxford else 32.0
-    kind = "led" if "Ring Road" in name else "sodium"
+    modern = "Ring Road" in name or oxford
     for k, d in enumerate(np.arange(step / 2, line.length, step)):
-        if unit_hash(rid, int(d // (step * 6))) < 0.12:
+        stretch = int(d // (step * 6))
+        if unit_hash(rid, stretch) < 0.12:
             continue
+        r = unit_hash(rid, stretch, "kind")
+        kind = "led_cool" if 0.65 <= r < 0.80 else ("sodium" if r >= (0.92 if modern else 0.80) else "led")
         p = np.array(line.interpolate(d).coords[0])
         q = np.array(line.interpolate(min(d + 1.0, line.length)).coords[0])
         if np.linalg.norm(q - p) < 1e-6:
@@ -430,7 +434,7 @@ def preview(path, roads, clip, mesh, lights, lap):
         dr.line([P(*c) for c in wp] + [P(*wp[0])], fill=(228, 0, 43), width=3)
     for l in lights:
         x, y = P(l["x"], l["z"])
-        col = (255, 194, 13) if l["kind"] == "sodium" else (200, 225, 255)
+        col = {"sodium": (255, 194, 13), "led_cool": (200, 225, 255)}.get(l["kind"], (245, 240, 230))
         dr.ellipse([x - 2, y - 2, x + 2, y + 2], fill=col)
     img.save(path)
 
