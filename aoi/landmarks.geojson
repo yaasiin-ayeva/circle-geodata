@@ -1,0 +1,117 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Kwame Nkrumah Interchange (Circle)",
+    "approach": "Hand-modelled from the three OSM levels plus own photos and measurements; trotro terminal and flood volume underneath. World origin."
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -0.2154,
+     5.5696
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Tetteh Quarshie cloverleaf",
+    "approach": "Semi-procedural: loops fitted to OSM centrelines, detail by hand"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -0.1761,
+     5.6228
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Ako Adjei Interchange",
+    "approach": "Semi-procedural; ramps for Chapter 9 hand-finished"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -0.1903,
+     5.5719
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Black Star Square, Black Star Gate, Independence Arch",
+    "approach": "Hand-modelled; ground photogrammetry with the site authority's permission"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -0.1926,
+     5.5476
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Accra Sports Stadium",
+    "approach": "Hand-modelled shell, simplified interior"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -0.1919,
+     5.5514
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Jamestown Lighthouse, James Fort",
+    "approach": "Hand-modelled lighthouse; photogrammetry of surrounding streets with the custodians' permission"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -0.2122,
+     5.5331
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Oxford Street, Danquah Circle",
+    "approach": "Built from the facade kit, hand-dressed with night signage"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -0.184,
+     5.5604
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "N4, Ayi Mensah to Peduase (5.9 km), approximate",
+    "approach": "1:1 scale: DEM plus a hand-sculpted road bench with rockfall decals"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -0.18,
+     5.85
+    ]
+   }
+  }
+ ]
+}

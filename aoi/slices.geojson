@@ -1,0 +1,83 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "vertical-slice",
+    "milestone": 1,
+    "description": "Black Star Square, Osu, Danquah Circle, Ring Road, Labadi. About 16 km2 of land.",
+    "south": 5.542,
+    "north": 5.575,
+    "west": -0.1945,
+    "east": -0.137
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -0.1945,
+       5.542
+      ],
+      [
+       -0.137,
+       5.542
+      ],
+      [
+       -0.137,
+       5.575
+      ],
+      [
+       -0.1945,
+       5.575
+      ],
+      [
+       -0.1945,
+       5.542
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "milestone-2",
+    "milestone": 2,
+    "description": "Vertical slice with the west edge moved to -0.220, adding Circle via 2.8 km of Ring Road Central.",
+    "south": 5.542,
+    "north": 5.575,
+    "west": -0.22,
+    "east": -0.137
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -0.22,
+       5.542
+      ],
+      [
+       -0.137,
+       5.542
+      ],
+      [
+       -0.137,
+       5.575
+      ],
+      [
+       -0.22,
+       5.575
+      ],
+      [
+       -0.22,
+       5.542
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}
