@@ -81,7 +81,15 @@ MATERIALS = {
     "M_Kiosk_Blue": (0.15, 0.35, 0.70), "M_Kiosk_Yellow": (0.95, 0.75, 0.10), "M_Kiosk_Red": (0.75, 0.15, 0.12),
     "M_Umbrella_A": (0.95, 0.80, 0.10), "M_Umbrella_B": (0.10, 0.45, 0.20), "M_Umbrella_C": (0.80, 0.10, 0.12),
     "M_Table": (0.35, 0.25, 0.15),
+    "M_Pavers": (0.58, 0.57, 0.55), "M_Sand": (0.70, 0.58, 0.44), "M_Hedge": (0.10, 0.22, 0.09),
+    "M_Railing": (0.03, 0.03, 0.03), "M_Gate": (0.14, 0.14, 0.15), "M_WallCoping": (0.80, 0.79, 0.75),
+    "M_Wall_White": (0.90, 0.89, 0.86), "M_Wall_Cream": (0.86, 0.80, 0.66), "M_Wall_Ochre": (0.78, 0.60, 0.38),
+    "M_Wall_Grey": (0.66, 0.66, 0.64),
 }
+COMPOUND_WALLS = ["M_Wall_White", "M_Wall_Cream", "M_Wall_Ochre", "M_Wall_Grey"]
+FORECOURT_MAX = 18.0    # deeper than this from the sidewalk and the frontage counts as a gap
+FORECOURT_Z = 0.30
+CAR_COLOURS = ["white"] * 6 + ["silver"] * 5 + ["grey"] * 3 + ["black"] * 4 + ["red"] * 2 + ["blue", "taxi", "taxi"]
 FACADES = [m for m in MATERIALS if m.startswith("M_Facade_")]
 
 
@@ -290,8 +298,149 @@ def rooftop(B, bid, poly, height):
         B.count("polytanks")
 
 
-def street_furniture(B, line, rng):
+def side_street_mouths(street, roads, step=1.0):
+    """Stations (metre marks) on each side of the street where another road joins: no sidewalk or forecourt there."""
+    w1 = ROAD_HALF + GUTTER + KERB + SIDEWALK
+    ds = np.arange(0, street.length, step)
+    P = np.array([street.interpolate(d).coords[0] for d in ds])
+    T = np.gradient(P, axis=0)
+    T /= np.linalg.norm(T, axis=1)[:, None]
+    N = np.column_stack([-T[:, 1], T[:, 0]])
+    near = [(g, bd.ROAD_WIDTH.get(cls, 6.0) / 2 + 1.2) for cls, g in roads if g.distance(street) < w1 + 4]
+    mouths = {1: set(), -1: set()}
+    for side in (1, -1):
+        for i, d in enumerate(ds):
+            q = Point(*(P[i] + N[i] * side * (w1 + 1.0)))
+            if any(g.distance(q) < half for g, half in near):
+                mouths[side].add(int(d))
+    return mouths
+
+
+def frontage(B, street, footprints, mouths, step=1.0):
+    """What stands between the sidewalk and the buildings: paver forecourts with nose-in parking, railings and hedges
+    in front of the shallower ones, compound walls and sandy lots where there is no building, sand at side-street
+    mouths. The footprints already sit at their real setbacks; this fills the ground in front of them."""
+    w1 = ROAD_HALF + GUTTER + KERB + SIDEWALK
+    ds = np.arange(0, street.length, step)
+    P = np.array([street.interpolate(d).coords[0] for d in ds])
+    T = np.gradient(P, axis=0)
+    T /= np.linalg.norm(T, axis=1)[:, None]
+    N = np.column_stack([-T[:, 1], T[:, 0]])
+    built = shapely.union_all([f.buffer(0.05) for f in footprints])
+    obj_of = lambda p: bd.cell_name("LookDev_Frontage", p[0], p[1])
+    B.parked = getattr(B, "parked", [])
+
+    for side in (1, -1):
+        # Depth to the first building along a ray from the sidewalk edge, per station.
+        depth = []
+        for i in range(len(ds)):
+            o = P[i] + N[i] * side * w1
+            ray = LineString([o, o + N[i] * side * (FORECOURT_MAX + 6)])
+            hit = ray.intersection(built)
+            if int(ds[i]) in mouths[side] or hit.is_empty:
+                depth.append(None)
+                continue
+            pts = np.array([c for g in getattr(hit, "geoms", [hit]) for c in g.coords])
+            dmin = float(np.min(np.linalg.norm(pts - o, axis=1)))
+            depth.append(dmin if dmin <= FORECOURT_MAX else None)
+
+        def edge(i, off):
+            return P[i] + N[i] * side * off
+
+        def quad_ground(i, off0a, off1a, off0b, off1b, z, mat):
+            a0, a1 = edge(i, off0a), edge(i + 1, off0b)
+            b0, b1 = edge(i, off1a), edge(i + 1, off1b)
+            uv = lambda p: (p[0] / 2.0, p[1] / 2.0)
+            pts = [(*a0, z), (*a1, z), (*b1, z), (*b0, z)] if side > 0 else [(*a1, z), (*a0, z), (*b0, z), (*b1, z)]
+            B.quad(obj_of(a0), mat, *pts, tuple(uv(p) for p in pts))
+
+        # Runs of stations: forecourt (with a depth), gap (no building close enough), mouth.
+        kinds = ["mouth" if int(d) in mouths[side] else ("court" if depth[i] is not None else "gap") for i, d in enumerate(ds)]
+        runs, start = [], 0
+        for i in range(1, len(ds) + 1):
+            if i == len(ds) or kinds[i] != kinds[start]:
+                runs.append((kinds[start], start, i - 1))
+                start = i
+        for kind, i0, i1 in runs:
+            L = (i1 - i0) * step
+            roll = bd.unit_hash("frontage", side, i0)
+            if kind == "court":
+                for i in range(i0, min(i1, len(ds) - 2) + 1):
+                    quad_ground(i, w1, w1 + depth[i], w1, w1 + depth[min(i + 1, i1)], FORECOURT_Z, "M_Pavers")
+                B.count("forecourt_m", int(L))
+                mean = float(np.mean([depth[i] for i in range(i0, i1 + 1)]))
+                if mean >= 6.5 and L >= 5:
+                    # Nose-in parking, one bay every 2.8 m, about two bays in three taken.
+                    for k, d in enumerate(np.arange(1.6, L - 1.2, 2.8)):
+                        i = i0 + int(d / step)
+                        if bd.unit_hash("park", side, i0, k) > 0.68 or depth[i] is None or depth[i] < 6.0:
+                            continue
+                        c = edge(i, w1 + depth[i] - 2.7)
+                        face = N[i] * side
+                        colour = CAR_COLOURS[int(bd.unit_hash("carcol", side, i0, k) * len(CAR_COLOURS))]
+                        B.parked.append({"x": round(float(c[0]), 2), "z": round(float(c[1]), 2), "y": FORECOURT_Z,
+                                         "yaw": round(math.degrees(math.atan2(face[0], face[1])), 1), "colour": colour})
+                        B.count("parked_cars")
+                elif L >= 4 and roll < 0.7:
+                    railing(B, obj_of, edge, T, side, i0, i1, w1 + 0.15, FORECOURT_Z, hedge=roll < 0.45)
+            elif kind == "gap" and L >= 2:
+                if roll < 0.6:
+                    compound_wall(B, obj_of, edge, T, side, i0, i1, w1 + 0.3, COMPOUND_WALLS[int(bd.unit_hash("wallcol", side, i0) * 4)])
+                else:
+                    for i in range(i0, min(i1, len(ds) - 2) + 1):
+                        quad_ground(i, w1, w1 + 14, w1, w1 + 14, 0.03, "M_Sand")
+                    B.count("sandy_lot_m", int(L))
+            elif kind == "mouth":
+                # Sand where the side street's asphalt edge breaks up, on both flanks of the mouth.
+                for i in list(range(max(0, i0 - 3), i0)) + list(range(i1 + 1, min(len(ds) - 2, i1 + 3) + 1)):
+                    quad_ground(i, ROAD_HALF, w1 + 2.0, ROAD_HALF, w1 + 2.0, 0.045, "M_Sand")
+                B.count("side_street_mouths")
+
+
+def railing(B, obj_of, edge, T, side, i0, i1, off, z, hedge):
+    """Black steel railing along a forecourt edge, bars every 0.15 m, a low hedge behind it; a 4 m opening every 12 m."""
+    for i in range(i0, i1):
+        if (i - i0) % 12 >= 8:
+            continue
+        a, b = edge(i, off), edge(i + 1, off)
+        yaw = math.atan2(T[i][1], T[i][0])
+        mid = (a + b) / 2
+        obj = obj_of(a)
+        B.box(obj, "M_Railing", (mid[0], mid[1], z + 1.05), (1.0, 0.04, 0.04), yaw=yaw)
+        B.box(obj, "M_Railing", (mid[0], mid[1], z + 0.12), (1.0, 0.04, 0.04), yaw=yaw, top=False)
+        for k in range(7):
+            p = a + (b - a) * (k + 0.5) / 7
+            B.box(obj, "M_Railing", (p[0], p[1], z + 0.58), (0.02, 0.02, 0.92), yaw=yaw, top=False)
+        if hedge:
+            h = edge(i, off + side * 0) + (edge(i + 1, off) - edge(i, off)) * 0.5
+            n = edge(i, off + 0.45) - edge(i, off)
+            c = h + n
+            B.box(obj, "M_Hedge", (c[0], c[1], z + 0.35), (1.0, 0.55, 0.7), yaw=yaw)
+    B.count("railing_m", i1 - i0)
+
+
+def compound_wall(B, obj_of, edge, T, side, i0, i1, off, mat):
+    """A 2.2 m painted block wall with pillars every 3 m, a coping and, on longer runs, a steel gate in the middle."""
+    L = i1 - i0
+    gate = (i0 + L // 2 - 2, i0 + L // 2 + 2) if L >= 9 else None
+    for i in range(i0, i1):
+        a, b = edge(i, off), edge(i + 1, off)
+        yaw = math.atan2(T[i][1], T[i][0])
+        mid = (a + b) / 2
+        obj = obj_of(a)
+        if gate and gate[0] <= i < gate[1]:
+            B.box(obj, "M_Gate", (mid[0], mid[1], 1.05), (1.0, 0.06, 2.1), yaw=yaw)
+            continue
+        B.box(obj, mat, (mid[0], mid[1], 1.1), (1.0, 0.2, 2.2), yaw=yaw, top=False)
+        B.box(obj, "M_WallCoping", (mid[0], mid[1], 2.25), (1.04, 0.28, 0.1), yaw=yaw)
+        if (i - i0) % 3 == 0:
+            B.box(obj, mat, (a[0], a[1], 1.2), (0.36, 0.36, 2.4), yaw=yaw)
+    B.count("compound_wall_m", L)
+
+
+def street_furniture(B, line, rng, mouths=None):
     """Sidewalks, painted kerbs, open gutters with slab crossings, power poles and cables, kiosks, umbrellas."""
+    mouths = mouths or {1: set(), -1: set()}
     step = 1.0
     ds = np.arange(0, line.length, step)
     P = np.array([line.interpolate(d).coords[0] for d in ds])
@@ -319,6 +468,8 @@ def street_furniture(B, line, rng):
     for side in (1, -1):
         lo = lambda x, y: (min(side * x, side * y), max(side * x, side * y))
         for i in range(len(P) - 1):
+            if int(ds[i]) in mouths[side]:
+                continue
             slab = int(ds[i]) % 9 in (0, 1) and bd.unit_hash("slab", side, int(ds[i]) // 9) < 0.5
             o0, o1 = lo(g0, g1)
             if slab:
@@ -337,6 +488,8 @@ def street_furniture(B, line, rng):
     # Power poles on the west side every 32 m, three sagging cables between them, a service drop at each pole.
     poles = []
     for d in np.arange(6, line.length, 32):
+        while int(d) in mouths[-1] and d < line.length - 1:
+            d += 1.0
         i = min(int(d / step), len(P) - 1)
         base = P[i] + N[i] * (-(k1 + 0.6))
         poles.append((base, T[i], N[i]))
@@ -360,6 +513,8 @@ def street_furniture(B, line, rng):
     for d in np.arange(15, line.length - 5, 11):
         i = min(int(d / step), len(P) - 1)
         side = 1 if bd.unit_hash("side", int(d)) < 0.5 else -1
+        if any(int(d) + k in mouths[side] for k in (-2, -1, 0, 1, 2)):
+            continue
         roll = bd.unit_hash("furniture", int(d))
         yaw = math.atan2(T[i][1], T[i][0])
         c = P[i] + N[i] * side * mid
@@ -532,9 +687,9 @@ def build(args):
         return shapely.transform(geom, lambda xy: np.column_stack(to_utm.transform(xy[:, 0], xy[:, 1])) - (oe, on))
 
     con = bd.duckdb.connect()
-    oxford = [local(shapely.from_wkb(bytes(blob)))
-              for _, cls, name, blob in bd.load(con, os.path.join(args.slice, "roads.parquet"), "id, class, name")
-              if name == "Oxford Street"]
+    all_roads = [(cls, name, local(shapely.from_wkb(bytes(blob))))
+                 for _, cls, name, blob in bd.load(con, os.path.join(args.slice, "roads.parquet"), "id, class, name")]
+    oxford = [g for cls, name, g in all_roads if name == "Oxford Street"]
     merged = linemerge(oxford)
     line = max(list(merged.geoms) if hasattr(merged, "geoms") else [merged], key=lambda g: g.length)
     if Point(line.coords[-1]).distance(Point(0, 0)) < Point(line.coords[0]).distance(Point(0, 0)):
@@ -552,6 +707,7 @@ def build(args):
 
     B = Builder()
     ids = []
+    footprints = []
     rng = np.random.default_rng(11)
     for bid, src, height, floors, blob in bd.load(con, os.path.join(args.slice, "buildings.parquet"), "id, source, height, num_floors"):
         g = local(shapely.from_wkb(bytes(blob)))
@@ -578,12 +734,17 @@ def build(args):
             if poly.area < 40:
                 n = 1
             facade(B, bid, poly, n * STOREY + 0.6, n, street, street_dir, rng)
+            footprints.append(poly)
             B.count("buildings")
             done = True
         if done:
             ids.append(bid)
 
-    street_furniture(B, street, rng)
+    side_roads = [(cls, g) for cls, name, g in all_roads
+                  if name != "Oxford Street" and cls not in ("footway", "path", "pedestrian", "steps", "cycleway")]
+    mouths = side_street_mouths(street, side_roads)
+    frontage(B, street, footprints, mouths)
+    street_furniture(B, street, rng, mouths)
 
     os.makedirs(args.out, exist_ok=True)
     base = os.path.join(args.out, "osu-lookdev")
@@ -598,6 +759,7 @@ def build(args):
     interiors_atlas(os.path.join(args.out, "interiors-atlas.png"))
     meta = {"zone_m": ZONE_LENGTH, "street_start": list(map(lambda v: round(v, 2), street.coords[0])),
             "triangles": tris, "vertices": verts, "objects": objs, "counts": B.counts, "lights": B.lights,
+            "parked": getattr(B, "parked", []),
             "outline": [[round(x, 1), round(z, 1)] for x, z in zone.exterior.coords]}
     with open(base + ".json", "w") as f:
         json.dump(meta, f, indent=1)
