@@ -262,6 +262,15 @@ def facade(B, bid, poly, height, storeys, street, street_dir, rng, kind="commerc
                 yaw = math.atan2(t[1], t[0])
                 c = wall_point(a, t, n, L / 2, 0.11)
                 B.box(obj, "M_Fascia", (c[0], c[1], 3.2), (L + 0.1, 0.22, 1.0), yaw=yaw, bottom=True)
+                if storeys >= 2 and L >= 6 and bd.unit_hash(bid, i, "uplight") < 0.5:
+                    # Cold white floodlights on the fascia washing the upper floors, as on the newer blocks at night.
+                    for s in (L * 0.25, L * 0.75):
+                        f = wall_point(a, t, n, s, 0.45)
+                        B.box(obj, "M_Floodlight", (f[0], f[1], 3.75), (0.35, 0.2, 0.12), yaw=yaw)
+                        aim = wall_point(a, t, n, s, 0.0)
+                        B.lights.append({"x": round(float(f[0]), 2), "y": 3.8, "z": round(float(f[1]), 2), "kind": "uplight",
+                                         "tx": round(float(aim[0]), 2), "ty": round(min(height, 3.8 + 5.0), 2), "tz": round(float(aim[1]), 2)})
+                    B.count("facade_uplights", 2)
             if kind == "house" and faces_street and storeys >= 2 and L >= 5 and bd.unit_hash(bid, i, "balcony") < 0.7:
                 lattice_balcony(B, obj, wall, a, t, n, L)
     if kind == "house" and hip_roof(B, bid, poly, storeys * STOREY):
@@ -408,7 +417,7 @@ def window(B, obj, wall, a, t, n, s0, s1, z0, z1, r):
     B.count("windows")
     if glass != "M_WindowDark":
         B.count("lit_windows")
-    if r > 0.12:  # burglar-proof bars on most windows
+    if r > 0.6:  # burglar-proof bars on some windows (on every window the commercial blocks read as housing)
         for j in range(1, 5):
             s = w0 + (w1 - w0) * j / 5
             p = wall_point(a, t, n, s, -0.06)
@@ -425,7 +434,7 @@ def shopfront(B, obj, wall, bid, a, t, n, s0, s1, z0, z1, r, key):
     wall_rect(B, obj, wall, a, t, n, s0, o0, z0, z1)
     wall_rect(B, obj, wall, a, t, n, o1, s1, z0, z1)
     wall_rect(B, obj, wall, a, t, n, o0, o1, top, z1)
-    lit = r < 0.62
+    lit = r < 0.42   # most shops are shut at night; a few white-lit ones stand out in the dark
     back = ("M_ShopGlass_Warm" if r < 0.16 else "M_ShopGlass_Cool") if lit else "M_Shutter"
     shop = interior_uv(8 + int(bd.unit_hash(bid, key, "interior") * 8)) if lit else None
     opening(B, obj, wall, back, a, t, n, o0, o1, z0, top, 0.45, shop)
