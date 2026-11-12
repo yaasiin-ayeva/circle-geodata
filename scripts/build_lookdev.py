@@ -95,6 +95,22 @@ MATERIALS.update({
     "M_RoofTile_Red": (0.55, 0.20, 0.13), "M_RoofSheet_Rust": (0.45, 0.25, 0.17), "M_Lattice": (0.86, 0.82, 0.70),
     "M_Hoarding": (0.15, 0.30, 0.55),
 })
+MATERIALS.update({
+    # Step 3: billboards, pylon signs, cloth on the vendors' racks.
+    "M_Billboard": (1, 1, 1), "M_BillboardBack": (0.30, 0.31, 0.32), "M_Steel": (0.40, 0.41, 0.42), "M_Floodlight": (0.9, 0.9, 0.9),
+    "M_Cloth_1": (0.85, 0.20, 0.10), "M_Cloth_2": (0.95, 0.70, 0.05), "M_Cloth_3": (0.10, 0.35, 0.70),
+    "M_Cloth_4": (0.10, 0.55, 0.25), "M_Cloth_5": (0.60, 0.10, 0.45), "M_Cloth_6": (0.95, 0.45, 0.10),
+})
+ADS = [   # invented advertisers only; names from the story bible where they exist (Zipp, Akuba Starr)
+    ("SUNSET HEIGHTS", "SERVICED PLOTS - GATED CITY", (20, 70, 60), (240, 200, 90)),
+    ("KOKO MALT", "THE TASTE OF HOME", (120, 30, 20), (255, 210, 120)),
+    ("ZIPP", "YOUR RIDE IN 3 MINUTES", (15, 15, 20), (255, 200, 0)),
+    ("CHRIST GLORY CHAPEL", "NIGHT OF MIRACLES - FRIDAY", (60, 20, 90), (255, 255, 255)),
+    ("NKABOM BANK", "SAVE SMALL SMALL", (0, 90, 160), (255, 255, 255)),
+    ("BLUE LAGOON WATER", "PURE. COLD. GHANAIAN.", (0, 120, 190), (255, 255, 255)),
+    ("AKUBA STARR LIVE", "BLACK STAR SQUARE - DEC 31", (200, 30, 80), (255, 240, 220)),
+    ("SHARP SHARP 5G", "BROWSE MORE, PAY LESS", (230, 90, 20), (255, 255, 255)),
+]
 MAIN_PALETTE = ["M_Facade_White"] * 3 + ["M_Facade_OffWhite"] * 2 + ["M_Facade_Cream", "M_Facade_LightGrey", "M_Facade_LightGrey"]
 OLD_PALETTE = ["M_Facade_Beige", "M_Facade_Beige", "M_Facade_Cream", "M_Facade_Ochre", "M_Facade_OffWhite", "M_Facade_Terracotta"]
 COMPOUND_WALLS = ["M_Wall_White", "M_Wall_Cream", "M_Wall_Ochre", "M_Wall_Grey"]
@@ -656,11 +672,18 @@ def street_furniture(B, line, rng, mouths=None):
         B.prism(obj, "M_PowerPole", tuple(base), 0.14, 0, 9.5, sides=6)
         B.box(obj, "M_PowerPole", (base[0], base[1], 8.9), (0.12, 1.8, 0.12), yaw=math.atan2(T[i][1], T[i][0]))
         B.count("power_poles")
-    for (p0, t0, n0), (p1, t1, n1) in zip(poles, poles[1:]):
-        for off in (-0.75, 0.0, 0.75):
-            a = np.array([*(p0 + n0 * off), 8.95])
-            b = np.array([*(p1 + n1 * off), 8.95])
-            cable(B, obj_of(p0), a, b, sag=0.7)
+    for k, ((p0, t0, n0), (p1, t1, n1)) in enumerate(zip(poles, poles[1:])):
+        for j, off in enumerate((-0.75, -0.35, 0.0, 0.4, 0.75)):
+            z = 8.95 if j % 2 == 0 else 8.55
+            a = np.array([*(p0 + n0 * off), z])
+            b = np.array([*(p1 + n1 * off), z])
+            cable(B, obj_of(p0), a, b, sag=0.6 + 0.35 * bd.unit_hash("sag", k, j))
+        if k % 2 == 0:
+            # A sagging bundle across the street to the shops on the east side.
+            a = np.array([*(p0 + n0 * 0.5), 8.4])
+            b = np.array([*(p0 + n0 * (2 * k1 + 1.2) + t0 * 4), 6.0])
+            for j in range(3):
+                cable(B, obj_of(p0), a + np.array([0, 0, -0.15 * j]), b + np.array([0, 0, -0.1 * j]), sag=0.9 + 0.2 * j)
     for k, (p, t, n) in enumerate(poles):
         if bd.unit_hash("drop", k) < 0.8:
             a = np.array([*(p + n * 0.75), 8.9])
@@ -669,7 +692,7 @@ def street_furniture(B, line, rng, mouths=None):
 
     # Kiosks and vendor umbrellas on the sidewalks.
     mid = (k1 + w1) / 2
-    for d in np.arange(15, line.length - 5, 11):
+    for d in np.arange(12, line.length - 5, 8):
         i = min(int(d / step), len(P) - 1)
         side = 1 if bd.unit_hash("side", int(d)) < 0.5 else -1
         if any(int(d) + k in mouths[side] for k in (-2, -1, 0, 1, 2)):
@@ -686,7 +709,9 @@ def street_furniture(B, line, rng, mouths=None):
             B.lights.append({"x": round(float(front[0] - N[i][0] * side * 1.0), 2), "y": 2.4,
                              "z": round(float(front[1] - N[i][1] * side * 1.0), 2), "kind": "kiosk"})
             B.count("kiosks")
-        elif roll < 0.6:
+        elif roll < 0.42:
+            fabric_rack(B, obj, c, T[i], N[i] * side, int(d))
+        elif roll < 0.78:
             B.prism(obj, "M_SignFrame", tuple(c), 0.03, SIDEWALK_Z, SIDEWALK_Z + 2.3, sides=4, cap=False)
             umbrella(B, obj, c, SIDEWALK_Z + 2.3, 1.15, int(d))
             t = c + N[i] * side * 0.2
@@ -709,6 +734,135 @@ def cable(B, obj, a, b, sag, segments=10, r=0.018):
         # a short horizontal box is enough at this thickness; the sag comes from the segment heights
         B.box(obj, "M_Cable", (c[0], c[1], c[2]), (max(horiz, 0.05), r, r + abs(d[2])), yaw=yaw, top=True)
     B.count("cable_spans")
+
+
+def fabric_rack(B, obj, c, t, n, seed):
+    """A vendor's rack of wax-print cloth and dresses: two posts, a bar, hanging lengths of colour."""
+    yaw = math.atan2(t[1], t[0])
+    z0 = SIDEWALK_Z
+    for sgn in (-1, 1):
+        p = c + t * sgn * 1.0
+        B.box(obj, "M_Steel", (p[0], p[1], z0 + 1.0), (0.04, 0.04, 2.0), yaw=yaw, top=False)
+    B.box(obj, "M_Steel", (c[0], c[1], z0 + 2.0), (2.1, 0.04, 0.04), yaw=yaw)
+    k = 0
+    for u in np.linspace(-0.85, 0.85, 7):
+        p = c + t * u + n * 0.03 * (k % 2)
+        mat = f"M_Cloth_{1 + int(bd.unit_hash('cloth', seed, k) * 6)}"
+        L = 0.9 + 0.6 * bd.unit_hash("clothlen", seed, k)
+        B.box(obj, mat, (p[0], p[1], z0 + 2.0 - L / 2), (0.24, 0.02, L), yaw=yaw)
+        k += 1
+    B.count("fabric_racks")
+
+
+def billboards(B, street, mouths, footprints):
+    """Big panels on steel posts, several in the first 100 m from Danquah Circle and a few further on, facing the
+    traffic, lit by floodlights on the top edge; and two tall pylon signs. Ads come from billboards-atlas.png."""
+    w1 = ROAD_HALF + GUTTER + KERB + SIDEWALK
+    plan = [(10, 1), (34, -1), (58, 1), (82, -1), (128, 1), (176, -1)]
+    built = shapely.union_all([f.buffer(0.5) for f in footprints])
+    for k, (d, side) in enumerate(plan):
+        while any(int(d) + j in mouths[side] for j in range(-4, 5)) and d < street.length - 5:
+            d += 3
+        p = np.array(street.interpolate(d).coords[0])
+        q = np.array(street.interpolate(min(d + 1, street.length)).coords[0])
+        t = (q - p) / np.linalg.norm(q - p)
+        nrm = np.array([-t[1], t[0]]) * side
+        base = p + nrm * (w1 + 1.6)
+        if built.contains(Point(*base)):
+            continue
+        # Face the traffic coming up the street, turned 20 degrees toward the road.
+        facing = -t * (1 if k % 2 == 0 else -1)
+        ang = math.atan2(facing[1], facing[0]) - side * math.radians(20) * (1 if k % 2 == 0 else -1)
+        f = np.array([math.cos(ang), math.sin(ang)])          # panel normal
+        u = np.array([f[1], -f[0]])                           # along the panel
+        W, H, z0 = (6.0, 3.0, 5.0) if k % 3 else (4.0, 6.0, 3.2)   # landscape, or a tall portrait one
+        obj = bd.cell_name("LookDev_Billboards", base[0], base[1])
+        posts = [base] if W < 5 else [base - u * 1.6, base + u * 1.6]
+        for pp in posts:
+            B.box(obj, "M_Steel", (pp[0], pp[1], z0 / 2), (0.35, 0.35, z0), yaw=ang)
+        yaw = math.atan2(u[1], u[0])
+        B.box(obj, "M_BillboardBack", (base[0] - f[0] * 0.15, base[1] - f[1] * 0.15, z0 + H / 2), (W + 0.2, 0.25, H + 0.2), yaw=yaw)
+        cell = k % len(ADS)
+        col, row = cell % 2, cell // 2
+        u0, u1, v0, v1 = col / 2 + 0.002, (col + 1) / 2 - 0.002, 1 - (row + 1) / 4 + 0.002, 1 - row / 4 - 0.002
+        if H > W:   # portrait panel: the left half of the cell, rotated content is not needed, just cropped
+            u1 = u0 + (u1 - u0) * 0.5
+        a0 = base + f * 0.01 - u * W / 2
+        a1 = base + f * 0.01 + u * W / 2
+        B.quad(obj, "M_Billboard", (*a1, z0), (*a0, z0), (*a0, z0 + H), (*a1, z0 + H), ((u0, v0), (u1, v0), (u1, v1), (u0, v1)))
+        if W > H:
+            # Most roadside panels are back to back: another ad on the far side, for the traffic going the other way.
+            cell2 = (k + 3) % len(ADS)
+            c2, r2 = cell2 % 2, cell2 // 2
+            uv2 = ((c2 / 2 + 0.002, 1 - (r2 + 1) / 4 + 0.002), ((c2 + 1) / 2 - 0.002, 1 - (r2 + 1) / 4 + 0.002),
+                   ((c2 + 1) / 2 - 0.002, 1 - r2 / 4 - 0.002), (c2 / 2 + 0.002, 1 - r2 / 4 - 0.002))
+            b0 = base - f * 0.31 - u * W / 2
+            b1 = base - f * 0.31 + u * W / 2
+            B.quad(obj, "M_Billboard", (*b0, z0), (*b1, z0), (*b1, z0 + H), (*b0, z0 + H), uv2)
+        # Floodlights: arms over the top edge, a spot light each, aimed down at the panel.
+        for j in range(2 if W < 5 else 3):
+            x = -W / 2 + W * (j + 0.5) / (2 if W < 5 else 3)
+            arm = base + u * x
+            head = arm + f * 0.9
+            B.box(obj, "M_Steel", ((arm[0] + head[0]) / 2, (arm[1] + head[1]) / 2, z0 + H + 0.25), (0.05, 0.9, 0.05), yaw=yaw)
+            B.box(obj, "M_Floodlight", (head[0], head[1], z0 + H + 0.2), (0.35, 0.2, 0.15), yaw=yaw)
+            aim = arm + f * 0.1
+            B.lights.append({"x": round(float(head[0]), 2), "y": round(z0 + H + 0.1, 2), "z": round(float(head[1]), 2),
+                             "kind": "billboard", "tx": round(float(aim[0]), 2), "ty": round(z0 + H * 0.35, 2), "tz": round(float(aim[1]), 2)})
+        B.count("billboards")
+    # Pylon signs for a bank and a fuel station, by the side-street mouths on the west side.
+    for k, d in enumerate([150.0, 192.0]):
+        side = -1
+        p = np.array(street.interpolate(d).coords[0])
+        q = np.array(street.interpolate(min(d + 1, street.length)).coords[0])
+        t = (q - p) / np.linalg.norm(q - p)
+        nrm = np.array([-t[1], t[0]]) * side
+        base = p + nrm * (w1 + 0.9)
+        if built.contains(Point(*base)):
+            continue
+        obj = bd.cell_name("LookDev_Billboards", base[0], base[1])
+        yaw = math.atan2(nrm[1], nrm[0])
+        B.box(obj, "M_Steel", (base[0], base[1], 4.0), (0.3, 0.3, 8.0), yaw=yaw)
+        B.box(obj, "M_Fascia", (base[0], base[1], 6.0), (0.5, 1.8, 4.0), yaw=yaw)
+        cell = 4 if k == 0 else 5
+        col, row = cell % 2, cell // 2
+        u0, u1, v0, v1 = col / 2 + 0.002, col / 2 + 0.25, 1 - (row + 1) / 4 + 0.002, 1 - row / 4 - 0.002
+        for sgn in (1, -1):
+            fa = base + t * sgn * 0.26
+            l0 = fa + nrm * -0.85
+            l1 = fa + nrm * 0.85
+            pts = [(*l0, 4.3), (*l1, 4.3), (*l1, 7.7), (*l0, 7.7)] if sgn > 0 else [(*l1, 4.3), (*l0, 4.3), (*l0, 7.7), (*l1, 7.7)]
+            B.quad(obj, "M_Billboard", *pts, ((u0, v0), (u1, v0), (u1, v1), (u0, v1)))
+        B.count("pylon_signs")
+
+
+def billboard_atlas(path):
+    """2 x 4 cells of 1024 x 512: big type on flat colour with a simple graphic, the way roadside ads read at night."""
+    W, H = 2048, 2048
+    cw, ch = W // 2, H // 4
+    img = Image.new("RGB", (W, H), (0, 0, 0))
+    bold = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    cond = "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf"
+    for k, (title, sub, bg, fg) in enumerate(ADS):
+        x0, y0 = (k % 2) * cw, (k // 2) * ch
+        tile = Image.new("RGB", (cw, ch), bg)          # drawn on its own tile so shapes cannot spill into a neighbour
+        td = ImageDraw.Draw(tile)
+        light = tuple(min(255, int(c * 1.5 + 40)) for c in bg)
+        if k % 2:
+            td.ellipse([cw * 0.58, -ch * 0.2, cw * 1.15, ch * 0.9], fill=light)
+        else:
+            td.polygon([(cw * 0.55, ch), (cw * 0.8, 0), (cw, 0), (cw, ch)], fill=light)
+        size = 120
+        while size > 30:
+            f = ImageFont.truetype(bold, size)
+            if td.textlength(title, font=f) < cw * 0.9:
+                break
+            size -= 4
+        td.text((40, ch * 0.34), title, font=f, fill=fg, anchor="lm")
+        td.text((44, ch * 0.66), sub, font=ImageFont.truetype(cond, 46), fill=fg, anchor="lm")
+        td.rectangle([0, ch - 26, cw - 1, ch - 1], fill=fg)
+        img.paste(tile, (x0, y0))
+    img.save(path)
 
 
 def umbrella(B, obj, c, z, radius, seed, sides=8):
@@ -935,6 +1089,7 @@ def build(args):
     mouths = side_street_mouths(street, side_roads)
     frontage(B, street, footprints, mouths)
     street_furniture(B, street, rng, mouths)
+    billboards(B, street, mouths, footprints)
 
     os.makedirs(args.out, exist_ok=True)
     base = os.path.join(args.out, "osu-lookdev")
@@ -947,6 +1102,7 @@ def build(args):
         f.write("\n".join(ids) + "\n")
     sign_atlas(os.path.join(args.out, "signs-atlas.png"))
     interiors_atlas(os.path.join(args.out, "interiors-atlas.png"))
+    billboard_atlas(os.path.join(args.out, "billboards-atlas.png"))
     meta = {"zone_m": ZONE_LENGTH, "street_start": list(map(lambda v: round(v, 2), street.coords[0])),
             "triangles": tris, "vertices": verts, "objects": objs, "counts": B.counts, "lights": B.lights,
             "parked": getattr(B, "parked", []),
