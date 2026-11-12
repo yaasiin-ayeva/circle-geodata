@@ -111,6 +111,10 @@ ADS = [   # invented advertisers only; names from the story bible where they exi
     ("AKUBA STARR LIVE", "BLACK STAR SQUARE - DEC 31", (200, 30, 80), (255, 240, 220)),
     ("SHARP SHARP 5G", "BROWSE MORE, PAY LESS", (230, 90, 20), (255, 255, 255)),
 ]
+MATERIALS.update({
+    # Step 4: shade trees (trunk, branches, alpha-clipped leaf cards) and coconut palms (trunk, fronds).
+    "M_Trunk": (0.30, 0.25, 0.20), "M_LeafCard": (0.20, 0.32, 0.14), "M_PalmTrunk": (0.45, 0.40, 0.33), "M_Frond": (0.30, 0.42, 0.16),
+})
 MAIN_PALETTE = ["M_Facade_White"] * 3 + ["M_Facade_OffWhite"] * 2 + ["M_Facade_Cream", "M_Facade_LightGrey", "M_Facade_LightGrey"]
 OLD_PALETTE = ["M_Facade_Beige", "M_Facade_Beige", "M_Facade_Cream", "M_Facade_Ochre", "M_Facade_OffWhite", "M_Facade_Terracotta"]
 COMPOUND_WALLS = ["M_Wall_White", "M_Wall_Cream", "M_Wall_Ochre", "M_Wall_Grey"]
@@ -836,6 +840,112 @@ def billboards(B, street, mouths, footprints):
         B.count("pylon_signs")
 
 
+def shade_tree(B, obj, base, seed):
+    """A large shade tree: a trunk, a few branches, and a crown of crossed leaf cards (alpha-clipped in the engine)."""
+    h = 3.2 + 1.6 * bd.unit_hash("th", seed)
+    crown_r = 3.0 + 1.8 * bd.unit_hash("tr", seed)
+    B.prism(obj, "M_Trunk", tuple(base), 0.3, 0, h, sides=7, cap=False)
+    top = np.array([base[0], base[1], h])
+    for j in range(4):
+        a = 2 * math.pi * (j / 4 + bd.unit_hash("tb", seed, j) * 0.2)
+        d = np.array([math.cos(a), math.sin(a)])
+        end = top + np.array([*(d * crown_r * 0.55), 1.4])
+        mid = (top + end) / 2
+        B.box(obj, "M_Trunk", tuple(mid), (float(np.linalg.norm(end[:2] - top[:2])), 0.16, 1.4), yaw=a, top=False)
+    centre = top + np.array([0, 0, crown_r * 0.55])
+    n_cards = 26
+    for j in range(n_cards):
+        r = [bd.unit_hash("tc", seed, j, q) for q in range(5)]
+        # A point in a flattened ellipsoid crown, more cards near the rim so the silhouette is ragged.
+        th, ph, rad = 2 * math.pi * r[0], math.acos(2 * r[1] - 1), 0.55 + 0.45 * r[2] ** 0.5
+        c = centre + np.array([crown_r * rad * math.sin(ph) * math.cos(th), crown_r * rad * math.sin(ph) * math.sin(th),
+                               crown_r * 0.55 * rad * math.cos(ph)])
+        size = (2.0 + 1.4 * r[3]) / 2
+        yaw = 2 * math.pi * r[4]
+        pitch = (r[3] - 0.5) * 1.6 if j % 4 else math.pi / 2 - 0.25   # every fourth card lies almost flat, a roof of leaves
+        u = np.array([math.cos(yaw), math.sin(yaw), 0])
+        w = np.array([-math.sin(yaw), math.cos(yaw), 0])
+        v = w * math.sin(pitch) + np.array([0, 0, 1]) * math.cos(pitch)
+        q = [c - u * size - v * size, c + u * size - v * size, c + u * size + v * size, c - u * size + v * size]
+        B.quad(obj, "M_LeafCard", *map(tuple, q), ((0, 0), (1, 0), (1, 1), (0, 1)))
+    B.count("shade_trees")
+
+
+def coconut_palm(B, obj, base, seed):
+    """A coconut palm: a slender leaning trunk in segments and a crown of drooping fronds (alpha-clipped strips)."""
+    H = 8.0 + 5.0 * bd.unit_hash("ph", seed)
+    lean_a = 2 * math.pi * bd.unit_hash("pl", seed)
+    lean = np.array([math.cos(lean_a), math.sin(lean_a)]) * (0.6 + 1.2 * bd.unit_hash("pm", seed))
+    segs = 7
+    pts = [np.array([*(np.array(base) + lean * (k / segs) ** 2), H * k / segs]) for k in range(segs + 1)]
+    for k in range(segs):
+        a, b = pts[k], pts[k + 1]
+        mid = (a + b) / 2
+        d = b - a
+        B.box(obj, "M_PalmTrunk", tuple(mid), (0.3 - 0.012 * k, 0.3 - 0.012 * k, float(np.linalg.norm(d)) + 0.05),
+              yaw=lean_a, top=k == segs - 1)
+    top = pts[-1]
+    for j in range(11):
+        a = 2 * math.pi * (j / 11 + 0.05 * bd.unit_hash("pf", seed, j))
+        d = np.array([math.cos(a), math.sin(a), 0.0])
+        side = np.array([-math.sin(a), math.cos(a), 0.0])
+        L = 3.6 + 1.0 * bd.unit_hash("pfl", seed, j)
+        up = 0.9 + 0.8 * bd.unit_hash("pfu", seed, j)
+        prev = None
+        for k in range(5):
+            t = k / 4
+            centre = top + d * L * t + np.array([0, 0, up * t - (up + 2.2) * t * t])
+            half = 0.55 * (1 - 0.7 * t) + 0.05
+            pair = (centre - side * half, centre + side * half)
+            if prev is not None:
+                (p0, p1), (q0, q1) = prev, pair
+                v0, v1 = (k - 1) / 4, k / 4
+                B.quad(obj, "M_Frond", tuple(p0), tuple(p1), tuple(q1), tuple(q0), ((0, v0), (1, v0), (1, v1), (0, v1)))
+            prev = pair
+    B.count("palms")
+
+
+def trees(B, street, mouths, footprints, zone):
+    """Shade trees and coconut palms along the frontage and behind it (research/look-reference.md: big dark canopies
+    and palms, especially at the north end). Kept off buildings, side-street mouths and the road."""
+    w1 = ROAD_HALF + GUTTER + KERB + SIDEWALK
+    built = shapely.union_all([f.buffer(1.5) for f in footprints])
+    taken = []
+    def free(p, gap=5.0):
+        return not built.contains(Point(*p)) and all(np.linalg.norm(p - q) > gap for q in taken)
+    for side in (1, -1):
+        for d in np.arange(5, street.length - 3, 13):
+            d = d + 4 * (bd.unit_hash("td", side, int(d)) - 0.5)
+            if any(int(d) + j in mouths[side] for j in range(-5, 6)):
+                continue
+            p = np.array(street.interpolate(d).coords[0])
+            q = np.array(street.interpolate(min(d + 1, street.length)).coords[0])
+            t = (q - p) / (np.linalg.norm(q - p) + 1e-9)
+            base = p + np.array([-t[1], t[0]]) * side * (w1 + 1.0)
+            r = bd.unit_hash("tk", side, int(d))
+            if not free(base) or r > 0.75:
+                continue
+            obj = bd.cell_name("LookDev_Trees", base[0], base[1])
+            if r < (0.45 if d < 70 else 0.2):
+                coconut_palm(B, obj, base, (side, int(d)))
+            else:
+                shade_tree(B, obj, base, (side, int(d)))
+            taken.append(base)
+    # Behind the frontage: big trees in yards and lots, which carry the skyline's dark masses.
+    minx, miny, maxx, maxy = zone.bounds
+    k = 0
+    for j in range(120):
+        p = np.array([minx + (maxx - minx) * bd.unit_hash("bx", j), miny + (maxy - miny) * bd.unit_hash("by", j)])
+        if not zone.contains(Point(*p)) or street.distance(Point(*p)) < w1 + 10 or not free(p, 9.0):
+            continue
+        obj = bd.cell_name("LookDev_Trees", p[0], p[1])
+        (coconut_palm if bd.unit_hash("bt", j) < 0.3 else shade_tree)(B, obj, p, ("b", j))
+        taken.append(p)
+        k += 1
+        if k >= 14:
+            break
+
+
 def billboard_atlas(path):
     """2 x 4 cells of 1024 x 512: big type on flat colour with a simple graphic, the way roadside ads read at night."""
     W, H = 2048, 2048
@@ -1090,6 +1200,7 @@ def build(args):
     frontage(B, street, footprints, mouths)
     street_furniture(B, street, rng, mouths)
     billboards(B, street, mouths, footprints)
+    trees(B, street, mouths, footprints, zone)
 
     os.makedirs(args.out, exist_ok=True)
     base = os.path.join(args.out, "osu-lookdev")
