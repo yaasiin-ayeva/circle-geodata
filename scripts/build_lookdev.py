@@ -735,20 +735,25 @@ def street_furniture(B, line, rng, mouths=None):
             B.count("umbrellas")
 
 
-def cable(B, obj, a, b, sag, segments=10, r=0.018):
+def cable(B, obj, a, b, sag, segments=14, r=0.016):
+    """A sagging cable as one continuous square tube along a parabola. (Boxes stepped down the sag read as
+    black ribbons in daylight.)"""
     pts = []
     for k in range(segments + 1):
         u = k / segments
         p = a + (b - a) * u
         p[2] -= sag * 4 * u * (1 - u)
         pts.append(p)
-    for p, q in zip(pts, pts[1:]):
-        c = (p + q) / 2
-        d = q - p
-        horiz = math.hypot(d[0], d[1])
-        yaw = math.atan2(d[1], d[0])
-        # a short horizontal box is enough at this thickness; the sag comes from the segment heights
-        B.box(obj, "M_Cable", (c[0], c[1], c[2]), (max(horiz, 0.05), r, r + abs(d[2])), yaw=yaw, top=True)
+    d = b - a
+    h = math.hypot(d[0], d[1]) or 1.0
+    side = np.array([-d[1] / h, d[0] / h, 0.0]) * r      # horizontal, left of the span
+    up = np.array([0.0, 0.0, r])
+    corners = [side + up, -side + up, -side - up, side - up]
+    rings = [[tuple(p + c) for c in corners] for p in pts]
+    for r0, r1 in zip(rings, rings[1:]):
+        for i in range(4):
+            j = (i + 1) % 4
+            B.quad(obj, "M_Cable", r0[i], r0[j], r1[j], r1[i])
     B.count("cable_spans")
 
 
