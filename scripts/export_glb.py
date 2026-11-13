@@ -1,7 +1,7 @@
-"""Turn the district and look-dev OBJ files into engine-neutral glTF binaries for the web engines.
+"""Turn the district and look-dev OBJ files into glTF binaries for the game (circle-game, three.js).
 
     python3 scripts/export_glb.py data/work/osu-poc/osu-poc.obj --look look/look.json \
-        --textures ../circle-game/Assets/_Circle/Art/Textures --out data/work/web/osu-poc.glb
+        --textures ../circle-game/art/textures --out data/work/web/osu-poc.glb
 
 The OBJ files from build_district.py and build_lookdev.py repeat every vertex of every face. This writes
 each 250 m cell as one node with one indexed, welded primitive per material, and the materials as glTF PBR

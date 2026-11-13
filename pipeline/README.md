@@ -1,6 +1,6 @@
 # Pipeline
 
-From open data to streamed Unity tiles. Houdini turns the data into assets; Houdini Engine for Unity brings them into `circle-game`; Blender is for quick blockouts. Steps 1–4 belong to this repository; steps 5–10 produce assets that are committed in `circle-game`.
+From open data to district tiles the browser game streams. Python scripts turn the data into meshes and tables; Blender, driven by scripts, makes the building kits, props and vegetation; glTF-Transform, meshopt and KTX2 compress the result for `circle-game` (three.js). Steps 1–4 belong to this repository; steps 5–10 write the tiles the game loads.
 
 | # | Step | Tool | Output | Status |
 | --- | --- | --- | --- | --- |
@@ -8,12 +8,12 @@ From open data to streamed Unity tiles. Houdini turns the data into assets; Houd
 | 2 | Download | `scripts/`, DuckDB, Geofabrik | Raw extracts under `data/raw/`, with each licence archived beside them | Overture done; OSM, Google, Microsoft, DEM, Sentinel to do |
 | 3 | Merge | PostGIS | One database of roads, footprints and heights, every value tagged with its source | To do |
 | 4 | Publish | GeoPackage + README | The merged database under ODbL 1.0 | To do, before any public build |
-| 5 | Terrain | Houdini | Building and road footprints masked out of the surface model, interpolated, resampled to Unity terrain or terrain meshes per tile | To do |
-| 6 | Roads | Houdini → Unity Splines | Centrelines with class, lanes, one-way and bridge level; procedural surfaces, kerbs and open drains; lane graph for traffic | To do |
-| 7 | Building typologies | Houdini | A type per footprint, by rule from area, height, land use, road class and place category | To do |
-| 8 | Facade kits | Blender, Substance | Concrete-block buildings of 1–4 storeys, grilles, louvre windows, corrugated roofs, roller-shutter shops, kiosks, compound walls, curtain-wall towers; fictional signs only | To do |
-| 9 | Street furniture | Houdini or Unity tools along splines | Streetlights (some stretches dark on purpose), trotro stops, hawker tables, gas cylinders, billboards, drain crossings, painted kerbs, palms | To do |
-| 10 | Bake | Unity | Static meshes, HLODs, colliders and probes per tile, as Addressables groups; race routes polished by hand | To do |
+| 5 | Terrain | Python | Building and road footprints masked out of the surface model, interpolated, meshed per tile | To do |
+| 6 | Roads | Python | Centrelines with class, lanes, one-way and bridge level; road surfaces, kerbs and open drains; lane graph for traffic and the minimap | Osu district done (`build_district.py`) |
+| 7 | Building typologies | Python | A type per footprint, by rule from area, height, land use, road class and place category | Rules in `build_district.py`; to extend |
+| 8 | Building kits | Blender by script | Modules for concrete-block buildings of 1–4 storeys, grilles, louvre windows, corrugated roofs, roller-shutter shops, kiosks, compound walls, curtain-wall towers, placed per footprint and instanced; fictional signs only, drawn by the game at load | Oxford Street block built in Python (`build_lookdev.py`); kits to do |
+| 9 | Street furniture and night detail | Python, Blender by script | Streetlights (some stretches dark on purpose) and every light source as a candidate for the game's light pool, trotro stops, hawker tables, gas cylinders, billboards, drain crossings, painted kerbs, palms | Osu streetlights and block lights done |
+| 10 | Export | glTF-Transform, meshopt, KTX2 | One GLB per district cell with LODs and colliders, and a scene JSON (lights, routes, spawn points), cached by the game; race routes polished by hand | GLB and scene JSON done for Osu (`export_glb.py`, `export_scene.py`); KTX2 and per-cell streaming to do |
 
 ## Merge rules (step 3)
 

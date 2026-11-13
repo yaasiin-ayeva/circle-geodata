@@ -1,12 +1,12 @@
 # circle-geodata
 
-The open-data pipeline that rebuilds Accra for **CHALE**: roads, buildings, heights and terrain, from sources that allow commercial use. It feeds the Unity game in `circle-game` and produces the merged map database that the ODbL requires us to publish.
+The open-data pipeline that rebuilds Accra for **CHALE**: roads, buildings, heights and terrain, from sources that allow commercial use. It feeds the browser game in `circle-game` (three.js) and produces the merged map database that the ODbL requires us to publish.
 
 Sources and their licences are listed in [SOURCES.md](SOURCES.md).
 
 ## Status
 
-Pre-production. The area files and the Overture counting and extraction script work. The merge in PostGIS and the Houdini steps are specified in [pipeline/README.md](pipeline/README.md), not yet built.
+Pre-production. The area files, the Overture counting and extraction script, the Osu district and dressed block, and their export to compressed GLB for the game work. The merge in PostGIS and the later steps are specified in [pipeline/README.md](pipeline/README.md), not yet built.
 
 ## Contents
 
@@ -19,10 +19,10 @@ Pre-production. The area files and the Overture counting and extraction script w
 | [scripts/overture_slice.py](scripts/overture_slice.py) | Counts or extracts Overture buildings and roads inside an area |
 | [scripts/build_lookdev.py](scripts/build_lookdev.py) | Dresses the first 220 m of Oxford Street at target quality: facades with windows, bars, AC units and shopfronts, invented shop signs, rooms and shop interiors behind lit glass, sidewalks, gutters, power lines, kiosks, umbrellas |
 | [scripts/build_district.py](scripts/build_district.py) | Turns an export into a drivable district for the engines: OBJ meshes, streetlights, a benchmark lap ([requirements-district.txt](requirements-district.txt)) |
-| [scripts/export_glb.py](scripts/export_glb.py), [scripts/export_scene.py](scripts/export_scene.py) | Engine-neutral output for the web engines: indexed GLB per 250 m cell with glTF PBR materials, and a scene JSON (lights, lap, parked cars, models) in glTF axes |
+| [scripts/export_glb.py](scripts/export_glb.py), [scripts/export_scene.py](scripts/export_scene.py) | What the game loads: indexed GLB per 250 m cell with glTF PBR materials, and a scene JSON (lights, lap, parked cars, models) in glTF axes |
 | [look/look.json](look/look.json) | The look as data: materials, light kinds, night and day environments, taken from the Unity proof of concept |
 | [tests/](tests/) | A test of the script against a synthetic release |
-| [pipeline/README.md](pipeline/README.md) | The ten pipeline steps, from download to baked tiles |
+| [pipeline/README.md](pipeline/README.md) | The ten pipeline steps, from download to streamed district tiles |
 
 ## Reference frame
 
@@ -68,18 +68,20 @@ python3 scripts/build_district.py --slice data/work/slice --out data/work/osu-po
 
 The look-dev script runs first: its 22 detailed buildings replace the plain ones, which `--exclude` leaves out of the district.
 
-It writes `osu-poc.obj`/`.mtl` (3,184 buildings, 26 km of road, 41,000 triangles), `osu-poc.json` (143 streetlights, a 2.55 km benchmark lap, the spawn point) and a top-down preview. Building heights there come from typology rules until the 2.5D heights are merged. The same files feed the Unity and Unreal sides of the test, standing in for the Houdini asset set the plan names.
+It writes `osu-poc.obj`/`.mtl` (3,184 buildings, 26 km of road, 41,000 triangles), `osu-poc.json` (143 streetlights, a 2.55 km benchmark lap, the spawn point) and a top-down preview. Building heights there come from typology rules until the 2.5D heights are merged. These files were first built for the Unity proof of concept; the game now loads them through the GLB export below.
 
-For the web engines (decision of 13 November 2026), the same files become GLB and a scene JSON:
+For the game (three.js, decision of 13 November 2026), the same files become compressed GLB and a scene JSON:
 
 ```sh
 python3 scripts/export_glb.py data/work/osu-poc/osu-poc.obj --out data/work/web/osu-poc.glb
-python3 scripts/export_glb.py data/work/osu-poc/osu-lookdev.obj --textures ../circle-game/Assets/_Circle/Art/Textures --out data/work/web/osu-lookdev.glb
+python3 scripts/export_glb.py data/work/osu-poc/osu-lookdev.obj --textures ../circle-game/art/textures --out data/work/web/osu-lookdev.glb
 python3 scripts/export_scene.py --district data/work/osu-poc/osu-poc.json --lookdev data/work/osu-poc/osu-lookdev.json --out data/work/web/osu-scene.json
 gltfpack -i data/work/web/osu-poc.glb -o data/work/web/osu-poc.pack.glb -cc -kn -km -vpf -vtf
+gltfpack -i data/work/web/osu-lookdev.glb -o data/work/web/osu-lookdev.pack.glb -cc -kn -km -vpf -vtf
+cd ../circle-game && npm run data    # copies the packed GLB, the scene JSON and look.json into the game
 ```
 
-On 13 November the district came to 0.53 MB and the look-dev block to 1.79 MB after meshopt compression (0.4 MB of geometry, 1.4 MB of atlases still in JPEG and PNG); KTX2 textures need a native gltfpack build with BasisU (`-tc`). Both files pass the Khronos glTF validator with no errors or warnings. Generated textures from the Unity side (pavers, lattice, foliage cards, puddles, skies) are not ported yet; `look.json` marks them.
+On 13 November the district came to 0.53 MB and the look-dev block to 1.79 MB after meshopt compression (0.4 MB of geometry, 1.4 MB of atlases still in JPEG and PNG); KTX2 textures come next, through ktx2-encoder and glTF-Transform (decision of 13 November 2026), since the npm gltfpack has no BasisU. Both files pass the Khronos glTF validator with no errors or warnings. Generated textures from the Unity proof of concept (pavers, lattice, foliage cards, puddles, skies, now in `circle-game/art/textures/Generated`) are not ported yet; `look.json` marks them.
 
 `latest` picks the newest release on Overture's public bucket; a fixed name from the [release list](https://docs.overturemaps.org/release/) works too. Downloads and working files go under `data/`, which is not committed.
 

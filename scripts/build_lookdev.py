@@ -130,10 +130,10 @@ FACADES = [m for m in MATERIALS if m.startswith("M_Facade_")]
 
 
 # With --models, the trees, kiosks, container shops and bougainvillea that have a converted 3D model are not built
-# as geometry: their places go to the JSON ("models") and Unity puts the generated models there (circle-game
-# OsuLookDev.Models). A kind with no model yet keeps its procedural geometry.
+# as geometry: their places go to the JSON ("models") and the game puts the models there (circle-game
+# art/models, the source models). A kind with no model yet keeps its procedural geometry.
 MODEL_KINDS = set()
-DEFAULT_MODEL_DIR = "../circle-game/Assets/_Circle/Art/Models"
+DEFAULT_MODEL_DIR = "../circle-game/art/models"
 
 
 def has_model(kind):
