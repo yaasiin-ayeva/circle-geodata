@@ -1,0 +1,1277 @@
+{
+ "about": "Engine-neutral look of the Osu block: materials, light kinds and the night and day environments, taken on 13 November 2026 from the Unity proof of concept (OsuLookDev.cs, OsuPoC.cs, OsuDayNight.cs, tag unity-poc) so the web engines start from the same values. Colours are sRGB as authored in Unity; smoothness is Unity's (glTF roughness = 1 - smoothness). Light intensities are Unity URP values (non-physical) and must be calibrated per engine. 'texture' names an ambientCG or CC0 set tiled 'tiling' times per UV unit; 'map' an atlas written by build_lookdev.py; 'emission' multiplies the base colour, 'emissionColor' is absolute (HDR). Entries marked 'generated' have a texture made in C# that is not ported yet.",
+ "materials": {
+  "M_AC": {
+   "color": [
+    0.86,
+    0.86,
+    0.84
+   ],
+   "smoothness": 0.35,
+   "metallic": 0.0
+  },
+  "M_Asphalt": {
+   "color": [
+    0.4,
+    0.4,
+    0.42
+   ],
+   "smoothness": 0.58,
+   "metallic": 0.0,
+   "texture": "Asphalt031",
+   "tiling": 0.5,
+   "generated": "puddle mask (OsuLookDev.Puddles): not ported yet"
+  },
+  "M_AsphaltMajor": {
+   "color": [
+    0.44,
+    0.44,
+    0.46
+   ],
+   "smoothness": 0.66,
+   "metallic": 0.0,
+   "texture": "Asphalt031",
+   "tiling": 0.5,
+   "generated": "puddle mask (OsuLookDev.Puddles): not ported yet"
+  },
+  "M_Awning_Blue": {
+   "color": [
+    0.12,
+    0.3,
+    0.65
+   ],
+   "smoothness": 0.35,
+   "metallic": 0.3,
+   "texture": "CorrugatedSteel005",
+   "tiling": 1.0
+  },
+  "M_Awning_Green": {
+   "color": [
+    0.15,
+    0.5,
+    0.25
+   ],
+   "smoothness": 0.35,
+   "metallic": 0.3,
+   "texture": "CorrugatedSteel005",
+   "tiling": 1.0
+  },
+  "M_Awning_Red": {
+   "color": [
+    0.75,
+    0.12,
+    0.1
+   ],
+   "smoothness": 0.35,
+   "metallic": 0.3,
+   "texture": "CorrugatedSteel005",
+   "tiling": 1.0
+  },
+  "M_BalconyGlass": {
+   "color": [
+    0.08,
+    0.1,
+    0.12
+   ],
+   "smoothness": 0.9,
+   "metallic": 0.2
+  },
+  "M_Billboard": {
+   "color": [
+    1,
+    1,
+    1
+   ],
+   "smoothness": 0.35,
+   "metallic": 0.0,
+   "map": "billboards-atlas.png",
+   "emission": 0.22,
+   "emissionMap": "billboards-atlas.png"
+  },
+  "M_BillboardBack": {
+   "color": [
+    0.3,
+    0.31,
+    0.32
+   ],
+   "smoothness": 0.3,
+   "metallic": 0.6
+  },
+  "M_Bulb": {
+   "color": [
+    1.0,
+    0.8,
+    0.55
+   ],
+   "smoothness": 0.8,
+   "metallic": 0.0,
+   "emission": 4.0
+  },
+  "M_Cable": {
+   "color": [
+    0.02,
+    0.02,
+    0.02
+   ],
+   "smoothness": 0.3,
+   "metallic": 0.0
+  },
+  "M_CarGlass": {
+   "color": [
+    0.04,
+    0.05,
+    0.07
+   ],
+   "smoothness": 0.85,
+   "metallic": 0.0
+  },
+  "M_CarPaint": {
+   "color": [
+    0.89,
+    0.0,
+    0.17
+   ],
+   "smoothness": 0.85,
+   "metallic": 0.0
+  },
+  "M_Cloth_1": {
+   "color": [
+    0.85,
+    0.2,
+    0.1
+   ],
+   "smoothness": 0.1,
+   "metallic": 0.0
+  },
+  "M_Cloth_2": {
+   "color": [
+    0.95,
+    0.7,
+    0.05
+   ],
+   "smoothness": 0.1,
+   "metallic": 0.0
+  },
+  "M_Cloth_3": {
+   "color": [
+    0.1,
+    0.35,
+    0.7
+   ],
+   "smoothness": 0.1,
+   "metallic": 0.0
+  },
+  "M_Cloth_4": {
+   "color": [
+    0.1,
+    0.55,
+    0.25
+   ],
+   "smoothness": 0.1,
+   "metallic": 0.0
+  },
+  "M_Cloth_5": {
+   "color": [
+    0.6,
+    0.1,
+    0.45
+   ],
+   "smoothness": 0.1,
+   "metallic": 0.0
+  },
+  "M_Cloth_6": {
+   "color": [
+    0.95,
+    0.45,
+    0.1
+   ],
+   "smoothness": 0.1,
+   "metallic": 0.0
+  },
+  "M_Concrete_Raw": {
+   "color": [
+    0.62,
+    0.61,
+    0.58
+   ],
+   "smoothness": 0.1,
+   "metallic": 0.0,
+   "texture": "Concrete034",
+   "tiling": 0.8
+  },
+  "M_Facade_Beige": {
+   "color": [
+    0.84,
+    0.76,
+    0.6
+   ],
+   "smoothness": 0.15,
+   "metallic": 0.0,
+   "texture": "Plaster007",
+   "tiling": 1.0
+  },
+  "M_Facade_Blue": {
+   "color": [
+    0.6,
+    0.76,
+    0.88
+   ],
+   "smoothness": 0.15,
+   "metallic": 0.0,
+   "texture": "PaintedPlaster017",
+   "tiling": 1.0
+  },
+  "M_Facade_Cream": {
+   "color": [
+    0.92,
+    0.88,
+    0.78
+   ],
+   "smoothness": 0.15,
+   "metallic": 0.0,
+   "texture": "Plaster007",
+   "tiling": 1.0
+  },
+  "M_Facade_Grey": {
+   "color": [
+    0.7,
+    0.7,
+    0.68
+   ],
+   "smoothness": 0.15,
+   "metallic": 0.0,
+   "texture": "PaintedPlaster017",
+   "tiling": 1.0
+  },
+  "M_Facade_LightGrey": {
+   "color": [
+    0.76,
+    0.77,
+    0.76
+   ],
+   "smoothness": 0.15,
+   "metallic": 0.0,
+   "texture": "PaintedPlaster017",
+   "tiling": 1.0
+  },
+  "M_Facade_Mint": {
+   "color": [
+    0.66,
+    0.86,
+    0.7
+   ],
+   "smoothness": 0.15,
+   "metallic": 0.0,
+   "texture": "PaintedPlaster017",
+   "tiling": 1.0
+  },
+  "M_Facade_Ochre": {
+   "color": [
+    0.86,
+    0.66,
+    0.4
+   ],
+   "smoothness": 0.15,
+   "metallic": 0.0,
+   "texture": "Plaster007",
+   "tiling": 1.0
+  },
+  "M_Facade_OffWhite": {
+   "color": [
+    0.88,
+    0.87,
+    0.82
+   ],
+   "smoothness": 0.15,
+   "metallic": 0.0,
+   "texture": "Plaster007",
+   "tiling": 1.0
+  },
+  "M_Facade_Orange": {
+   "color": [
+    0.92,
+    0.46,
+    0.16
+   ],
+   "smoothness": 0.2,
+   "metallic": 0.0,
+   "texture": "PaintedPlaster017",
+   "tiling": 1.0
+  },
+  "M_Facade_Pink": {
+   "color": [
+    0.94,
+    0.68,
+    0.68
+   ],
+   "smoothness": 0.15,
+   "metallic": 0.0,
+   "texture": "Plaster007",
+   "tiling": 1.0
+  },
+  "M_Facade_Terracotta": {
+   "color": [
+    0.8,
+    0.46,
+    0.34
+   ],
+   "smoothness": 0.15,
+   "metallic": 0.0,
+   "texture": "Plaster007",
+   "tiling": 1.0
+  },
+  "M_Facade_White": {
+   "color": [
+    0.92,
+    0.92,
+    0.89
+   ],
+   "smoothness": 0.15,
+   "metallic": 0.0,
+   "texture": "Plaster007",
+   "tiling": 1.0
+  },
+  "M_Facade_Yellow": {
+   "color": [
+    0.98,
+    0.84,
+    0.36
+   ],
+   "smoothness": 0.15,
+   "metallic": 0.0,
+   "texture": "Plaster007",
+   "tiling": 1.0
+  },
+  "M_Fascia": {
+   "color": [
+    0.07,
+    0.07,
+    0.08
+   ],
+   "smoothness": 0.5,
+   "metallic": 0.1
+  },
+  "M_Floodlight": {
+   "color": [
+    0.95,
+    0.97,
+    1.0
+   ],
+   "smoothness": 0.6,
+   "metallic": 0.0,
+   "emission": 3.0
+  },
+  "M_Frond": {
+   "color": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "smoothness": 0.25,
+   "metallic": 0.0,
+   "alpha": "mask",
+   "doubleSided": true,
+   "generated": "foliage card (OsuLookDev.LeafPixel / FrondPixel): not ported yet"
+  },
+  "M_Gate": {
+   "color": [
+    0.16,
+    0.16,
+    0.17
+   ],
+   "smoothness": 0.4,
+   "metallic": 0.5,
+   "texture": "CorrugatedSteel005",
+   "tiling": 1.0
+  },
+  "M_Grille": {
+   "color": [
+    0.8,
+    0.8,
+    0.78
+   ],
+   "smoothness": 0.35,
+   "metallic": 0.3
+  },
+  "M_Ground": {
+   "color": [
+    0.62,
+    0.5,
+    0.4
+   ],
+   "smoothness": 0.25,
+   "metallic": 0.0,
+   "texture": "Concrete036",
+   "tiling": 0.25
+  },
+  "M_Gutter": {
+   "color": [
+    0.3,
+    0.29,
+    0.26
+   ],
+   "smoothness": 0.85,
+   "metallic": 0.0,
+   "texture": "Concrete036",
+   "tiling": 1.0
+  },
+  "M_GutterWall": {
+   "color": [
+    0.62,
+    0.6,
+    0.55
+   ],
+   "smoothness": 0.3,
+   "metallic": 0.0,
+   "texture": "Concrete036",
+   "tiling": 1.0
+  },
+  "M_Headlight": {
+   "color": [
+    1,
+    1,
+    1
+   ],
+   "smoothness": 0.9,
+   "metallic": 0.0,
+   "emissionColor": [
+    4.0,
+    3.8,
+    3.4
+   ]
+  },
+  "M_Hedge": {
+   "color": [
+    0.11,
+    0.22,
+    0.09
+   ],
+   "smoothness": 0.2,
+   "metallic": 0.0
+  },
+  "M_Hoarding": {
+   "color": [
+    0.15,
+    0.3,
+    0.55
+   ],
+   "smoothness": 0.3,
+   "metallic": 0.0
+  },
+  "M_KerbBlack": {
+   "color": [
+    0.08,
+    0.08,
+    0.08
+   ],
+   "smoothness": 0.2,
+   "metallic": 0.0,
+   "texture": "Concrete034",
+   "tiling": 1.0
+  },
+  "M_KerbWhite": {
+   "color": [
+    0.95,
+    0.95,
+    0.92
+   ],
+   "smoothness": 0.2,
+   "metallic": 0.0,
+   "texture": "Concrete034",
+   "tiling": 1.0
+  },
+  "M_Kiosk_Blue": {
+   "color": [
+    0.15,
+    0.35,
+    0.7
+   ],
+   "smoothness": 0.4,
+   "metallic": 0.3,
+   "texture": "CorrugatedSteel005",
+   "tiling": 1.0
+  },
+  "M_Kiosk_Red": {
+   "color": [
+    0.75,
+    0.15,
+    0.12
+   ],
+   "smoothness": 0.4,
+   "metallic": 0.3,
+   "texture": "CorrugatedSteel005",
+   "tiling": 1.0
+  },
+  "M_Kiosk_Yellow": {
+   "color": [
+    0.95,
+    0.75,
+    0.1
+   ],
+   "smoothness": 0.4,
+   "metallic": 0.3,
+   "texture": "CorrugatedSteel005",
+   "tiling": 1.0
+  },
+  "M_Lamp_LED": {
+   "color": [
+    1.0,
+    0.96,
+    0.9
+   ],
+   "smoothness": 0.5,
+   "metallic": 0.0,
+   "emissionColor": [
+    3.0,
+    2.88,
+    2.7
+   ]
+  },
+  "M_Lamp_LEDCool": {
+   "color": [
+    0.88,
+    0.94,
+    1.0
+   ],
+   "smoothness": 0.5,
+   "metallic": 0.0,
+   "emissionColor": [
+    2.64,
+    2.82,
+    3.0
+   ]
+  },
+  "M_Lamp_Sodium": {
+   "color": [
+    1.0,
+    0.62,
+    0.28
+   ],
+   "smoothness": 0.5,
+   "metallic": 0.0,
+   "emissionColor": [
+    2.5,
+    1.55,
+    0.7000000000000001
+   ]
+  },
+  "M_Lattice": {
+   "color": [
+    0.88,
+    0.84,
+    0.72
+   ],
+   "smoothness": 0.1,
+   "metallic": 0.0,
+   "generated": "concrete lattice blocks (OsuLookDev.Lattice): not ported yet"
+  },
+  "M_LeafCard": {
+   "color": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "smoothness": 0.25,
+   "metallic": 0.0,
+   "alpha": "mask",
+   "doubleSided": true,
+   "generated": "foliage card (OsuLookDev.LeafPixel / FrondPixel): not ported yet"
+  },
+  "M_Manhole": {
+   "color": [
+    0.32,
+    0.32,
+    0.33
+   ],
+   "smoothness": 0.55,
+   "metallic": 0.7,
+   "texture": "CorrugatedSteel005",
+   "tiling": 3.0
+  },
+  "M_PalmTrunk": {
+   "color": [
+    0.46,
+    0.41,
+    0.34
+   ],
+   "smoothness": 0.15,
+   "metallic": 0.0,
+   "texture": "Concrete036",
+   "tiling": 2.0
+  },
+  "M_Parapet": {
+   "color": [
+    0.86,
+    0.84,
+    0.78
+   ],
+   "smoothness": 0.15,
+   "metallic": 0.0,
+   "texture": "Plaster007",
+   "tiling": 1.0
+  },
+  "M_Patch": {
+   "color": [
+    0.3,
+    0.3,
+    0.31
+   ],
+   "smoothness": 0.35,
+   "metallic": 0.0,
+   "texture": "Asphalt031",
+   "tiling": 0.5
+  },
+  "M_Pavers": {
+   "color": [
+    0.86,
+    0.81,
+    0.74
+   ],
+   "smoothness": 0.3,
+   "metallic": 0.0,
+   "generated": "interlocking pavers (OsuLookDev.Pavers): not ported yet"
+  },
+  "M_Pole": {
+   "color": [
+    0.3,
+    0.31,
+    0.32
+   ],
+   "smoothness": 0.4,
+   "metallic": 0.0,
+   "texture": "Concrete034",
+   "tiling": 1.0
+  },
+  "M_Polytank": {
+   "color": [
+    0.05,
+    0.05,
+    0.05
+   ],
+   "smoothness": 0.45,
+   "metallic": 0.0
+  },
+  "M_PowerPole": {
+   "color": [
+    0.62,
+    0.6,
+    0.56
+   ],
+   "smoothness": 0.2,
+   "metallic": 0.0,
+   "texture": "Concrete034",
+   "tiling": 1.0
+  },
+  "M_Railing": {
+   "color": [
+    0.04,
+    0.04,
+    0.045
+   ],
+   "smoothness": 0.5,
+   "metallic": 0.6
+  },
+  "M_Rebar": {
+   "color": [
+    0.25,
+    0.15,
+    0.1
+   ],
+   "smoothness": 0.3,
+   "metallic": 0.7
+  },
+  "M_RoadPaint": {
+   "color": [
+    0.85,
+    0.82,
+    0.74
+   ],
+   "smoothness": 0.45,
+   "metallic": 0.0
+  },
+  "M_Roof": {
+   "color": [
+    0.7,
+    0.66,
+    0.6
+   ],
+   "smoothness": 0.3,
+   "metallic": 0.0,
+   "texture": "CorrugatedSteel005",
+   "tiling": 1.0
+  },
+  "M_RoofSheet_Grey": {
+   "color": [
+    0.6,
+    0.6,
+    0.58
+   ],
+   "smoothness": 0.1,
+   "metallic": 0.0,
+   "texture": "CorrugatedSteel005",
+   "tiling": 1.0
+  },
+  "M_RoofSheet_Rust": {
+   "color": [
+    0.48,
+    0.29,
+    0.19
+   ],
+   "smoothness": 0.3,
+   "metallic": 0.3,
+   "texture": "CorrugatedSteel005",
+   "tiling": 1.0
+  },
+  "M_RoofTile_Red": {
+   "color": [
+    0.58,
+    0.24,
+    0.16
+   ],
+   "smoothness": 0.25,
+   "metallic": 0.1,
+   "texture": "CorrugatedSteel005",
+   "tiling": 1.5
+  },
+  "M_RoofTin": {
+   "color": [
+    0.8,
+    0.74,
+    0.66
+   ],
+   "smoothness": 0.35,
+   "metallic": 0.4,
+   "texture": "CorrugatedSteel005",
+   "tiling": 1.0
+  },
+  "M_Sand": {
+   "color": [
+    0.7,
+    0.63,
+    0.54
+   ],
+   "smoothness": 0.08,
+   "metallic": 0.0,
+   "texture": "Concrete036",
+   "tiling": 0.35
+  },
+  "M_ShopGlass_Cool": {
+   "color": [
+    0.96,
+    0.99,
+    1.0
+   ],
+   "smoothness": 0.8,
+   "metallic": 0.0,
+   "emission": 1.0,
+   "map": "interiors-atlas.png",
+   "emissionMap": "interiors-atlas.png"
+  },
+  "M_ShopGlass_Warm": {
+   "color": [
+    1.0,
+    0.88,
+    0.72
+   ],
+   "smoothness": 0.8,
+   "metallic": 0.0,
+   "emission": 1.1,
+   "map": "interiors-atlas.png",
+   "emissionMap": "interiors-atlas.png"
+  },
+  "M_Shutter": {
+   "color": [
+    0.62,
+    0.66,
+    0.7
+   ],
+   "smoothness": 0.45,
+   "metallic": 0.5,
+   "texture": "CorrugatedSteel005",
+   "tiling": 1.5
+  },
+  "M_Sidewalk": {
+   "color": [
+    0.78,
+    0.77,
+    0.75
+   ],
+   "smoothness": 0.25,
+   "metallic": 0.0,
+   "generated": "interlocking pavers (OsuLookDev.Pavers): not ported yet"
+  },
+  "M_SignFrame": {
+   "color": [
+    0.18,
+    0.18,
+    0.2
+   ],
+   "smoothness": 0.3,
+   "metallic": 0.2
+  },
+  "M_Sign_Lit": {
+   "color": [
+    1,
+    1,
+    1
+   ],
+   "smoothness": 0.45,
+   "metallic": 0.0,
+   "map": "signs-atlas.png",
+   "emission": 1.1,
+   "emissionMap": "signs-atlas.png"
+  },
+  "M_Sign_Painted": {
+   "color": [
+    1,
+    1,
+    1
+   ],
+   "smoothness": 0.45,
+   "metallic": 0.0,
+   "map": "signs-atlas.png"
+  },
+  "M_Slab": {
+   "color": [
+    0.7,
+    0.68,
+    0.64
+   ],
+   "smoothness": 0.2,
+   "metallic": 0.0,
+   "texture": "Concrete034",
+   "tiling": 1.0
+  },
+  "M_Steel": {
+   "color": [
+    0.42,
+    0.43,
+    0.44
+   ],
+   "smoothness": 0.45,
+   "metallic": 0.8
+  },
+  "M_Table": {
+   "color": [
+    0.35,
+    0.25,
+    0.15
+   ],
+   "smoothness": 0.3,
+   "metallic": 0.0
+  },
+  "M_Taillight": {
+   "color": [
+    0.6,
+    0,
+    0
+   ],
+   "smoothness": 0.9,
+   "metallic": 0.0,
+   "emissionColor": [
+    3.0,
+    0.15,
+    0.15
+   ]
+  },
+  "M_Trunk": {
+   "color": [
+    0.3,
+    0.25,
+    0.2
+   ],
+   "smoothness": 0.15,
+   "metallic": 0.0,
+   "texture": "Concrete036",
+   "tiling": 2.0
+  },
+  "M_Tyre": {
+   "color": [
+    0.05,
+    0.05,
+    0.05
+   ],
+   "smoothness": 0.2,
+   "metallic": 0.0
+  },
+  "M_Umbrella_A": {
+   "color": [
+    0.95,
+    0.8,
+    0.1
+   ],
+   "smoothness": 0.3,
+   "metallic": 0.0
+  },
+  "M_Umbrella_B": {
+   "color": [
+    0.1,
+    0.45,
+    0.2
+   ],
+   "smoothness": 0.3,
+   "metallic": 0.0
+  },
+  "M_Umbrella_C": {
+   "color": [
+    0.8,
+    0.1,
+    0.12
+   ],
+   "smoothness": 0.3,
+   "metallic": 0.0
+  },
+  "M_WallCoping": {
+   "color": [
+    0.84,
+    0.83,
+    0.79
+   ],
+   "smoothness": 0.2,
+   "metallic": 0.0,
+   "texture": "Concrete034",
+   "tiling": 1.0
+  },
+  "M_Wall_Concrete": {
+   "color": [
+    0.85,
+    0.83,
+    0.78
+   ],
+   "smoothness": 0.12,
+   "metallic": 0.0,
+   "texture": "Plaster007",
+   "tiling": 1.3
+  },
+  "M_Wall_Cream": {
+   "color": [
+    0.89,
+    0.83,
+    0.69
+   ],
+   "smoothness": 0.15,
+   "metallic": 0.0,
+   "texture": "Plaster007",
+   "tiling": 1.0
+  },
+  "M_Wall_Grey": {
+   "color": [
+    0.56,
+    0.56,
+    0.54
+   ],
+   "smoothness": 0.12,
+   "metallic": 0.0,
+   "texture": "PaintedPlaster017",
+   "tiling": 1.3
+  },
+  "M_Wall_Mint": {
+   "color": [
+    0.62,
+    0.76,
+    0.66
+   ],
+   "smoothness": 0.12,
+   "metallic": 0.0,
+   "texture": "PaintedPlaster017",
+   "tiling": 1.3
+  },
+  "M_Wall_Ochre": {
+   "color": [
+    0.79,
+    0.64,
+    0.42
+   ],
+   "smoothness": 0.12,
+   "metallic": 0.0,
+   "texture": "Plaster007",
+   "tiling": 1.3
+  },
+  "M_Wall_PaleBlue": {
+   "color": [
+    0.66,
+    0.75,
+    0.81
+   ],
+   "smoothness": 0.12,
+   "metallic": 0.0,
+   "texture": "PaintedPlaster017",
+   "tiling": 1.3
+  },
+  "M_Wall_Terracotta": {
+   "color": [
+    0.71,
+    0.4,
+    0.29
+   ],
+   "smoothness": 0.12,
+   "metallic": 0.0,
+   "texture": "Plaster007",
+   "tiling": 1.3
+  },
+  "M_Wall_White": {
+   "color": [
+    0.93,
+    0.92,
+    0.89
+   ],
+   "smoothness": 0.15,
+   "metallic": 0.0,
+   "texture": "Plaster007",
+   "tiling": 1.0
+  },
+  "M_WindowDark": {
+   "color": [
+    0.03,
+    0.04,
+    0.05
+   ],
+   "smoothness": 0.92,
+   "metallic": 0.0
+  },
+  "M_WindowLit_Cool": {
+   "color": [
+    0.95,
+    0.98,
+    1.0
+   ],
+   "smoothness": 0.6,
+   "metallic": 0.0,
+   "emission": 0.85,
+   "map": "interiors-atlas.png",
+   "emissionMap": "interiors-atlas.png"
+  },
+  "M_WindowLit_Warm": {
+   "color": [
+    1.0,
+    0.85,
+    0.66
+   ],
+   "smoothness": 0.6,
+   "metallic": 0.0,
+   "emission": 0.95,
+   "map": "interiors-atlas.png",
+   "emissionMap": "interiors-atlas.png"
+  }
+ },
+ "lightKinds": {
+  "sodium": {
+   "type": "spot",
+   "color": [
+    1.0,
+    0.62,
+    0.28
+   ],
+   "intensity": 120,
+   "range": 26,
+   "outerAngle": 125,
+   "innerAngle": 70,
+   "direction": "down",
+   "shadows": "oxford-street"
+  },
+  "led": {
+   "type": "spot",
+   "color": [
+    1.0,
+    0.96,
+    0.9
+   ],
+   "intensity": 120,
+   "range": 26,
+   "outerAngle": 118,
+   "innerAngle": 96,
+   "direction": "down",
+   "shadows": "oxford-street"
+  },
+  "led_cool": {
+   "type": "spot",
+   "color": [
+    0.88,
+    0.94,
+    1.0
+   ],
+   "intensity": 120,
+   "range": 26,
+   "outerAngle": 118,
+   "innerAngle": 96,
+   "direction": "down",
+   "shadows": "oxford-street"
+  },
+  "shop_warm": {
+   "type": "point",
+   "color": [
+    1.0,
+    0.86,
+    0.68
+   ],
+   "intensity": 12,
+   "range": 7
+  },
+  "shop_cool": {
+   "type": "point",
+   "color": [
+    0.95,
+    0.98,
+    1.0
+   ],
+   "intensity": 12,
+   "range": 7
+  },
+  "kiosk": {
+   "type": "point",
+   "color": [
+    0.95,
+    0.98,
+    1.0
+   ],
+   "intensity": 8,
+   "range": 5
+  },
+  "bulb": {
+   "type": "point",
+   "color": [
+    1.0,
+    0.72,
+    0.42
+   ],
+   "intensity": 4,
+   "range": 4.5
+  },
+  "billboard": {
+   "type": "spot",
+   "color": [
+    0.95,
+    0.97,
+    1.0
+   ],
+   "intensity": 30,
+   "range": 9,
+   "outerAngle": 80,
+   "innerAngle": 50,
+   "direction": "target"
+  },
+  "uplight": {
+   "type": "spot",
+   "color": [
+    0.92,
+    0.96,
+    1.0
+   ],
+   "intensity": 22,
+   "range": 11,
+   "outerAngle": 75,
+   "innerAngle": 35,
+   "direction": "target"
+  },
+  "headlight": {
+   "type": "spot",
+   "color": [
+    1.0,
+    0.95,
+    0.85
+   ],
+   "intensity": 40,
+   "range": 60,
+   "outerAngle": 55,
+   "innerAngle": 30,
+   "pitchDown": 7
+  }
+ },
+ "environments": {
+  "night": {
+   "ambient": {
+    "mode": "flat",
+    "color": [
+     0.058,
+     0.06,
+     0.066
+    ]
+   },
+   "fog": {
+    "mode": "exp2",
+    "color": [
+     0.1,
+     0.1,
+     0.105
+    ],
+    "density": 0.003
+   },
+   "reflectionIntensity": 0.08,
+   "sky": "T_NightSky (generated, not ported yet)",
+   "directional": {
+    "name": "moon",
+    "color": [
+     0.78,
+     0.82,
+     0.9
+    ],
+    "intensity": 0.14,
+    "eulerUnity": [
+     38,
+     200,
+     0
+    ],
+    "shadows": false
+   },
+   "post": {
+    "bloom": "tight",
+    "tonemapping": "neutral"
+   }
+  },
+  "day": {
+   "ambient": {
+    "mode": "trilight",
+    "sky": [
+     0.5,
+     0.57,
+     0.68
+    ],
+    "equator": [
+     0.47,
+     0.48,
+     0.49
+    ],
+    "ground": [
+     0.3,
+     0.27,
+     0.23
+    ]
+   },
+   "fog": {
+    "mode": "exp2",
+    "color": [
+     0.76,
+     0.8,
+     0.85
+    ],
+    "density": 0.0022
+   },
+   "sky": "T_DaySky.png panorama",
+   "directional": {
+    "name": "sun",
+    "color": [
+     1.0,
+     0.95,
+     0.87
+    ],
+    "intensity": 1.9,
+    "eulerUnity": [
+     42,
+     62,
+     0
+    ],
+    "shadows": true
+   },
+   "post": {
+    "bloom": {
+     "intensity": 1.25,
+     "threshold": 0.12
+    },
+    "tonemapping": "neutral",
+    "contrast": 6,
+    "saturation": 4
+   },
+   "materialSwaps": "DayLook in OsuDayNight.cs: lamp heads, signs, billboard, floodlight and bulb emission off; windows dark glass; asphalt smoothness 0.5"
+  }
+ }
+}
