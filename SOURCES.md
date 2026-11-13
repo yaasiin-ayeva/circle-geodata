@@ -24,11 +24,14 @@ Checked 12 November 2026, from the landscape research in `circle-bible/research/
 | Esri, Mapbox imagery | Tracing only to improve OSM itself, under their OSM terms | No direct use in the game |
 | Cesium ion curated assets (terrain, OSM Buildings, Bing) | Checking geometry while authoring | Streaming and display only; the game never ships a dependency on them |
 
-## Never used
+## Google imagery
 
-| Source | Why |
+Street View, Google imagery, Google Earth and Google Photorealistic 3D Tiles may be used as sources, including for facades and street dressing, by the team's decision of 13 November 2026 ([DECISIONS.md](https://github.com/yaasiin-ayeva/circle-bible/blob/main/DECISIONS.md)). Google's terms say otherwise, and the team accepts that risk: the Google Maps Platform Terms of Service (§3.2.3, last modified 26 August 2026) forbid scraping, bulk downloads, caching and creating content from Google Maps content, and the Street View brand rules forbid screenshots, tracing, extracting information and stitching views. Real brands are removed from anything taken from them, as from every other source.
+
+## Licence limits
+
+| Source | Licence |
 | --- | --- |
-| Google Photorealistic 3D Tiles, Google imagery, Street View, Google Earth | The Map Tiles API policies forbid derived content and caching |
 | FABDEM | Non-commercial licence, unless a commercial licence is bought |
 | Maxar Open Data | CC BY-NC 4.0, and no Accra event found |
 
