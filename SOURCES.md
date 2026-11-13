@@ -19,7 +19,7 @@ Checked 12 November 2026, from the landscape research in `circle-bible/research/
 
 | Source | Use | Why not more |
 | --- | --- | --- |
-| Mapillary, KartaView | Looking at streets | CC BY-SA: share-alike makes derived textures risky; coverage thin in Accra |
+| Mapillary, KartaView | Looking at streets | CC BY-SA: share-alike makes derived textures risky. Mapillary is dense on the Osu lap, with a night sequence on Oxford Street (checked 13 Nov 2026, circle-reference `catalogue/street-survey.md`); KartaView not checked |
 | Ghana official data (2016 Greater Accra roads shapefile, 2021 census: 1.90 M structures) | Census figures as a sanity check | The shapefile has no licence; not usable without written permission |
 | Esri, Mapbox imagery | Tracing only to improve OSM itself, under their OSM terms | No direct use in the game |
 | Cesium ion curated assets (terrain, OSM Buildings, Bing) | Checking geometry while authoring | Streaming and display only; the game never ships a dependency on them |

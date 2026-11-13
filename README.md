@@ -76,6 +76,9 @@ For the game (three.js, decision of 13 November 2026), the same files become com
 python3 scripts/export_glb.py data/work/osu-poc/osu-poc.obj --out data/work/web/osu-poc.glb
 python3 scripts/export_glb.py data/work/osu-poc/osu-lookdev.obj --textures ../circle-game/art/textures --out data/work/web/osu-lookdev.glb
 python3 scripts/export_scene.py --district data/work/osu-poc/osu-poc.json --lookdev data/work/osu-poc/osu-lookdev.json --out data/work/web/osu-scene.json
+# Scenes exported before 13 Nov 2026: apply the street survey's lighting rules without rebuilding
+python3 scripts/relight_scene.py data/work/web/osu-scene.json
+python3 tests/test_street_lights.py
 gltfpack -i data/work/web/osu-poc.glb -o data/work/web/osu-poc.pack.glb -cc -kn -km -vpf -vtf
 gltfpack -i data/work/web/osu-lookdev.glb -o data/work/web/osu-lookdev.pack.glb -cc -kn -km -vpf -vtf
 cd ../circle-game && npm run data    # copies the packed GLB, the scene JSON and look.json into the game

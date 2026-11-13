@@ -23,6 +23,9 @@ def g(x, y, z):
     return [round(x, 3), round(y, 3), round(-z, 3)]
 
 
+HEAD_M, ARM_M = 10.0, 1.75
+
+
 def heading(yaw_deg):
     """A Unity yaw (degrees clockwise from north, seen from above) as a glTF ground direction."""
     a = math.radians(yaw_deg)
@@ -34,11 +37,11 @@ def street_lights(lamps):
     for l in lamps:
         f = heading(l["yaw"])
         foot = g(l["x"], l.get("y", 0.0), l["z"])
-        # OsuPoC.StreetLights: an 8 m pole, a 2 m arm along the lamp's yaw, the head at 7.88 m, the light at 7.75 m.
-        head = [round(foot[0] + f[0] * 2.0, 3), round(foot[1] + 7.88, 3), round(foot[2] + f[2] * 2.0, 3)]
+        # Heads at 10 m on a 1.75 m arm (circle-reference/catalogue/street-survey.md, measured on Oxford Street).
+        head = [round(foot[0] + f[0] * ARM_M, 3), round(foot[1] + HEAD_M, 3), round(foot[2] + f[2] * ARM_M, 3)]
         entry = {"kind": l["kind"], "road": l.get("road", ""), "foot": foot, "forward": f, "head": head}
         if l["kind"] != "dead":
-            entry["light"] = [head[0], round(foot[1] + 7.75, 3), head[2]]
+            entry["light"] = [head[0], round(foot[1] + HEAD_M - 0.13, 3), head[2]]
             entry["direction"] = [0.0, -1.0, 0.0]
         out.append(entry)
     return out

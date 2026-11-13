@@ -239,7 +239,8 @@ def build(args):
             w, lift = ROAD_WIDTH[cls], ROAD_LIFT[cls]
             mat = "M_AsphaltMajor" if cls in MAJOR else "M_Asphalt"
             ribbon(mesh, line, w, lift, mat, "Roads")
-            if cls in ("primary", "secondary", "trunk"):
+            # Oxford Street has no lane markings (street survey; OSM lane_markings=no).
+            if cls in ("primary", "secondary", "trunk") and name != "Oxford Street":
                 for d0 in np.arange(2.0, line.length - 3.0, 6.0):
                     # Centre lines in Accra are worn: about a third of the dashes are gone.
                     if unit_hash(rid, "dash", int(d0)) < 0.35:
@@ -326,37 +327,71 @@ def ribbon(mesh, line, w, lift, mat, prefix):
                   uv=((0, along[i] / 4), (0, along[i + 1] / 4), (w / 4, along[i + 1] / 4), (w / 4, along[i] / 4)))
 
 
+# Street lights on the lap, from circle-reference/catalogue/street-survey.md (Street View, Aug 2024):
+#   - Oxford Street: one side only (east), poles 39, 142 and 84 m apart (mean 88 m), never alternating sides;
+#   - Ring Road East and Danquah Circle: about 40 m apart (twin-arm poles in the median where the road is split);
+#   - every head on the lap is white LED: the 2020-21 programme swapped the sodium heads on the same poles.
+# Sodium survives only off the lap, on other main roads.
+LAP_ROADS = ("Oxford Street", "Ring Road East", "Danquah Circle")
+OXFORD_GAP_M = (35.0, 145.0)
+RING_STEP_M = 40.0
+
+
+def lamp_kind(rid, stretch, k, on_lap):
+    """White LED everywhere on the lap (80% neutral, 20% cold); off the lap 20% of stretches keep sodium.
+    Dead poles: whole dark stretches (about one in eight), and off the lap about one pole in four more
+    (research/landscape-look.md: about half of Accra's MiDA-era lights were off in a 2024 sample)."""
+    r = unit_hash(rid, stretch, "kind")
+    kind = "led_cool" if r >= 0.8 else "led"
+    if not on_lap and 0.6 <= r < 0.8:
+        kind = "sodium"
+    if unit_hash(rid, stretch) < 0.12 or (not on_lap and unit_hash(rid, "dead", k) < 0.25):
+        kind = "dead"
+    return kind
+
+
+def light_spots(rid, name, length):
+    """Distances along the road where poles stand, and the side rule for each road."""
+    if name == "Oxford Street":
+        out, d, k = [], 12.0, 0
+        while d < length:
+            out.append(d)
+            u = unit_hash(rid, "gap", k)
+            d += OXFORD_GAP_M[0] + (OXFORD_GAP_M[1] - OXFORD_GAP_M[0]) * u ** 1.2
+            k += 1
+        return out, "east"
+    if name in LAP_ROADS:
+        return list(np.arange(RING_STEP_M / 2, length, RING_STEP_M)), "left"
+    return list(np.arange(16.0, length, 32.0)), "alternate"
+
+
 def place_lights(rid, cls, name, line, w):
-    """Poles along major roads, one side at a time, alternating: Oxford Street every 24 m, others every 32 m, so
-    the night has dark gaps between pools, as in the 2026 photos of Oxford Street.
-    About one stretch in eight stays dark on purpose. Accra's streets are mostly lit by white LED now, with
-    some older sodium heads left: per stretch of six poles, about 65% neutral white LED, 15% cold white LED
-    and 20% sodium; on ring roads and Oxford Street only about 8% of stretches keep sodium."""
+    """Poles along major roads, following the street survey on the lap (see LAP_ROADS) and, elsewhere, one pole
+    every 32 m on alternating sides, so the night has dark gaps between pools."""
     out = []
-    oxford = name == "Oxford Street"
-    step = 24.0 if oxford else 32.0
-    modern = "Ring Road" in name or oxford
-    for k, d in enumerate(np.arange(step / 2, line.length, step)):
+    on_lap = name in LAP_ROADS
+    spots, rule = light_spots(rid, name, line.length)
+    step = 88.0 if name == "Oxford Street" else (RING_STEP_M if on_lap else 32.0)
+    for k, d in enumerate(spots):
         stretch = int(d // (step * 6))
-        r = unit_hash(rid, stretch, "kind")
-        kind = "led_cool" if 0.65 <= r < 0.80 else ("sodium" if r >= (0.92 if modern else 0.80) else "led")
-        # Dead poles: whole dark stretches (about one in eight), and off the main routes about one pole in four more
-        # (research/landscape-look.md: about half of Accra's MiDA-era lights were off in a 2024 sample).
-        if unit_hash(rid, stretch) < 0.12 or (not modern and unit_hash(rid, "dead", k) < 0.25):
-            kind = "dead"
+        kind = lamp_kind(rid, stretch, k, on_lap)
         p = np.array(line.interpolate(d).coords[0])
         q = np.array(line.interpolate(min(d + 1.0, line.length)).coords[0])
         if np.linalg.norm(q - p) < 1e-6:
             continue
         t = (q - p) / np.linalg.norm(q - p)
         left = np.array([-t[1], t[0]])
-        sides = (1,) if k % 2 == 0 else (-1,)
-        for s in sides:
-            pos = p + left * s * (w / 2 + 1.2)
-            face = -left * s  # the lamp arm points over the road
-            out.append({"x": round(float(pos[0]), 2), "y": 0.0, "z": round(float(pos[1]), 2),
-                        "yaw": round(math.degrees(math.atan2(face[0], face[1])), 1),
-                        "kind": kind, "road": name or cls})
+        if rule == "east":
+            s = 1 if left[0] >= 0 else -1
+        elif rule == "left":
+            s = 1
+        else:
+            s = 1 if k % 2 == 0 else -1
+        pos = p + left * s * (w / 2 + 1.2)
+        face = -left * s  # the lamp arm points over the road
+        out.append({"x": round(float(pos[0]), 2), "y": 0.0, "z": round(float(pos[1]), 2),
+                    "yaw": round(math.degrees(math.atan2(face[0], face[1])), 1),
+                    "kind": kind, "road": name or cls})
     return out
 
 
