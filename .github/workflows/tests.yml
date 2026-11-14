@@ -1,0 +1,27 @@
+# The pipeline's tests on every pull request and every push to main. They run on synthetic data, offline.
+# The full city is built from these scripts by circle-game's CI (scripts/build-city.sh) before each deploy.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements.txt -r requirements-district.txt
+      - name: Run the tests
+        run: |
+          for t in tests/test_*.py; do
+            echo "== $t"
+            python3 "$t"
+          done
