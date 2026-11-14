@@ -432,6 +432,8 @@ def build(args):
                   for n, lat, lon, b in rules.get("signs", []) for e, nn in [to_utm.transform(lon, lat)]],
         # Only districts with a parking rule carry the key, so Osu's file is unchanged.
         **({"parked": parked} if parked else {}),
+        # The drivable network for the game's traffic (circle-game src/vehicles/traffic.ts).
+        "roads": traffic_network(roads, clip),
         "credits": "Buildings and roads: Overture Maps Foundation (ODbL), from OpenStreetMap contributors, "
                    "Google Open Buildings and Microsoft. Heights from typology rules.",
     }
@@ -601,6 +603,38 @@ def junctions(lines, tol=0.05):
             arms += 1 if at_end and not l.is_closed else 2
         if arms >= 3:
             out.append(p)
+    return out
+
+
+TRAFFIC_CLASSES = ("motorway", "trunk", "primary", "secondary", "tertiary", "residential", "unclassified")
+
+
+def traffic_network(roads, clip):
+    """The drivable roads as a network for the game's traffic: every road of a traffic class inside the district,
+    noded at every crossing (Overture segments often run straight through junctions), each piece with the class,
+    width and name of the road it lies on, simplified to 0.5 m. Points are x east, z north, as the rest of the file."""
+    src = []
+    for rid, cls, name, g in roads:
+        if cls not in TRAFFIC_CLASSES:
+            continue
+        g = g.intersection(clip)
+        for line in ([g] if isinstance(g, LineString) else list(getattr(g, "geoms", []))):
+            if isinstance(line, LineString) and line.length >= 2:
+                src.append((cls, name, line))
+    if not src:
+        return []
+    tree = shapely.STRtree([l for _, _, l in src])
+    noded = shapely.union_all([l for _, _, l in src])
+    pieces = [noded] if isinstance(noded, LineString) else list(getattr(noded, "geoms", []))
+    out = []
+    for piece in pieces:
+        if not isinstance(piece, LineString) or piece.length < 1.0:
+            continue
+        mid = piece.interpolate(0.5, normalized=True)
+        cls, name, _ = src[int(tree.nearest(mid))]
+        pts = list(piece.simplify(0.5).coords)
+        out.append({"cls": cls, "w": ROAD_WIDTH[cls], "name": name,
+                    "pts": [round(float(c), 1) for xy in pts for c in xy[:2]]})
     return out
 
 

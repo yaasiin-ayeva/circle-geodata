@@ -87,6 +87,11 @@ def main():
         scene["signs"] = [{"name": sg["name"], "from": [sg["x"], -sg["z"]],
                            "toward": [round(math.sin(math.radians(sg["bearing"])), 4), round(-math.cos(math.radians(sg["bearing"])), 4)]}
                           for sg in d["signs"]]
+    # The drivable network, for traffic: polylines in glTF axes with their class, width and name.
+    if d.get("roads"):
+        scene["roads"] = [{"cls": r["cls"], "w": r["w"], "name": r["name"],
+                           "pts": [[r["pts"][i], round(-r["pts"][i + 1], 1)] for i in range(0, len(r["pts"]), 2)]}
+                          for r in d["roads"]]
     if args.lookdev:
         lk = json.load(open(args.lookdev))
         scene["files"]["block"] = "osu-lookdev.glb"
