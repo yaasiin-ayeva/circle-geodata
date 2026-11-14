@@ -20,7 +20,8 @@ Pre-production. The area files, the Overture counting and extraction script, the
 | [scripts/build_lookdev.py](scripts/build_lookdev.py) | Dresses the first 220 m of Oxford Street at target quality: facades with windows, bars, AC units and shopfronts, the shop signs and billboards transcribed on Oxford Street and the lap, rooms and shop interiors behind lit glass, sidewalks, gutters, power lines, kiosks, umbrellas |
 | [scripts/build_district.py](scripts/build_district.py) | Turns an export into a drivable district for the engines: OBJ meshes, streetlights, a benchmark lap ([requirements-district.txt](requirements-district.txt)) |
 | [scripts/massing.py](scripts/massing.py) | The district's building modules: hipped roofs on houses, stair bulkheads, set-back top storeys, unfinished frame storeys, compound walls with gates along residential streets |
-| [scripts/export_glb.py](scripts/export_glb.py), [scripts/export_scene.py](scripts/export_scene.py) | What the game loads: indexed GLB per 250 m cell with glTF PBR materials, and a scene JSON (lights, lap, parked cars, models) in glTF axes |
+| [scripts/export_glb.py](scripts/export_glb.py), [scripts/export_scene.py](scripts/export_scene.py) | What the game loads: indexed GLB per 250 m cell with glTF PBR materials (or, with `--tile-m`, one GLB per square of cells for streaming), and a scene JSON (lights, lap, parked cars, models, roads, solid outlines, tiles) in glTF axes |
+| [scripts/export_world.py](scripts/export_world.py) | The world the game streams: areas that join along their edges, home first, with their offsets in one frame |
 | [scripts/build_kit.py](scripts/build_kit.py) | The Osu facade kit, modelled in Blender from the street survey: 13 low-poly parts (window surround, burglar bars, balcony balusters and rail, shutter box, canopy, kiosk posts, AC unit, polytank, parapet with and without rebar, pole with and without an LED head) exported to one GLB for the game, with a preview render. See [Building the facade kit](#building-the-facade-kit) |
 | [look/look.json](look/look.json) | The look as data: materials, light kinds, night and day environments, taken from the Unity proof of concept |
 | [tests/](tests/) | A test of the script against a synthetic release |
@@ -148,13 +149,58 @@ gltfpack -i data/work/web/jamestown.glb -o data/work/web/jamestown.pack.glb -cc 
 
 `export_scene.py` names the scene's GLB after the district file (`jamestown.json` gives `jamestown.glb`); `--glb` overrides it.
 
-**What every district's scene carries for the game's systems** (both districts, 14 November 2026):
-- **`roads`:** the drivable network, noded at every crossing, for the traffic (`traffic_network()`).
+### The Ring Road, streamed beside Osu
+
+For the vertical slice's drives on the Ring Road (circle-bible `bible/game-design.md`: the Civic through traffic on the Ring Road, a heat chase in Osu and on the Ring Road). The area is `ring-road` in `AREAS`, built from the Osu slice already in `data/work/slice`: no new download.
+
+- **What:** a corridor 250 m either side of the Ring Road, from the slice's west edge on Ring Road Central (−0.1945, 2.1 km short of Kwame Nkrumah Circle) through the Ako Adjei Interchange, Ring Road East, Danquah Circle and Ring Road East to its end at La Road. The segments are found by name (`RING_ROADS`); the corridor stays inside the vertical slice's box.
+- **Next to Osu, not over it:** it leaves out osu-poc's box, so each building, road ribbon and light belongs to one area. It lays its ground per 250 m cell, and not where osu-poc lays its own (its box widened by the 60 m margin). It shares Osu's origin (Danquah Circle), so the game loads both areas in one frame with no offset. What is left is two pieces: north-west of Osu's box (Ring Road East and Central) and east of it (Ring Road East to La).
+- **Building rules:** Osu's (`DISTRICT_RULES["ring-road"]`): walled yards off the main roads, Osu's roof mix and paints, the typology rules for storeys. The street survey describes Ring Road East's frontage as 1–2 storeys behind walls with about 20% shopfronts, without a count. On the build, 237 of the 269 buildings within 40 m of the Ring Road (88%) have 1–2 storeys.
+- **Parked cars:** the area has no dressed block, so it parks cars like Jamestown (`place_parked()`). They go on its residential, unclassified and tertiary streets (the survey: "on sandy verges and concrete aprons in the residential streets"), never on the Ring Road itself. A place is taken about one time in five; that is an estimate. The clearances and paints are Jamestown's.
+- **The lap** (`route_lap()`, `RING_LAP`) is 7.02 km. It starts on the westbound carriageway leaving Danquah Circle and runs west to the slice's edge. It turns through a median opening at the west end and comes back east through the circle to La, turns at the end of Ring Road East, and returns to the circle.
+  - It passes through route points placed on vertices of each carriageway. The legs between them are shortest paths.
+  - The roads named in `ONE_WAY_ROADS` (the Ring Road's carriageways, Danquah Circle, the Ako Adjei Interchange) are driven along their geometry only.
+  - Roads are cut only where they share a vertex, so a flyover never becomes a turn.
+  - It is driven on the roads of the whole corridor, Osu's box included. The game's headless test drives it in 405 s with no reset, against both areas' solid outlines.
+- **One-way roads in the scene:** OpenStreetMap tags Ring Road East and Danquah Circle `oneway=yes` (circle-reference `street-survey.md`). The slice holds each carriageway of the Ring Road as its own segment, the two running opposite ways, westbound on the north side. Overture's one-way rules are not in the slice, so `traffic_network()` flags the pieces of `ONE_WAY_ROADS` `"oneway": true` and orients each along its carriageway. This adds the flag to osu-poc's Ring Road East and Danquah Circle (30 pieces); nothing else in osu-poc or Jamestown changes.
+- **The 14 November build** (Overture 2026-10-21.0):
+  - 2,421 buildings, 33.5 km of road and 124,900 triangles;
+  - 281 street lights, of which 197 lit (147 LED, 37 cold LED, 13 sodium) and 84 dead;
+  - 600 parked places, 94 of them taxis;
+  - 2,420 solid outlines and 649 wall pieces;
+  - massing: 1,080 hipped roofs, 286 bulkheads, 59 frame storeys, 15 set-backs, and 44.2 km of compound wall with 1,151 gates.
+- **Tiles:** `export_glb.py --tile-m 500` groups the 250 m cells in squares of 500 m: 17 tiles, 1.72 MB packed (14 to 244 KB each, 35 primitives on average).
+  - A tile of fewer than 200 triangles (a sliver of ground margin) joins its nearest neighbour.
+  - `tiles.json` lists each tile's file, ground bounds in glTF x and z, triangles and sizes, and `export_scene.py --tiles` copies the list into the scene.
+  - The scene is 414 KB, 102 KB gzipped.
+- **The world:** `export_world.py` writes `osu-world.json`, osu-poc first (home) and the Ring Road after it, with each area's offset from home's origin.
+  - It also names the file in home's scene (`files.world` in `osu-scene.json`), so it runs after `export_scene.py`. A scene that names no world loads alone.
+  - The game loads home whole, merges both scenes, and streams the tiles by distance (circle-game `docs/world.md`).
+- **Rebuild** (after osu-poc and its scene, above):
+
+  ```sh
+  python3 scripts/build_district.py --slice data/work/slice --name ring-road --out data/work/ring-road
+  python3 scripts/export_glb.py data/work/ring-road/ring-road.obj --uv-only M_Wall_ --tile-m 500 --gltfpack gltfpack --out data/work/web/ring-road.glb
+  python3 scripts/export_scene.py --district data/work/ring-road/ring-road.json --tiles data/work/web/ring-road/tiles.json --out data/work/web/ring-road-scene.json
+  python3 scripts/export_world.py --name osu data/work/web/osu-scene.json data/work/web/ring-road-scene.json --out data/work/web/osu-world.json
+  python3 tests/test_ring_road.py
+  cd ../circle-game && npm run data    # copies osu-world.json, ring-road-scene.json and ring-road/*.pack.glb too
+  ```
+
+- **To reach Kwame Nkrumah Circle**, the corridor needs the milestone-2 slice (west edge −0.220): `python3 scripts/overture_slice.py export --release 2026-10-21.0 --name milestone-2 --out data/work/slice-m2`.
+  - That adds 2.8 × 3.7 km, about 10 km² of dense city (Adabraka, Kokomlemle, Asylum Down, Ridge), to the vertical slice.
+  - At the vertical slice's 36,176 buildings in 4.4 MB of GeoParquet (16 km² of land), it should come to 7 to 9 MB in all.
+  - DuckDB reads from Overture's bucket only the row groups that cover the box, but those are larger than the output, so the transfer is likely tens of MB (not measured).
+  - Not downloaded: it waits for approval. Then `VERTICAL_SLICE` in the corridor's `"within"` becomes milestone-2's box and the lap's west route points move to Circle.
+- **Not built yet:** the Ring Road's real cross-section. Each carriageway is drawn at the primary width of 13 m and their centrelines are about 11 m apart, so the two ribbons cover the grass median, and its poles stand on asphalt. The survey measured 7 m carriageways either side of an 8–10 m median. Also not built: the billboards and gantry along the Ring Road (`texts.csv` rows `txt-osu-ringdanquah-*`), and the Danquah Circle island.
+
+**What every district's scene carries for the game's systems** (all three areas, 14 November 2026):
+- **`roads`:** the drivable network, noded at every crossing, for the traffic (`traffic_network()`); pieces of one-way roads carry `"oneway": true` and run the way the traffic goes.
 - **`solid`:** what the cars collide with (`solid_outlines()`, checked by `tests/test_solid.py`):
   - the outline of every building, look-dev and landmark ones included, simplified to 0.5 m;
   - the compound walls, their closed gates included;
   - **kept off the carriageway:** mapped footprints sometimes reach onto the road (kiosks, canopies, a misplaced centreline: 23 outlines in Osu and 57 in Jamestown lay within 1 m of a centreline). The part of an outline on a drivable road, up to 0.3 m short of its edge and with the junctions' corners, is left out of the collisions; the buildings are still drawn whole;
-  - **counts:** Osu 3,184 outlines and 637 wall pieces, Jamestown 4,342 outlines and no walls.
+  - **counts:** Osu 3,184 outlines and 637 wall pieces, Jamestown 4,342 outlines and no walls, the Ring Road 2,420 outlines and 649 wall pieces.
 - **Format:** both are written on one line each, as flat lists of numbers, so the Osu scene is 289 KB (95 KB compressed) and Jamestown's 399 KB.
 
 `latest` picks the newest release on Overture's public bucket; a fixed name from the [release list](https://docs.overturemaps.org/release/) works too. Downloads and working files go under `data/`, which is not committed.

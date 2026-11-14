@@ -13,6 +13,10 @@ Writes one shared asset set for the Unity and Unreal proof of concept:
                             for them (DISTRICT_RULES "parking", not Osu).
   osu-poc-preview.png       top-down check: roads, buildings by height, lights, lap.
 
+An area is a box (osu-poc, jamestown) or a corridor along named roads less the boxes of its neighbours (ring-road,
+--name ring-road): see AREAS and area_outline(). A corridor lays its ground per 250 m cell, and its lap is a route
+through given points (route_lap()) rather than a loop round a block.
+
 Heights come from OSM tags where they exist, otherwise from the typology rules in storeys(); they are
 placeholders until the Open Buildings 2.5D heights are merged (pipeline step 3). Each footprint is then built from
 the modules in massing.py (hipped roofs, bulkheads, set-backs, frame storeys, compound walls); --no-massing keeps
@@ -43,14 +47,43 @@ WORLD_ORIGIN_UTM = (808523.0, 616356.0)  # Kwame Nkrumah Interchange ("Circle"),
 
 JAMESTOWN_ORIGIN = (5.5395, -0.2080)          # High Street by Ussher Fort, where the lap starts
 JAMESTOWN_LAP = ("High Street", 5.5335)          # set from the slice's road names
+OSU_ORIGIN = (5.5669, -0.1809)                   # Danquah Circle
+
+# The vertical slice's box (aoi/slices.geojson "vertical-slice"): the Osu slice's buildings stop at its west edge.
+VERTICAL_SLICE = {"south": 5.542, "north": 5.575, "west": -0.1945, "east": -0.137}
+# The Ring Road through the vertical slice, by the names Overture gives its segments: from the slice's west edge on
+# Ring Road Central (2.1 km short of Kwame Nkrumah Circle) through the Ako Adjei Interchange, Ring Road East and
+# Danquah Circle, then Ring Road East to its end at La. Both carriageways are mapped, each one way along its geometry.
+RING_ROADS = ("Ring Road Central", "Ring Road East", "Danquah Circle", "Ako Adjei Interchange")
+# Roads mapped one way per carriageway, driven along their geometry: OpenStreetMap tags Ring Road East and Danquah
+# Circle oneway=yes (circle-reference street-survey.md), and the slice has each carriageway of the Ring Road as its own
+# segment, the two running opposite ways, westbound on the north side as Ghana drives on the right. Overture's one-way
+# rules are not in the slice, so the names stand in for them.
+ONE_WAY_ROADS = RING_ROADS
+# The Ring Road lap (route_lap): points the route passes in order, each on one carriageway, at a vertex of its segment
+# (lat, lon). From the westbound carriageway leaving Danquah Circle, west to the slice's edge, back east through the
+# circle, on to La and back to the circle. The route between them follows the carriageways' directions.
+RING_LAP = {"route": [(5.567666, -0.182117),     # westbound, leaving Danquah Circle
+                      (5.573174, -0.192172),     # westbound, Ring Road Central past the Ako Adjei Interchange
+                      (5.573673, -0.193304),     # eastbound, after turning at the west end
+                      (5.564333, -0.176351),     # eastbound, Ring Road East past Danquah Circle
+                      (5.560141, -0.169233),     # eastbound, before La
+                      (5.556986, -0.167259),     # westbound, after turning at La
+                      (5.566147, -0.179392)],    # westbound, before Danquah Circle
+            "one_way": ONE_WAY_ROADS}
 
 AREAS = {
     # About 1.3 km2 of Osu: Danquah Circle, the north half of Oxford Street, Ring Road East.
     "osu-poc": {"south": 5.5575, "north": 5.5695, "west": -0.1870, "east": -0.1780,
-                "origin": (5.5669, -0.1809), "lap": ("Oxford Street", 5.5600), "district": "osu"},
+                "origin": OSU_ORIGIN, "lap": ("Oxford Street", 5.5600), "district": "osu"},
     # Jamestown, Bukom and Ussher Town (aoi/slices.geojson "jamestown"; slice in data/work/slice-jamestown).
     "jamestown": {"south": 5.5300, "north": 5.5425, "west": -0.2175, "east": -0.2055,
                   "origin": JAMESTOWN_ORIGIN, "lap": JAMESTOWN_LAP, "district": "jamestown"},
+    # The Ring Road beyond Osu: a corridor 250 m either side of RING_ROADS inside the vertical slice, less osu-poc's
+    # box, so the two areas meet without overlapping (slice in data/work/slice). It shares Osu's origin, so the game
+    # loads both in one frame; its lap runs through osu-poc, on the roads of the whole corridor.
+    "ring-road": {"corridor": {"roads": RING_ROADS, "half_width_m": 250.0, "within": VERTICAL_SLICE},
+                  "minus": ["osu-poc"], "origin": OSU_ORIGIN, "lap": RING_LAP, "district": "ring-road"},
 }
 
 # What changes from one district to the next (circle-reference district cards, catalogue/*-identity-survey.md).
@@ -97,6 +130,19 @@ DISTRICT_RULES = {
                   # then silver, white, red, blue), and a taxi waiting on about 12% of the places: weights estimated.
                   "parking": {"classes": ["residential", "unclassified", "tertiary", "secondary"], "take": 0.25,
                               "streets": {"High Street": 0.35}, "lap_m": 250.0, "step_m": 6.5,
+                              "inset_m": 1.0, "wide_inset_m": 1.1, "narrow_m": 7.0,
+                              "junction_m": 12.0, "building_m": 1.5, "spawn_m": 6.0, "gap_m": 5.5,
+                              "colours": [("grey", 0.20), ("black", 0.20), ("silver", 0.18), ("white", 0.16),
+                                          ("red", 0.08), ("blue", 0.06), ("taxi", 0.12)]}},
+    # The Ring Road corridor: Osu's building rules (walled yards off the main roads, Osu's roof mix and paints). The
+    # street survey describes Ring Road East's frontage as 1-2 storeys behind walls with about 20% shopfronts, which
+    # the yards already give; it counted no storeys there, so the typology rules stay. It has no dressed block, so
+    # cars park along its side streets (street survey: "on sandy verges and concrete aprons in the residential
+    # streets"), never on the Ring Road itself, a primary road with no parking lane. The chance a place is taken
+    # (about one in five) is an estimate, not a count; the clearances and paints are Jamestown's.
+    "ring-road": {"yards": True, "paints": None, "landmarks": [],
+                  "parking": {"classes": ["residential", "unclassified", "tertiary"], "take": 0.2,
+                              "streets": {}, "lap_m": None, "step_m": 6.5,
                               "inset_m": 1.0, "wide_inset_m": 1.1, "narrow_m": 7.0,
                               "junction_m": 12.0, "building_m": 1.5, "spawn_m": 6.0, "gap_m": 5.5,
                               "colours": [("grey", 0.20), ("black", 0.20), ("silver", 0.18), ("white", 0.16),
@@ -242,30 +288,102 @@ def lighthouse(mesh, obj, x, y):
     disc("M_Lighthouse_White", 2.6, 0.0, up=False)
 
 
+def area_box(area):
+    """An area's box in WGS84 (lon, lat)."""
+    return box(area["west"], area["south"], area["east"], area["north"])
+
+
+def area_outline(area, road_rows, local):
+    """Where an area's content goes, in metres from its origin, and the wider region its lap may use.
+
+    A box area (south, north, west, east) is its box, the lap region the same. A corridor area follows named roads:
+    the union of every segment named in "corridor"["roads"], buffered by "half_width_m" and kept inside the box
+    "within"; that is the lap region. The content then leaves out the boxes of the areas named in "minus", so two
+    areas meet along a shared edge. road_rows: (id, class, name, WGS84 geometry) of the slice. Returns
+    (clip, region, minus): minus is the list of the left-out areas' boxes in WGS84."""
+    if "corridor" not in area:
+        clip = local(area_box(area))
+        return clip, clip, []
+    spec = area["corridor"]
+    lines = [local(g) for _, _, name, g in road_rows if name in spec["roads"]]
+    if not lines:
+        sys.exit(f"no road named {', '.join(spec['roads'])} in the slice")
+    region = shapely.union_all(lines).buffer(spec["half_width_m"], quad_segs=4).intersection(local(area_box(spec["within"])))
+    region = shapely.make_valid(region.simplify(1.0))
+    minus = [area_box(AREAS[m]) for m in area.get("minus", [])]
+    clip = region
+    for m in minus:
+        clip = clip.difference(local(m))
+    return clip, region, minus
+
+
+def ground_region(clip, minus, local, margin):
+    """The ground a corridor area lays: its clip widened by the margin, less the ground the left-out areas lay
+    themselves (their box's bounds in metres widened by the same margin, as build() grids them), so ground never
+    overlaps."""
+    g = clip.buffer(margin, join_style="mitre")
+    for m in minus:
+        x0, y0, x1, y1 = local(m).bounds
+        g = g.difference(box(x0 - margin, y0 - margin, x1 + margin, y1 + margin))
+    return g
+
+
+def lay_ground(mesh, region):
+    """Ground triangles over a region, cut on the 250 m cell grid into objects Ground_<i>_<j> so the GLB export
+    can tile them with the buildings and roads of the same cell."""
+    x0, y0, x1, y1 = region.bounds
+    for i in range(int(math.floor(x0 / CELL_M)), int(math.floor(x1 / CELL_M)) + 1):
+        for j in range(int(math.floor(y0 / CELL_M)), int(math.floor(y1 / CELL_M)) + 1):
+            piece = region.intersection(box(i * CELL_M, j * CELL_M, (i + 1) * CELL_M, (j + 1) * CELL_M))
+            obj = f"Ground_{i}_{j}"
+            for poly in getattr(piece, "geoms", [piece]):
+                if not isinstance(poly, Polygon) or poly.area < 1:
+                    continue
+                poly = orient(poly, 1.0)
+                rings = [poly.exterior] + list(poly.interiors)
+                verts = np.array([p for r in rings for p in list(r.coords)[:-1]], dtype=np.float64)
+                ends = np.cumsum([len(r.coords) - 1 for r in rings]).astype(np.uint32)
+                idx = earcut.triangulate_float64(verts, ends)
+                for k in range(0, len(idx), 3):
+                    a, b, c = (tuple(verts[idx[k + n]]) for n in range(3))
+                    if (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) < 0:
+                        b, c = c, b
+                    mesh.tri(obj, "M_Ground", (*a, 0), (*b, 0), (*c, 0),
+                             uv=((a[0] / 8, a[1] / 8), (b[0] / 8, b[1] / 8), (c[0] / 8, c[1] / 8)))
+
+
 def build(args):
     area = AREAS[args.name]
     rules = DISTRICT_RULES.get(area.get("district", "osu"), DISTRICT_RULES["osu"])
     to_utm = Transformer.from_crs("EPSG:4326", "EPSG:32630", always_xy=True)
+    to_ll = Transformer.from_crs("EPSG:32630", "EPSG:4326", always_xy=True)
     oe, on = to_utm.transform(area["origin"][1], area["origin"][0])
 
     def local(geom):
         return shapely.transform(geom, lambda xy: np.column_stack(to_utm.transform(xy[:, 0], xy[:, 1])) - (oe, on))
 
-    lonlat_box = box(area["west"], area["south"], area["east"], area["north"])
-    clip = local(lonlat_box)
-    minx, miny, maxx, maxy = clip.bounds
+    def lonlat(geom):
+        return shapely.transform(geom, lambda xy: np.column_stack(to_ll.transform(xy[:, 0] + oe, xy[:, 1] + on)))
+
     con = duckdb.connect()
+    road_rows = [(rid, cls, name or "", shapely.from_wkb(bytes(blob)))
+                 for rid, cls, name, blob in load(con, os.path.join(args.slice, "roads.parquet"), "id, class, name")]
+    clip, region, minus = area_outline(area, road_rows, local)
+    # Buildings belong to the area whose box (or corridor, less the boxes it leaves out) holds their centroid.
+    lonlat_box = area_box(area) if "corridor" not in area else lonlat(region)
+    shapely.prepare(lonlat_box)
+    minx, miny, maxx, maxy = clip.bounds
     mesh = Mesh()
 
-    # Roads first: buildings near Oxford Street get an extra storey, so its line is needed.
+    # Roads first: buildings near Oxford Street get an extra storey, so its line is needed. A corridor keeps the
+    # roads of its whole region, inside the areas it leaves out too, for its lap; everything drawn is cut to clip.
     roads = []
-    for rid, cls, name, blob in load(con, os.path.join(args.slice, "roads.parquet"), "id, class, name"):
+    for rid, cls, name, g in road_rows:
         if cls not in ROAD_WIDTH:
             continue
-        g = shapely.from_wkb(bytes(blob))
         if not g.intersects(lonlat_box):
             continue
-        roads.append((rid, cls, name or "", local(g)))
+        roads.append((rid, cls, name, local(g)))
     oxford = shapely.union_all([g for _, _, n, g in roads if n == "Oxford Street"]) if roads else None
 
     landmark_points = [shapely.geometry.Point(*np.array(to_utm.transform(lon, lat)) - (oe, on))
@@ -282,7 +400,8 @@ def build(args):
     counts = Counter()
     for bid, src, height, floors, blob in load(con, os.path.join(args.slice, "buildings.parquet"), "id, source, height, num_floors"):
         g = shapely.from_wkb(bytes(blob))
-        if not lonlat_box.contains(g.centroid):
+        c = g.centroid
+        if not lonlat_box.contains(c) or any(m.contains(c) for m in minus):
             continue
         g = local(g).buffer(0).simplify(0.25)
         if any(g.contains(p) for p in landmark_points):
@@ -387,15 +506,21 @@ def build(args):
 
     lights = dedupe(lights, 7.0)
 
-    # Ground under everything, with a margin.
+    # Ground under everything, with a margin. A corridor lays it per cell, and not under the areas it leaves out.
     m = 60.0
-    for e0 in np.arange(minx - m, maxx + m, CELL_M):
-        for n0 in np.arange(miny - m, maxy + m, CELL_M):
-            e1, n1 = min(e0 + CELL_M, maxx + m), min(n0 + CELL_M, maxy + m)
-            mesh.quad("Ground", "M_Ground", (e0, n0, 0), (e1, n0, 0), (e1, n1, 0), (e0, n1, 0),
-                      uv=((e0 / 8, n0 / 8), (e1 / 8, n0 / 8), (e1 / 8, n1 / 8), (e0 / 8, n1 / 8)))
+    if "corridor" in area:
+        lay_ground(mesh, ground_region(clip, minus, local, m))
+    else:
+        for e0 in np.arange(minx - m, maxx + m, CELL_M):
+            for n0 in np.arange(miny - m, maxy + m, CELL_M):
+                e1, n1 = min(e0 + CELL_M, maxx + m), min(n0 + CELL_M, maxy + m)
+                mesh.quad("Ground", "M_Ground", (e0, n0, 0), (e1, n0, 0), (e1, n1, 0), (e0, n1, 0),
+                          uv=((e0 / 8, n0 / 8), (e1 / 8, n0 / 8), (e1 / 8, n1 / 8), (e0 / 8, n1 / 8)))
 
-    lap = benchmark_lap(roads, clip, area["lap"], to_utm, (oe, on))
+    if "route" in area["lap"]:
+        lap = route_lap(roads, region, area["lap"], to_utm, (oe, on))
+    else:
+        lap = benchmark_lap(roads, clip, area["lap"], to_utm, (oe, on))
 
     # Parked cars along the streets, where the district has no dressed block to park them (DISTRICT_RULES "parking").
     parked = []
@@ -416,7 +541,13 @@ def build(args):
     tris, objs = mesh.stats()
     meta = {
         "name": args.name,
-        "bounds_wgs84": {k: area[k] for k in ("south", "north", "west", "east")},
+        "bounds_wgs84": ({k: area[k] for k in ("south", "north", "west", "east")} if "corridor" not in area else
+                         dict(zip(("west", "south", "east", "north"), (round(v, 5) for v in lonlat(clip).bounds)))),
+        # A corridor's outline (one ring per piece, the boxes it leaves out may cut it in two), and the areas it meets
+        # along their edges.
+        **({"outline_m": [[[round(x, 1), round(y, 1)] for x, y in p.exterior.coords]
+                          for p in getattr(clip.simplify(5.0), "geoms", [clip.simplify(5.0)]) if isinstance(p, Polygon)],
+            "joins": area.get("minus", [])} if "corridor" in area else {}),
         "origin_wgs84": {"lat": area["origin"][0], "lon": area["origin"][1]},
         "origin_utm30n": {"e": round(oe, 2), "n": round(on, 2)},
         "offset_from_world_origin_m": {"x": round(oe - WORLD_ORIGIN_UTM[0], 2), "z": round(on - WORLD_ORIGIN_UTM[1], 2)},
@@ -434,7 +565,7 @@ def build(args):
         # Only districts with a parking rule carry the key, so Osu's file is unchanged.
         **({"parked": parked} if parked else {}),
         # The drivable network for the game's traffic (circle-game src/vehicles/traffic.ts).
-        "roads": traffic_network(roads, clip),
+        "roads": traffic_network(roads, clip, ONE_WAY_ROADS),
         # What the game's cars collide with (circle-game src/core/scene.ts addSolid).
         "solid": solid_outlines(keep_out + [p for _, p in yards], compound_walls, [(cls, g) for _, cls, _, g in roads]),
         "credits": "Buildings and roads: Overture Maps Foundation (ODbL), from OpenStreetMap contributors, "
@@ -651,10 +782,12 @@ def solid_outlines(footprints, walls, roads=(), tolerance=0.5, kerb=0.3):
     return {"buildings": rings, "walls": lines}
 
 
-def traffic_network(roads, clip):
+def traffic_network(roads, clip, one_way=()):
     """The drivable roads as a network for the game's traffic: every road of a traffic class inside the district,
     noded at every crossing (Overture segments often run straight through junctions), each piece with the class,
-    width and name of the road it lies on, simplified to 0.5 m. Points are x east, z north, as the rest of the file."""
+    width and name of the road it lies on, simplified to 0.5 m. Points are x east, z north, as the rest of the file.
+    A piece of a road named in one_way is driven one way only: it runs the way its road's geometry runs and carries
+    "oneway": true (the Ring Road's carriageways and Danquah Circle, ONE_WAY_ROADS)."""
     src = []
     for rid, cls, name, g in roads:
         if cls not in TRAFFIC_CLASSES:
@@ -673,10 +806,15 @@ def traffic_network(roads, clip):
         if not isinstance(piece, LineString) or piece.length < 1.0:
             continue
         mid = piece.interpolate(0.5, normalized=True)
-        cls, name, _ = src[int(tree.nearest(mid))]
+        cls, name, line = src[int(tree.nearest(mid))]
         pts = list(piece.simplify(0.5).coords)
-        out.append({"cls": cls, "w": ROAD_WIDTH[cls], "name": name,
-                    "pts": [round(float(c), 1) for xy in pts for c in xy[:2]]})
+        entry = {"cls": cls, "w": ROAD_WIDTH[cls], "name": name}
+        if name in one_way:
+            if line.project(Point(pts[0])) > line.project(Point(pts[-1])):
+                pts = pts[::-1]
+            entry["oneway"] = True
+        entry["pts"] = [round(float(c), 1) for xy in pts for c in xy[:2]]
+        out.append(entry)
     return out
 
 
@@ -799,6 +937,90 @@ def benchmark_lap(roads, clip, lap_spec, to_utm, origin):
             names.append(n)
     p0, p1 = wp[0], wp[1]
     return {"length_m": line.length, "via": names,
+            "spawn": {"x": round(p0[0], 2), "y": 0.5, "z": round(p0[1], 2),
+                      "yaw": round(math.degrees(math.atan2(p1[0] - p0[0], p1[1] - p0[1])), 1)},
+            "path": [round(v, 2) for x, z in wp for v in (x, z)]}
+
+
+def split_at_shared_vertices(lines, ndigits=2):
+    """Cuts each line at its inner vertices that another line also passes through: the junctions mapped as shared
+    nodes, where an Overture segment often runs on. Lines that cross without sharing a vertex stay uncut, so a flyover
+    or a bridge over a road never becomes a turn."""
+    key = lambda p: (round(p[0], ndigits), round(p[1], ndigits))
+    users = Counter()
+    for line in lines:
+        for k in {key(c) for c in line.coords}:
+            users[k] += 1
+    out = []
+    for line in lines:
+        cs = list(line.coords)
+        cuts = [0] + [i for i in range(1, len(cs) - 1) if users[key(cs[i])] > 1] + [len(cs) - 1]
+        out += [(line, LineString(cs[a:b + 1])) for a, b in zip(cuts, cuts[1:]) if b > a]
+    return out
+
+
+def route_lap(roads, region, spec, to_utm, origin):
+    """A closed route through the points of spec["route"] (lat, lon), in order and back to the first: the lap of an
+    area that follows a road rather than circling a block (the Ring Road). Roads are cut to the region at their shared
+    vertices; the roads named in spec["one_way"] are driven along their geometry only (dual carriageways and
+    roundabouts, mapped one way per carriageway; Ghana drives on the right), the others both ways. Each leg is the
+    shortest way to the next point, at 25 times the cost on stretches already driven, so the turns at the ends go
+    round a block rather than back along the same street. Service roads are left out. Returns benchmark_lap()'s
+    dict, with the distance each route point was moved to reach the network ("snapped_m")."""
+    one_way = set(spec.get("one_way", ()))
+    G = nx.DiGraph()
+    key = lambda p: (round(p[0], 2), round(p[1], 2))
+    src = []
+    for rid, cls, name, g in roads:
+        if cls == "service":
+            continue
+        g = g.intersection(region)
+        src += [(name, l) for l in ([g] if isinstance(g, LineString) else list(getattr(g, "geoms", [])))
+                if isinstance(l, LineString) and l.length >= 1]
+    names = {id(l): n for n, l in src}
+
+    def add(a, b, coords, length, name):
+        if not G.has_edge(a, b) or G[a][b]["length"] > length:
+            G.add_edge(a, b, length=length, name=name, coords=coords)
+
+    for whole, piece in split_at_shared_vertices([l for _, l in src]):
+        a, b = key(piece.coords[0]), key(piece.coords[-1])
+        if a == b or piece.length < 0.05:
+            continue
+        name = names[id(whole)]
+        add(a, b, list(piece.coords), piece.length, name)
+        if name not in one_way:
+            add(b, a, list(piece.coords)[::-1], piece.length, name)
+    if G.number_of_nodes() == 0:
+        return None
+    nodes = np.array(list(G.nodes))
+    stops, snapped = [], []
+    for lat, lon in spec["route"]:
+        e, n = to_utm.transform(lon, lat)
+        p = np.array([e - origin[0], n - origin[1]])
+        d = np.hypot(*(nodes - p).T)
+        stops.append(tuple(nodes[int(np.argmin(d))]))
+        snapped.append(round(float(d.min()), 2))
+    used = set()
+    edges = []
+    for s, t in zip(stops, stops[1:] + stops[:1]):
+        leg = nx.shortest_path(G, s, t, weight=lambda u, v, d: d["length"] * (25 if frozenset((u, v)) in used else 1))
+        for u, v in zip(leg, leg[1:]):
+            used.add(frozenset((u, v)))
+            edges.append((u, v))
+    pts = []
+    for u, v in edges:
+        c = G[u][v]["coords"]
+        pts.extend(c if not pts else c[1:])
+    line = LineString(pts)
+    wp = [line.interpolate(d).coords[0] for d in np.arange(0, line.length, 8.0)]
+    via = []
+    for u, v in edges:
+        n = G[u][v]["name"]
+        if n and (not via or via[-1] != n):
+            via.append(n)
+    p0, p1 = wp[0], wp[1]
+    return {"length_m": line.length, "via": via, "snapped_m": snapped,
             "spawn": {"x": round(p0[0], 2), "y": 0.5, "z": round(p0[1], 2),
                       "yaw": round(math.degrees(math.atan2(p1[0] - p0[0], p1[1] - p0[1])), 1)},
             "path": [round(v, 2) for x, z in wp for v in (x, z)]}

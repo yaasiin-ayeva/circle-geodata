@@ -10,8 +10,9 @@ keyed by each light's "kind".
 
 Contents: street lights (pole foot, lamp head, light position, kind, road), look-dev lights (shops,
 kiosks, bulbs, billboard floods, facade uplights with their targets), the benchmark lap and its spawn,
-parked cars (the look-dev block's or, without --lookdev, those build_district.py parked along the streets)
-and generated-model placements.
+parked cars (the look-dev block's or, without --lookdev, those build_district.py parked along the streets),
+generated-model placements, the road network and the solid outlines; with --tiles, the district's GLB tiles
+for streaming (export_glb.py --tile-m).
 """
 import argparse
 import json
@@ -62,11 +63,14 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--glb", help="the district GLB the scene goes with (default: named after --district, "
                                   "osu-poc.json -> osu-poc.glb)")
+    ap.add_argument("--tiles", help="the tiles.json export_glb.py --tile-m wrote: the district is streamed in those "
+                                    "tiles rather than loaded as one GLB")
     args = ap.parse_args()
     glb = args.glb or os.path.splitext(os.path.basename(args.district))[0] + ".glb"
 
     d = json.load(open(args.district))
     scene = {
+        "name": d.get("name", os.path.splitext(os.path.basename(args.district))[0]),
         "axes": "glTF: x east, y up, z south, metres from the district origin",
         "origin_wgs84": d.get("origin_wgs84"),
         "bounds_m": {"xmin": d["bounds_m"]["xmin"], "xmax": d["bounds_m"]["xmax"],
@@ -75,6 +79,12 @@ def main():
         "credits": d.get("credits", ""),
         "streetLights": street_lights(d["lights"]),
     }
+    if args.tiles:
+        # The district in tiles for the game to load by distance: each tile's GLB (the game loads <file>.pack.glb),
+        # its ground bounds in glTF x and z, triangles and sizes. The paths are relative to the scene's folder.
+        t = json.load(open(args.tiles))
+        scene["files"]["tiles"] = [{k: tile[k] for k in ("file", "bounds", "height_m", "triangles", "primitives", "bytes", "packed_bytes")
+                                    if k in tile} for tile in t["tiles"]]
     lap = d["lap"]
     path = lap["path"]
     scene["lap"] = {"length_m": lap["length_m"], "via": lap.get("via"),
@@ -87,9 +97,10 @@ def main():
         scene["signs"] = [{"name": sg["name"], "from": [sg["x"], -sg["z"]],
                            "toward": [round(math.sin(math.radians(sg["bearing"])), 4), round(-math.cos(math.radians(sg["bearing"])), 4)]}
                           for sg in d["signs"]]
-    # The drivable network, for traffic: polylines in glTF axes with their class, width and name.
+    # The drivable network, for traffic: polylines in glTF axes with their class, width and name, and "oneway" on the
+    # pieces driven one way only, which run the way the traffic goes.
     if d.get("roads"):
-        scene["roads"] = [{"cls": r["cls"], "w": r["w"], "name": r["name"],
+        scene["roads"] = [{"cls": r["cls"], "w": r["w"], "name": r["name"], **({"oneway": True} if r.get("oneway") else {}),
                            "pts": [[r["pts"][i], round(-r["pts"][i + 1], 1)] for i in range(0, len(r["pts"]), 2)]}
                           for r in d["roads"]]
     if d.get("solid"):
