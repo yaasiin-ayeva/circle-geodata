@@ -132,7 +132,7 @@ gltfpack -i data/work/web/jamestown.glb -o data/work/web/jamestown.pack.glb -cc 
   - no compound walls and no yards: buildings stand on the street line;
   - walls painted ochre, mint, grey, concrete and pale blue;
   - the lighthouse as a landmark: an octagonal tower 28 m high, white with a red band, a red gallery and a lit lantern. The footprint under it is left out.
-- **The 14 November build** (Overture 2026-10-21.0): 4,345 buildings, 27.4 km of road, 217 street lights and 129,400 triangles; 1.36 MB after gltfpack before the shed roofs.
+- **The 14 November build** (Overture 2026-10-21.0): 4,345 buildings, 27.4 km of road, 217 street lights and 129,400 triangles. After gltfpack it is 1.95 MB, against 1.36 MB before the shed roofs.
   - **Roofs:** 2,207 hipped and 1,896 shed; 3,907 grey, 120 rusted and 76 red.
   - **Roof area:** 90% sheet, 1.9% red.
   - **Inside the two surveyed frames:** flat roofs cover 1.8% in Bukom against 5% counted, and 16% in Ussher Town against 2% counted. There the large footprints, often several touching roofs merged into one, get 3 to 6 storeys from the typology rules and a flat roof. Jamestown's storey counts are not measured yet.
