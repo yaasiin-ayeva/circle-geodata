@@ -73,7 +73,9 @@ def material(name, rgb, rough=0.8, metal=0.0, emit=None, double=False):
 
 def make_materials():
     material("M_Kit_Trim", (0.82, 0.8, 0.76), 0.9)            # render and concrete, tinted per wall
-    material("M_Kit_Iron", (0.025, 0.025, 0.028), 0.45, 0.7)  # burglar bars, rails, brackets
+    material("M_Kit_Iron", (0.025, 0.025, 0.028), 0.45, 0.7)  # rails, brackets
+    # Burglar bars are painted, most often in the trim's colour or white; the game tints them per wall like the trim.
+    material("M_Kit_BarPaint", (0.82, 0.8, 0.76), 0.6, 0.2)
     material("M_Kit_Metal", (0.32, 0.33, 0.34), 0.5, 0.6)     # shutter boxes and guides
     material("M_Kit_Sheet", (0.8, 0.8, 0.8), 0.5, 0.45, double=True)  # corrugated sheet, tinted per instance
     material("M_Kit_Plastic", (0.012, 0.012, 0.012), 0.6)     # polytanks
@@ -207,7 +209,7 @@ def bars():
     """Burglar bars over a window: a frame, uprights every 12.5 cm and three rails, with a diamond in the middle.
     Flat strips facing the street, the rails and the diamond a few millimetres in front of the uprights."""
     p = Part("bars")
-    i, y, s = "M_Kit_Iron", -0.06, 0.016
+    i, y, s = "M_Kit_BarPaint", -0.06, 0.02
     x0, x1, z0, z1 = WIN_X0 + 0.02, WIN_X1 - 0.02, WIN_Z0 + 0.02, WIN_Z1 - 0.02
     n = 12
     for k in range(n + 1):
