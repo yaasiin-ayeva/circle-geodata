@@ -10,7 +10,8 @@ Writes, next to the district files (same axes and origin, see build_district.py)
                           and slab crossings; power poles and sagging cables; kiosks and vendor umbrellas
   osu-lookdev.json        shop and kiosk lights, the zone outline, counts
   osu-lookdev-ids.txt     building ids the detailed versions replace, for build_district.py --exclude
-  signs-atlas.png         32 invented shop signs (4 x 8 cells), no real brand or phone number
+  signs-atlas.png         32 shop signs transcribed on Oxford Street and the lap (4 x 8 cells), no phone number
+  billboards-atlas.png    8 billboards transcribed on Oxford Street, Ring Road East and Danquah Circle (2 x 4 cells)
   interiors-atlas.png     what a lit window or shopfront shows (4 x 4 cells): 8 rooms behind curtains,
                           8 shop interiors with shelves, goods and a counter
 
@@ -43,27 +44,43 @@ SIDEWALK_Z = 0.35
 GUTTER_Z = 0.02
 STOREY = 3.2
 
+# Shop signs transcribed on Oxford Street and the lap, word for word, with the colours of their supports
+# (circle-reference catalogue/texts.csv, Street View Aug 2024; circle-bible DECISIONS.md, 14 Nov 2026). Names in plain
+# type, no logos; phone numbers left out. Each real name needs a clearance before a public release.
 SIGNS = [
-    ("GOD FIRST ELECTRICALS", "WHOLESALE & RETAIL"), ("SHARP SHARP PHONES", "REPAIRS WHILE YOU WAIT"),
-    ("CHALE CHOP BAR", "WAAKYE  KENKEY  FUFU"), ("NYAME NHYIRA COSMETICS", "QUALITY ASSURED"),
-    ("BLESSED HANDS SALON", "BRAIDS  WEAVES  NAILS"), ("OSU NIGHT PHARMACY", "OPEN 24 HOURS"),
-    ("AYEKOO MOBILE MONEY", "CASH IN  CASH OUT"), ("ADOM FASHION HOUSE", "KENTE  BATIK  READY-MADE"),
-    ("TRUST GOD SPARE PARTS", "GENUINE PARTS"), ("MAAME ESI'S KITCHEN", "LOCAL DISHES"),
-    ("SANKOFA BOOKSHOP", "SCHOOL  CHURCH  NOVELS"), ("FAST FAST CARGO", "SEA & AIR FREIGHT"),
-    ("OXFORD GRILL HOUSE", "KEBAB  KELEWELE  DRINKS"), ("CIRCLE FOREX BUREAU", "BUY & SELL"),
-    ("PRAISE OPTICALS", "EYE TEST INSIDE"), ("AKWAABA MINI MART", "PROVISIONS  DRINKS"),
-    ("GOLDEN STOOL BEAUTY", "PERFUMES  WIGS"), ("COUNTRY BOY FUFU", "LIGHT SOUP  PALM NUT"),
-    ("ODO NE NKWA CHEMIST", "LICENSED CHEMICAL SELLER"), ("NO WAHALA PRINTING", "BANNERS  T-SHIRTS"),
-    ("ABUSUA FURNITURE", "MADE IN GHANA"), ("EBENEZER ELECTRONICS", "TV  FRIDGE  AC"),
-    ("SWEET MOTHER BAKERY", "TEA BREAD  MEAT PIE"), ("JUST BELIEVE BARBERING", "WELCOME"),
-    ("HOPE CITY TAILORING", "SEWING & ALTERATIONS"), ("KOKOO NIGHT CLUB", "LIVE DJ FRIDAYS"),
-    ("BRA FIE FOOTWEAR", "LADIES  GENTS  KIDS"), ("SIKA PA LOTTO KIOSK", "STAKE HERE"),
-    ("ANANSE GAMING CENTRE", "PLAY  WIN  RELAX"), ("FIIFI'S CAR WASH", "WASH & GO"),
-    ("ROYAL DIAMOND HOTEL", "ROOMS AVAILABLE"), ("SIKA DWA JEWELLERY", "GOLD & SILVER"),
+    ("PRINTWARE LTD.", "SALE OF PHOTOCOPIERS, TONERS & PARTS", (75, 42, 123), (255, 255, 255)),
+    ("FONE PLAZA", "PHONES | LAPTOPS | ACCESSORIES | REPAIRS", (29, 79, 184), (255, 255, 255)),
+    ("MAGNUM COMPUTERS & ELECTRONICS LTD.", "WE DEAL IN", (27, 60, 140), (247, 162, 27)),
+    ("JUST CHINESE", "SIMPLY DELICIOUS CHINESE FOOD!", (45, 47, 51), (255, 255, 255)),
+    ("ESTHER", "", (200, 32, 42), (255, 255, 255)),
+    ("DEVNIK GHANA LTD", "", (244, 241, 234), (200, 32, 42)),
+    ("ZAYTOUN ARTISAN CAFE", "LEBANESE FOOD", (42, 45, 42), (233, 226, 200)),
+    ("ELECTROMART", "Your World of Electronics", (200, 32, 42), (255, 255, 255)),
+    ("GET4LESS", "YOUR NUMBER ONE STOP SHOP!", (230, 230, 227), (90, 93, 97)),
+    ("Bangkok THAI RESTAURANT", "BANGKOK THAI MASSAGE", (179, 18, 27), (255, 246, 232)),
+    ("UNICOM CHEMIST", "PHARMACY", (244, 241, 234), (18, 122, 70)),
+    ("SAMS FIRMA", "OFFICE SUPPLY & ELECTRONICS CENTER", (29, 79, 184), (255, 255, 255)),
+    ("MORGAN TOUCH JEWELLERY", "", (16, 20, 24), (242, 230, 200)),
+    ("RICE XPRESS", "ASIAN CUISINE", (200, 32, 42), (255, 255, 255)),
+    ("NYAME NA AYE EATERY", "Nyame Na Aye Kitchen", (200, 32, 42), (255, 255, 255)),
+    ("HATANA LOCAL CUISINE", "healthy food good life", (244, 241, 234), (27, 47, 107)),
+    ("THISROCK FOREX BUREAU LTD.", "", (40, 40, 44), (255, 255, 255)),
+    ("LIZY EATERY", "", (29, 79, 184), (255, 255, 255)),
+    ("MBLACK SOLUTION", "", (30, 30, 34), (240, 200, 40)),
+    ("OS FIRE & SECURITY", "", (20, 20, 22), (242, 196, 30)),
+    ("TREASURY VENTURES", "", (200, 32, 42), (255, 255, 255)),
+    ("KIDSCLIQ", "Music Classes · Book Club · Science Workshop", (250, 250, 248), (120, 50, 160)),
+    ("PICCADILLY CASINO", "AND SPORTS BETTING", (200, 32, 42), (255, 255, 255)),
+    ("GOOD LUCK CASINO", "", (30, 30, 34), (245, 200, 40)),
+    ("SOCCABET", "", (250, 250, 248), (30, 140, 70)),
+    ("CASA ROYAL SPANISH TILES", "", (200, 32, 42), (255, 255, 255)),
+    ("Palace Pharmacy", "", (30, 130, 70), (255, 255, 255)),
+    ("Red Chilli!", "", (250, 250, 248), (200, 30, 30)),
+    ("ART AFRICA GALLERY", "OPEN: Tuesdays-Saturdays: 10am-6pm", (250, 250, 248), (30, 30, 30)),
+    ("F. AMENETEY", "", (29, 79, 184), (255, 255, 255)),
+    ("BLUE ROYAL HOTEL", "", (25, 60, 160), (255, 255, 255)),
+    ("URBANO HOTEL", "", (120, 122, 124), (255, 255, 255)),
 ]
-SIGN_COLOURS = [((200, 30, 35), (255, 255, 255)), ((255, 205, 20), (25, 25, 25)), ((20, 120, 60), (255, 240, 200)),
-                ((15, 60, 160), (255, 255, 255)), ((245, 245, 240), (190, 20, 30)), ((25, 25, 25), (255, 200, 30)),
-                ((230, 90, 20), (255, 255, 255)), ((120, 30, 120), (255, 230, 120))]
 
 MATERIALS = {
     "M_Facade_Cream": (0.86, 0.82, 0.70), "M_Facade_Ochre": (0.80, 0.62, 0.38), "M_Facade_Blue": (0.55, 0.70, 0.80),
@@ -101,15 +118,15 @@ MATERIALS.update({
     "M_Cloth_1": (0.85, 0.20, 0.10), "M_Cloth_2": (0.95, 0.70, 0.05), "M_Cloth_3": (0.10, 0.35, 0.70),
     "M_Cloth_4": (0.10, 0.55, 0.25), "M_Cloth_5": (0.60, 0.10, 0.45), "M_Cloth_6": (0.95, 0.45, 0.10),
 })
-ADS = [   # invented advertisers only; names from the story bible where they exist (Zipp, Akuba Starr)
-    ("SUNSET HEIGHTS", "SERVICED PLOTS - GATED CITY", (20, 70, 60), (240, 200, 90)),
-    ("KOKO MALT", "THE TASTE OF HOME", (120, 30, 20), (255, 210, 120)),
-    ("ZIPP", "YOUR RIDE IN 3 MINUTES", (15, 15, 20), (255, 200, 0)),
-    ("CHRIST GLORY CHAPEL", "NIGHT OF MIRACLES - FRIDAY", (60, 20, 90), (255, 255, 255)),
-    ("NKABOM BANK", "SAVE SMALL SMALL", (0, 90, 160), (255, 255, 255)),
-    ("BLUE LAGOON WATER", "PURE. COLD. GHANAIAN.", (0, 120, 190), (255, 255, 255)),
-    ("AKUBA STARR LIVE", "BLACK STAR SQUARE - DEC 31", (200, 30, 80), (255, 240, 220)),
-    ("SHARP SHARP 5G", "BROWSE MORE, PAY LESS", (230, 90, 20), (255, 255, 255)),
+ADS = [   # billboards transcribed on Oxford Street, Ring Road East and Danquah Circle (circle-reference texts.csv)
+    ("CHALE!", "THIS IS THE MOST IMPACTFUL BILLBOARD IN GHANA. OBVIOUSLY.", (236, 92, 30), (255, 255, 255)),
+    ("ENA PA", "...oyede soko soko soko. very tasty", (70, 40, 140), (250, 210, 40)),
+    ("HEAVEN", "INSECTICIDE SPRAY, MOSQUITO COIL AND NAPHTHALENE BALLS", (245, 215, 40), (20, 60, 170)),
+    ("KFC", "Dunked in honey ginger sauce", (200, 20, 40), (255, 255, 255)),
+    ("YOUR DAY. YOUR STYLE", "GTP", (20, 110, 70), (255, 255, 255)),
+    ("Telecel Cash Here!", "DIAL *110#", (220, 30, 40), (255, 255, 255)),
+    ("WE'VE GOT FOOTBALL YOU WANT", "Watch all the games here", (20, 40, 120), (255, 255, 255)),
+    ("CLEANING MADE EASIER.", "JHC", (245, 210, 40), (30, 30, 30)),
 ]
 MATERIALS.update({
     # Step 4: shade trees (trunk, branches, alpha-clipped leaf cards) and coconut palms (trunk, fronds).
@@ -1079,7 +1096,12 @@ def billboard_atlas(path):
                 break
             size -= 4
         td.text((40, ch * 0.34), title, font=f, fill=fg, anchor="lm")
-        td.text((44, ch * 0.66), sub, font=ImageFont.truetype(cond, 46), fill=fg, anchor="lm")
+        size = 46
+        fs = ImageFont.truetype(cond, size)
+        while td.textlength(sub, font=fs) > cw * 0.9 and size > 20:
+            size -= 2
+            fs = ImageFont.truetype(cond, size)
+        td.text((44, ch * 0.66), sub, font=fs, fill=fg, anchor="lm")
         td.rectangle([0, ch - 26, cw - 1, ch - 1], fill=fg)
         img.paste(tile, (x0, y0))
     img.save(path)
@@ -1104,10 +1126,9 @@ def sign_atlas(path):
     dr = ImageDraw.Draw(img)
     bold = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
     cond = "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf"
-    for k, (title, sub) in enumerate(SIGNS):
+    for k, (title, sub, bg, fg) in enumerate(SIGNS):
         col, row = k % 4, k // 4
         x0, y0 = col * cw, row * ch
-        bg, fg = SIGN_COLOURS[int(bd.unit_hash("signcol", k) * len(SIGN_COLOURS))]
         dr.rectangle([x0, y0, x0 + cw - 1, y0 + ch - 1], fill=bg)
         dr.rectangle([x0 + 6, y0 + 6, x0 + cw - 7, y0 + ch - 7], outline=fg, width=4)
         size = 64
@@ -1116,9 +1137,14 @@ def sign_atlas(path):
             if dr.textlength(title, font=f) < cw - 40:
                 break
             size -= 2
-        dr.text((x0 + cw / 2, y0 + ch * 0.40), title, font=f, fill=fg, anchor="mm")
-        fs = ImageFont.truetype(cond, 22)
-        dr.text((x0 + cw / 2, y0 + ch * 0.78), sub, font=fs, fill=fg, anchor="mm")
+        dr.text((x0 + cw / 2, y0 + ch * (0.40 if sub else 0.50)), title, font=f, fill=fg, anchor="mm")
+        if sub:
+            size = 22
+            fs = ImageFont.truetype(cond, size)
+            while dr.textlength(sub, font=fs) > cw - 40 and size > 12:
+                size -= 1
+                fs = ImageFont.truetype(cond, size)
+            dr.text((x0 + cw / 2, y0 + ch * 0.78), sub, font=fs, fill=fg, anchor="mm")
     # Weathering: soft noise and a little dirt toward the bottom of each board.
     rng = np.random.default_rng(7)
     arr = np.asarray(img).astype(np.float32)
