@@ -139,6 +139,16 @@ side = bd.place_lights("n1", "primary", "Narrow Road", narrow[0][1], 7.0, narrow
 check("with no room in the median the poles stand on the outer verge", side and all(abs(l["z"] + 4 + 4.7) < 0.05 for l in side),
       str(sorted({l["z"] for l in side})))
 bd.DUAL_CARRIAGEWAYS = saved
+# No pole on any carriageway: one 2 m off a 7 m road's centreline moves back from it, a twin pole on it goes whole.
+road = [(LineString([(-50, 0), (50, 0)]), 7.0)]
+lamps = [{"x": 0.0, "z": 2.0, "yaw": 180.0, "kind": "led", "road": "r"},
+         {"x": 10.0, "z": 0.0, "yaw": 0.0, "kind": "led", "road": "r", "twin": "t"},
+         {"x": 10.0, "z": 0.0, "yaw": 180.0, "kind": "led", "road": "r", "twin": "t"},
+         {"x": 30.0, "z": 9.0, "yaw": 180.0, "kind": "led", "road": "r"}]
+out, moved, dropped = bd.off_asphalt(lamps, road)
+check("a pole on the asphalt moves back off it, a twin pole there goes, a clear one stays",
+      moved == 1 and dropped == 2 and len(out) == 2 and abs(out[0]["z"] - 4.0) < 1e-6 and out[1] == lamps[3],
+      f"moved {moved}, dropped {dropped}, {out}")
 
 # Tiles: a cell named Buildings_<i>_<j> (250 m) goes to the 500 m tile holding it; an unnamed object by its vertices.
 V = np.array([[-1200.0, 0.0, 300.0], [-1210.0, 0.0, 310.0], [-1190.0, 3.0, 320.0]], dtype=np.float32)   # OBJ: X west

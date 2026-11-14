@@ -533,6 +533,9 @@ def build(args):
     # The median's twin-arm poles first, one row about a pole step apart (both carriageways place them), then the rest.
     twins = dedupe([l for l in lights if "twin" in l], RING_STEP_M * 0.75)
     lights = dedupe(twins + [l for l in lights if "twin" not in l], 7.0)
+    lights, moved, dropped = off_asphalt(lights, [(g, road_width(cls, name)) for _, cls, name, g in roads])
+    if moved or dropped:
+        print(f"street lights off the asphalt: {moved} moved back, {dropped} dropped")
     for l in lights:
         l.pop("twin", None)
 
@@ -778,6 +781,40 @@ def place_lights(rid, cls, name, line, w, carriageways=()):
             lamp["pole"] = "solar"
         out.append(lamp)
     return out
+
+
+def off_asphalt(lights, roads, margin=0.3, back=8.0, step=0.5):
+    """No pole on a carriageway: where several roads meet or run side by side, one road's pole can land on another's
+    asphalt (the user's test drive of 14 Nov 2026 saw poles standing on the Ring Road). roads: (line, width). A pole
+    within `margin` m of any carriageway moves back, away from the road its arm reaches over, up to `back` m, until it
+    is clear; if it cannot, it goes. A twin-arm pole in a median has nowhere to move: it goes whole.
+    Returns (lights, moved, dropped)."""
+    if not lights or not roads:
+        return lights, 0, 0
+    asphalt = shapely.STRtree([line.buffer(w / 2 + margin) for line, w in roads])
+    on = lambda x, z: len(asphalt.query(Point(x, z), predicate="intersects")) > 0
+    out, moved, dropped, gone = [], 0, 0, set()
+    for l in lights:
+        if not on(l["x"], l["z"]):
+            out.append(l)
+            continue
+        if "twin" in l:
+            gone.add(l["twin"])
+            dropped += 1
+            continue
+        yaw = math.radians(l["yaw"])
+        fx, fz = math.sin(yaw), math.cos(yaw)       # the way the arm reaches, over the road
+        for d in np.arange(step, back + 1e-6, step):
+            x, z = l["x"] - fx * d, l["z"] - fz * d
+            if not on(x, z):
+                out.append({**l, "x": round(float(x), 2), "z": round(float(z), 2)})
+                moved += 1
+                break
+        else:
+            dropped += 1
+    # A twin pole goes whole: its other head too, wherever it came in the list.
+    kept = [l for l in out if l.get("twin") not in gone]
+    return kept, moved, dropped + (len(out) - len(kept))
 
 
 def dedupe(lights, min_gap):

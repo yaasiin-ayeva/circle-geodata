@@ -172,7 +172,7 @@ For the vertical slice's drives on the Ring Road (circle-bible `bible/game-desig
 - **Tiles:** `export_glb.py --tile-m 500` groups the 250 m cells in squares of 500 m: 17 tiles, 1.72 MB packed (14 to 244 KB each, 35 primitives on average).
   - A tile of fewer than 200 triangles (a sliver of ground margin) joins its nearest neighbour.
   - `tiles.json` lists each tile's file, ground bounds in glTF x and z, triangles and sizes, and `export_scene.py --tiles` copies the list into the scene.
-  - The scene is 413 KB, 103 KB gzipped.
+  - The scene is 400 KB, 102 KB gzipped.
 - **The world:** `export_world.py` writes `osu-world.json`, osu-poc first (home) and the Ring Road after it, with each area's offset from home's origin.
   - It also names the file in home's scene (`files.world` in `osu-scene.json`), so it runs after `export_scene.py`; a scene already relit by `relight_scene.py` (compact JSON) works too. A scene that names no world loads alone.
   - The game loads home whole, merges both scenes, and streams the tiles by distance (circle-game `docs/world.md`).
@@ -194,6 +194,7 @@ For the vertical slice's drives on the Ring Road (circle-bible `bible/game-desig
   - Not downloaded: it waits for approval. Then `VERTICAL_SLICE` in the corridor's `"within"` becomes milestone-2's box and the lap's west route points move to Circle.
 - **Cross-section** (`road_width()`, the user's test drive of 14 Nov 2026): each carriageway of Ring Road East, Ring Road Central and the Ako Adjei Interchange is 7 m wide, as the survey measured on Ring Road East (circle-reference `street-survey.md`; Central and the interchange's ramps are not surveyed and take the same), and Danquah Circle's ring 9.5 m (surveyed 9–10 m). The class width had drawn each 13 m: on Ring Road East the centrelines are mostly 14 to 15 m apart, so the ribbons covered the grass median and its poles stood on the asphalt. The median is now ground, 7 to 8 m wide on Ring Road East.
   - **Median poles:** on a dual carriageway a pole stands in the middle of the median with a head over each carriageway (two lamps on one foot: a twin-arm pole), about 40 m apart in one row (`place_lights()`, `median_width()`); where the median is under 2 m it stands on the outer verge. `relight_scene.py` keeps both heads of a pole together.
+  - **No pole on a carriageway** (`off_asphalt()`): where roads meet or run side by side, a pole that lands on any road's asphalt moves back from the road its arm reaches over, up to 8 m, or goes; a twin pole on asphalt (a median opening) goes whole. Osu loses 8 lamps, the Ring Road corridor moves 13 and drops 44, most of them on Independence Avenue, a dual carriageway still drawn 18 m wide per carriageway, one way each not flagged: the next road to get the Ring Road's treatment.
   - The widths reach the traffic's network (`w`), the parked cars' clearances, the collision outlines' carve-out and the preview; the side streets' hiding places still clear every carriageway by its class width. In the game, Danquah's island fitted inside the ring grows from 54.9 × 41.3 m to 58.4 × 44.8 m (surveyed about 56 × 47 m).
 - **Not built yet:** the billboards and gantry along the Ring Road (`texts.csv` rows `txt-osu-ringdanquah-*`).
 
