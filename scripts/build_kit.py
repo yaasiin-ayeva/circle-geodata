@@ -74,7 +74,8 @@ def material(name, rgb, rough=0.8, metal=0.0, emit=None, double=False):
 def make_materials():
     material("M_Kit_Trim", (0.82, 0.8, 0.76), 0.9)            # render and concrete, tinted per wall
     material("M_Kit_Iron", (0.025, 0.025, 0.028), 0.45, 0.7)  # rails, brackets
-    # Burglar bars are painted, most often in the trim's colour or white; the game tints them per wall like the trim.
+    # Burglar bars, tinted per wall like the trim so they read against the dark glass. The street survey records steel
+    # grilles but not their colour: check painted against bare dark iron on the reference photos.
     material("M_Kit_BarPaint", (0.82, 0.8, 0.76), 0.6, 0.2)
     material("M_Kit_Metal", (0.32, 0.33, 0.34), 0.5, 0.6)     # shutter boxes and guides
     material("M_Kit_Sheet", (0.8, 0.8, 0.8), 0.5, 0.45, double=True)  # corrugated sheet, tinted per instance
