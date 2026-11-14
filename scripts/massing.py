@@ -6,6 +6,8 @@ boundary walls) and circle-bible's research/landscape-look.md (roof materials):
 - house: one or two storeys away from Oxford Street, on a footprint close to a rectangle. Walls up to the
   eaves and a hipped roof over the footprint's best-fit rectangle with a 0.5 m overhang, a fascia and a
   soffit. Grey cement or galvanised sheet, rusted sheet, or red tile (tile mostly on two-storey houses).
+- shed: in districts whose palette asks for it (Jamestown, up to three storeys), the other low buildings of any footprint carry a
+  single-slope sheet roof at a low pitch, 0.3 m over the walls, falling across the footprint's short side.
 - block: a flat concrete roof behind a parapet, as before. Most blocks of two storeys or more carry a stair
   bulkhead on the roof; the top storey of tall blocks is often set back 2 m behind a terrace.
 - frame: a finished block with an unfinished storey on top, bare concrete columns and no walls.
@@ -50,7 +52,10 @@ BOUNDARY_PAINTS = [("M_Wall_Concrete", 0.30), ("M_Wall_PaleBlue", 0.25), ("M_Wal
 # Districts not listed fall back to Osu.
 ROOF_PALETTES = {
     # 80 of 86 roof points grey, beige or dark sheet, 1 clearly rusted, 2 red, 3 flat; low-pitched, edge to edge.
-    "jamestown": {"mix": [("M_Roof", 0.95), ("M_RoofSheet_Rust", 0.03), ("M_RoofTile_Red", 0.02)], "pitched": 0.97, "pitch": 12},
+    # "shed": the share of the other low buildings (up to "shed_storeys", any footprint) given a low single-slope sheet
+    # roof, at "shed_pitch" degrees; hipped roofs alone left half the roof area flat where the count saw 3%.
+    "jamestown": {"mix": [("M_Roof", 0.95), ("M_RoofSheet_Rust", 0.03), ("M_RoofTile_Red", 0.02)], "pitched": 0.97, "pitch": 12,
+                  "shed": 0.95, "shed_pitch": 5, "shed_storeys": 3},
     # North Ridge, about 156 roofs: of the 125 pitched, grey 48, brown 29, red 37, painted purple, blue or green 11.
     "cantonments-ridge": {"mix": [("M_Roof", 0.38), ("M_RoofSheet_Rust", 0.23), ("M_RoofTile_Red", 0.30),
                                   ("M_RoofSheet_Painted", 0.09)], "pitched": 0.85, "pitch": 18},
@@ -175,6 +180,48 @@ def hip_roof(mesh, obj, roof_mat, wall_mat, poly, z0, pitch_deg, overhang=0.5):
     return z1
 
 
+def shed_roof(mesh, obj, roof_mat, wall_mat, poly, z0, pitch_deg, flags=0, overhang=0.3):
+    """A single-slope sheet roof over any footprint: a plane that rises across the best-fit rectangle's short side
+    (at most 1.5 m), 0.3 m over the walls, with its underside, a fascia, and the wall infill up to the plane."""
+    axes = frame_axes(poly)
+    if axes is None:
+        return None
+    o, u, v, _, Lv, _ = axes
+    grade = min(math.tan(math.radians(pitch_deg)), 1.5 / max(Lv + 2 * overhang, 1.0))
+    z = lambda p: z0 + 0.15 + grade * (float(np.dot(np.asarray(p[:2]) - o, v)) + Lv / 2 + overhang)
+    foot = poly.buffer(overhang, join_style="mitre", mitre_limit=2.0).simplify(0.05)
+    if not isinstance(foot, Polygon) or foot.is_empty:
+        foot = poly
+    foot = shapely.geometry.polygon.orient(foot, 1.0)
+    rings = [foot.exterior, *foot.interiors]
+    verts = np.array([p for r in rings for p in list(r.coords)[:-1]], dtype=np.float64)
+    ends = np.cumsum([len(r.coords) - 1 for r in rings]).astype(np.uint32)
+    idx = earcut.triangulate_float64(verts, ends)
+    for k in range(0, len(idx), 3):
+        a, b, c = (tuple(verts[idx[k + j]]) for j in range(3))
+        if (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) < 0:
+            b, c = c, b
+        mesh.tri(obj, roof_mat, (*a, z(a)), (*b, z(b)), (*c, z(c)))         # the sheet, facing up
+        mesh.tri(obj, wall_mat, (*a, z(a) - 0.05), (*c, z(c) - 0.05), (*b, z(b) - 0.05))   # its underside
+    for ring in rings:                                                       # fascia board along the edge
+        pts = list(ring.coords)[:-1]
+        for i in range(len(pts)):
+            P, Q = pts[i], pts[(i + 1) % len(pts)]
+            L = math.hypot(Q[0] - P[0], Q[1] - P[1])
+            if L >= 0.05:
+                mesh.quad(obj, wall_mat, (*P, z(P) - 0.15), (*Q, z(Q) - 0.15), (*Q, z(Q)), (*P, z(P)),
+                          uv=_uv(L, 0, 0, NO_OPENINGS))
+    for ring in [poly.exterior, *poly.interiors]:                            # walls up to the sloping plane
+        pts = list(ring.coords)[:-1]
+        for i in range(len(pts)):
+            P, Q = pts[i], pts[(i + 1) % len(pts)]
+            L = math.hypot(Q[0] - P[0], Q[1] - P[1])
+            if L >= 0.05:
+                mesh.quad(obj, wall_mat, (*P, z0), (*Q, z0), (*Q, z(Q) - 0.05), (*P, z(P) - 0.05),
+                          uv=_uv(L, 0, 0, flags | NO_OPENINGS | NO_PARAPET))
+    return z0 + 0.15 + grade * (Lv + 2 * overhang)
+
+
 def bulkhead(mesh, obj, wall_mat, roof_mat, poly, z, seed, flags=0):
     """A stair bulkhead on a flat roof, 3.4 x 2.6 m and 2.6 m high, in a corner of the roof that holds it."""
     axes = frame_axes(poly)
@@ -240,6 +287,15 @@ def building(mesh, obj, wall_mat, bid, poly, n_storeys, parapet, near_oxford, ya
         counts["hip_roofs"] += 1
         counts[f"roof {roof}"] += 1
         return "house"
+    # Districts of sheet roofs (Jamestown): the other low buildings, whatever their footprint, take a shed roof.
+    if (palette and palette.get("shed") and n_storeys <= palette.get("shed_storeys", 2) and not near_oxford and area >= 12 and axes
+            and h01(bid, "shed") < palette["shed"]):
+        roof = pick(palette["mix"], h01(bid, "roof"))
+        walls(mesh, obj, wall_mat, poly, 0.0, eaves, base | NO_PARAPET)
+        if shed_roof(mesh, obj, roof, wall_mat, poly, eaves, palette.get("shed_pitch", 5), base) is not None:
+            counts["shed_roofs"] += 1
+            counts[f"roof {roof}"] += 1
+            return "house"
     top = eaves + parapet
     # An unfinished storey on a finished block, away from Oxford Street.
     if n_storeys >= 2 and not near_oxford and area >= 60 and h01(bid, "frame") < 0.1:

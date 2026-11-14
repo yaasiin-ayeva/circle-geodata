@@ -90,6 +90,7 @@ The buildings are assembled from modules ([scripts/massing.py](scripts/massing.p
 | Module | Rule | Count |
 | --- | --- | ---: |
 | Hipped roof | Houses of 1–2 storeys off Oxford Street on a near-rectangular footprint, 0.5 m overhang, soffit and fascia. Grey sheet, rusted sheet or red tile, tile mostly on 2 storeys. Other districts take their own palette (`ROOF_PALETTES`, counted from above in circle-reference `district-roofs.md`): Jamestown nearly all grey sheet at a 12° pitch, North Ridge and Spintex more red and some painted purple, blue or green sheet | 1,467 (659 grey, 446 rusted, 362 tile) |
+| Shed roof | Districts whose palette asks for it (Jamestown): the other buildings of up to 3 storeys, whatever their footprint, under a single-slope sheet roof at 5°, rising 1.5 m at most, 0.3 m over the walls | Osu: none |
 | Stair bulkhead | 3.4 × 2.6 × 2.6 m on most flat roofs of 2 storeys or more | 358 |
 | Set-back top storey | 2 m behind a terrace on half the blocks of 4 storeys or more | 21 |
 | Unfinished frame storey | Bare concrete columns on top of 1 block in 10 off Oxford Street | 55 (1,008 columns) |
@@ -127,11 +128,14 @@ gltfpack -i data/work/web/jamestown.glb -o data/work/web/jamestown.pack.glb -cc 
 ```
 
 - **What differs from Osu:**
-  - roofs from Jamestown's palette (grey sheet on 93% of the roof area);
+  - roofs from Jamestown's palette, which the survey counted as grey sheet on 93% of the roof area. Hipped roofs go on the near-rectangular houses and shed roofs on the rest, up to 3 storeys;
   - no compound walls and no yards: buildings stand on the street line;
   - walls painted ochre, mint, grey, concrete and pale blue;
   - the lighthouse as a landmark: an octagonal tower 28 m high, white with a red band, a red gallery and a lit lantern. The footprint under it is left out.
-- **The 14 November build** (Overture 2026-10-21.0): 4,345 buildings, 27.4 km of road, 217 street lights and 97,600 triangles. Of the 2,207 hipped roofs, 2,094 are grey.
+- **The 14 November build** (Overture 2026-10-21.0): 4,345 buildings, 27.4 km of road, 217 street lights and 129,400 triangles; 1.36 MB after gltfpack before the shed roofs.
+  - **Roofs:** 2,207 hipped and 1,896 shed; 3,907 grey, 120 rusted and 76 red.
+  - **Roof area:** 90% sheet, 1.9% red.
+  - **Inside the two surveyed frames:** flat roofs cover 1.8% in Bukom against 5% counted, and 16% in Ussher Town against 2% counted. There the large footprints, often several touching roofs merged into one, get 3 to 6 storeys from the typology rules and a flat roof. Jamestown's storey counts are not measured yet.
 - **The benchmark lap** is 1.53 km: High Street, Ga Mashie Street, Nii Tackie Tawiah Street, Okai Pesemaku Street, Nii Owoo Street, Lutterodt Street and back to High Street.
 - **In the game:** `?district=jamestown`. The district has no dressed block, so it carries no `--lookdev` and no shop signs.
 - **Not built yet:** James Fort, Ussher Fort, the harbour, kiosks along the street edges, timber poles with tangled wires, the white-over-blue band on long walls.

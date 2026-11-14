@@ -145,5 +145,21 @@ check("Jamestown: sheet roofs flatter than Spintex's", rise(jt) < rise(sp), f"{r
 mats, _ = roof_mix("nowhere", 200)
 check("unknown district: Osu's mix, no painted roofs", mats["M_RoofSheet_Painted"] == 0 and mats["M_Roof"] > 0, dict(mats))
 
+# Jamestown's shed roofs: an L-shaped house, no rectangle, gets a low single-slope sheet roof over its walls.
+bid = find_bid(lambda b: massing.h01(b, "shed") < 0.95)
+m, counts = Mesh(), Counter()
+massing.building(m, "o", "M_Wall_Ochre", bid, ell, 1, 0.6, False, False, counts, "jamestown")
+check("Jamestown L-shape: a shed roof, no hip", counts["shed_roofs"] == 1 and counts["hip_roofs"] == 0, dict(counts))
+sheet = [t for (o, mat), ts in m.groups.items() if mat.startswith("M_Roof") for t in ts]
+zs = [p[2] for t in sheet for p in t[:3]]
+check("Jamestown L-shape: sheet above the eaves, rising at most 1.65 m",
+      min(zs) > massing.STOREY_M and max(zs) - massing.STOREY_M <= 1.65 + 1e-6, f"{min(zs):.2f}..{max(zs):.2f} m")
+area = sum(abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) / 2 for a, b, c, _ in sheet)
+check("Jamestown L-shape: the sheet covers the footprint and its overhang", area > ell.area, f"{area:.0f} m² over {ell.area:.0f} m²")
+# Elsewhere the same L-shape keeps its flat roof.
+m, counts = Mesh(), Counter()
+massing.building(m, "o", "M_Wall_Ochre", bid, ell, 1, 0.6, False, False, counts, "spintex")
+check("Spintex L-shape: no shed roof", counts["shed_roofs"] == 0)
+
 print("massing: " + ("all checks passed" if not failures else f"{failures} failed"))
 sys.exit(1 if failures else 0)
