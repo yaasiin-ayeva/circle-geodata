@@ -93,6 +93,7 @@ class Part:
         self.name = "kit_" + name
         self.bm = bmesh.new()
         self.slots = []
+        self.facing = []   # flat faces that must face out of the wall (-Y) whatever recalc_face_normals decides
 
     def slot(self, mat):
         if mat not in self.slots:
@@ -103,6 +104,17 @@ class Part:
         i = self.slot(mat)
         for f in faces:
             f.material_index = i
+
+    def strip(self, a, b, width, y, mat):
+        """A flat bar facing out of the wall (-Y), from (ax, az) to (bx, bz) at depth y: two triangles where a box
+        takes twelve. Burglar bars are seen from the street only, so their backs and sides are wasted."""
+        (ax, az), (bx, bz) = a, b
+        d = Vector((bx - ax, 0, bz - az))
+        n = Vector((-d.z, 0, d.x)).normalized() * (width / 2)
+        quad = [Vector((ax, y, az)) - n, Vector((bx, y, bz)) - n, Vector((bx, y, bz)) + n, Vector((ax, y, az)) + n]
+        f = self.bm.faces.new([self.bm.verts.new(v) for v in quad])
+        self._tag([f], mat)
+        self.facing.append(f)
 
     def box(self, x0, x1, y0, y1, z0, z1, mat):
         """An axis-aligned box from its bounds."""
@@ -141,13 +153,15 @@ class Part:
 
     def sheet(self, x0, x1, y0, y1, z_back, z_front, waves, amp, mat):
         """A corrugated sheet sloping from the wall (y0) to its front edge (y1); ridges run out from the wall."""
-        n = waves * 4
+        # Two segments per wave (a zigzag of ridges and valleys): at street distance it reads as the rounded profile
+        # and costs half the triangles.
+        n = waves * 2
         rows = []
         for y, zb in ((y0, z_back), (y1, z_front)):
             row = []
             for i in range(n + 1):
                 t = i / n
-                row.append(self.bm.verts.new((x0 + (x1 - x0) * t, y, zb + amp * math.sin(t * waves * 2 * math.pi))))
+                row.append(self.bm.verts.new((x0 + (x1 - x0) * t, y, zb + amp * math.cos(t * waves * 2 * math.pi))))
             rows.append(row)
         faces = []
         for i in range(n):
@@ -158,6 +172,12 @@ class Part:
         me = bpy.data.meshes.new(self.name)
         bmesh.ops.remove_doubles(self.bm, verts=self.bm.verts, dist=1e-5)
         bmesh.ops.recalc_face_normals(self.bm, faces=self.bm.faces)
+        for f in self.facing:
+            if not f.is_valid:
+                continue
+            f.normal_update()
+            if f.normal.y > 0:
+                f.normal_flip()
         self.bm.to_mesh(me)
         self.bm.free()
         for m in self.slots:
@@ -184,20 +204,21 @@ def window():
 
 
 def bars():
-    """Burglar bars over a window: a frame, uprights every 12.5 cm and three rails, with a diamond in the middle."""
+    """Burglar bars over a window: a frame, uprights every 12.5 cm and three rails, with a diamond in the middle.
+    Flat strips facing the street, the rails and the diamond a few millimetres in front of the uprights."""
     p = Part("bars")
-    i, y0, y1, s = "M_Kit_Iron", -0.07, -0.05, 0.016
+    i, y, s = "M_Kit_Iron", -0.06, 0.016
     x0, x1, z0, z1 = WIN_X0 + 0.02, WIN_X1 - 0.02, WIN_Z0 + 0.02, WIN_Z1 - 0.02
-    for z in (z0, z1, z0 + (z1 - z0) / 3, z0 + 2 * (z1 - z0) / 3):
-        p.box(x0, x1, y0, y1, z - s / 2, z + s / 2, i)
     n = 12
     for k in range(n + 1):
         x = x0 + (x1 - x0) * k / n
-        p.box(x - s / 2, x + s / 2, y0, y1, z0, z1, i)
+        p.strip((x, z0), (x, z1), s, y, i)
+    for z in (z0, z1, z0 + (z1 - z0) / 3, z0 + 2 * (z1 - z0) / 3):
+        p.strip((x0, z), (x1, z), s, y - 0.004, i)
     cz, cx, r = (z0 + z1) / 2, 0.0, 0.22
     pts = [(cx, cz + r), (cx + r, cz), (cx, cz - r), (cx - r, cz), (cx, cz + r)]
-    for (ax, az), (bx, bz) in zip(pts, pts[1:]):
-        p.beam((ax, (y0 + y1) / 2, az), (bx, (y0 + y1) / 2, bz), s, s, i)
+    for a, b in zip(pts, pts[1:]):
+        p.strip(a, b, s, y - 0.008, i)
     return p
 
 
@@ -218,9 +239,10 @@ def balcony_balusters():
         p.box(x0 - 0.08 if x0 == x1 else x0, x1 + 0.08 if x0 == x1 else x1,
               y0 - 0.08 if y0 == y1 else y0, y1 + 0.08 if y0 == y1 else y1, 0.78, 0.9, t)
     def baluster(x, y):
-        p.cylinder(x, y, 0.12, 0.3, 0.035, 0.065, 6, t)
-        p.cylinder(x, y, 0.3, 0.6, 0.065, 0.035, 6, t)
-        p.cylinder(x, y, 0.6, 0.78, 0.035, 0.045, 6, t)
+        # Open-ended: the plinth, the handrail and the neighbouring piece hide every end, so caps are wasted triangles.
+        p.cylinder(x, y, 0.12, 0.3, 0.035, 0.065, 6, t, cap=False)
+        p.cylinder(x, y, 0.3, 0.6, 0.065, 0.035, 6, t, cap=False)
+        p.cylinder(x, y, 0.6, 0.78, 0.035, 0.045, 6, t, cap=False)
     k = 13
     for j in range(k):
         baluster(-w / 2 + 0.12 + (w - 0.24) * j / (k - 1), -d)
