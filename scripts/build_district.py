@@ -367,10 +367,12 @@ RING_STEP_M = 40.0
 
 
 # Main roads off the lap whose heads were all seen as white LED by day (circle-reference observations.csv,
-# obs-accra-lights-heads-main-001, Aug-Oct 2024): they never draw sodium. Cantonments Road carries solar all-in-one
-# LED poles (a panel on top), still to add to the facade kit.
+# obs-accra-lights-heads-main-001, Aug-Oct 2024): they never draw sodium.
 LED_ROADS = ("Cantonments Road", "Independence Avenue", "Ring Road Central", "Castle Road", "Liberation Road",
              "Kojo Thompson Road", "Kinbu Road")
+# Roads lit by solar all-in-one poles: a panel on top of the pole, the LED head on a curved arm below it (3 of 3 heads
+# seen on Cantonments Road, Street View Aug 2024). The game draws the panel from the lamp's "pole" field.
+SOLAR_ROADS = ("Cantonments Road",)
 
 
 def lamp_kind(rid, stretch, k, on_lap, name=""):
@@ -428,9 +430,12 @@ def place_lights(rid, cls, name, line, w):
             s = 1 if k % 2 == 0 else -1
         pos = p + left * s * (w / 2 + 1.2)
         face = -left * s  # the lamp arm points over the road
-        out.append({"x": round(float(pos[0]), 2), "y": 0.0, "z": round(float(pos[1]), 2),
-                    "yaw": round(math.degrees(math.atan2(face[0], face[1])), 1),
-                    "kind": kind, "road": name or cls})
+        lamp = {"x": round(float(pos[0]), 2), "y": 0.0, "z": round(float(pos[1]), 2),
+                "yaw": round(math.degrees(math.atan2(face[0], face[1])), 1),
+                "kind": kind, "road": name or cls}
+        if name in SOLAR_ROADS:
+            lamp["pole"] = "solar"
+        out.append(lamp)
     return out
 
 

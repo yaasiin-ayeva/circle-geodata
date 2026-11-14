@@ -40,6 +40,8 @@ def street_lights(lamps):
         # Heads at 10 m on a 1.75 m arm (circle-reference/catalogue/street-survey.md, measured on Oxford Street).
         head = [round(foot[0] + f[0] * ARM_M, 3), round(foot[1] + HEAD_M, 3), round(foot[2] + f[2] * ARM_M, 3)]
         entry = {"kind": l["kind"], "road": l.get("road", ""), "foot": foot, "forward": f, "head": head}
+        if l.get("pole"):
+            entry["pole"] = l["pole"]  # "solar": a panel on top of the pole (build_district.SOLAR_ROADS)
         if l["kind"] != "dead":
             entry["light"] = [head[0], round(foot[1] + HEAD_M - 0.13, 3), head[2]]
             entry["direction"] = [0.0, -1.0, 0.0]
