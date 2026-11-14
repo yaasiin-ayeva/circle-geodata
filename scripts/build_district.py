@@ -532,6 +532,15 @@ def build(args):
                        if isinstance(l, LineString) and l.length >= 1]
         parked = place_parked(rules["parking"], pieces, keep_out + [p for _, p in yards], lap)
 
+    # Hiding places for the heat chase, off the side streets and away from Oxford Street's dressed block.
+    hide_roads = []
+    for rid, cls, _, g in roads:
+        g = g.intersection(clip)
+        hide_roads += [(rid, cls, l) for l in ([g] if isinstance(g, LineString) else list(getattr(g, "geoms", [])))
+                       if isinstance(l, LineString) and l.length >= 1]
+    hiding = hiding_places(hide_roads, keep_out + [p for _, p in yards], compound_walls, parked, lights,
+                           avoid=oxford.buffer(40) if oxford is not None else None, clip=clip)
+
     os.makedirs(args.out, exist_ok=True)
     base = os.path.join(args.out, args.name)
     with open(base + ".mtl", "w") as f:
@@ -554,7 +563,7 @@ def build(args):
         "bounds_m": {"xmin": round(minx, 1), "xmax": round(maxx, 1), "zmin": round(miny, 1), "zmax": round(maxy, 1)},
         "axes": "x east, y up, z north, metres from origin",
         "stats": {"buildings": nb, "road_km": round(road_km, 2), "lights": len(lights),
-                  **({"parked": len(parked)} if rules.get("parking") else {}), "triangles": tris,
+                  **({"parked": len(parked)} if rules.get("parking") else {}), "hiding": len(hiding), "triangles": tris,
                   "vertices": verts, "objects": objs, "lap_m": round(lap["length_m"], 1) if lap else None,
                   "height_m_median": round(float(np.median(heights)), 1) if heights else None,
                   "massing": {k: (round(v) if isinstance(v, float) else v) for k, v in sorted(counts.items())}},
@@ -568,6 +577,8 @@ def build(args):
         "roads": traffic_network(roads, clip, ONE_WAY_ROADS),
         # What the game's cars collide with (circle-game src/core/scene.ts addSolid).
         "solid": solid_outlines(keep_out + [p for _, p in yards], compound_walls, [(cls, g) for _, cls, _, g in roads]),
+        # Where the game's hiding places stand (circle-game src/world/hiding.ts).
+        "hiding": hiding,
         "credits": "Buildings and roads: Overture Maps Foundation (ODbL), from OpenStreetMap contributors, "
                    "Google Open Buildings and Microsoft. Heights from typology rules.",
     }
@@ -780,6 +791,78 @@ def solid_outlines(footprints, walls, roads=(), tolerance=0.5, kerb=0.3):
             if isinstance(piece, LineString) and piece.length >= 1:
                 lines.append([round(float(c), 1) for xy in piece.coords for c in xy[:2]])
     return {"buildings": rings, "walls": lines}
+
+
+# Hiding places (circle-bible bible/game-design.md, heat level 3: "a trotro station, car wash, market shed, a crew
+# garage"): open sheds on free plots beside the side streets, where the game lets the heat cool. They are invented
+# places, unnamed, on ground the map leaves empty; the game builds the shed (circle-game src/world/hiding.ts).
+HIDING_KINDS = ("car-wash", "market-shed", "crew-garage")
+HIDING_CLASSES = ("tertiary", "residential", "unclassified")
+HIDING_SIZE_M = (9.0, 11.0)          # along the street, and deep
+HIDING_SPACING_M = 200.0
+
+
+def hiding_places(roads, footprints, walls, parked=(), lights=(), avoid=None, clip=None, step=6.0,
+                  size=HIDING_SIZE_M, setback=1.2, spacing=HIDING_SPACING_M, widths=ROAD_WIDTH):
+    """Free plots beside the side streets for the game's hiding places, at least `spacing` metres apart.
+
+    roads: (id, class, line) in metres; a place stands beside a road of HIDING_CLASSES, its open front `setback`
+    metres back from the carriageway and facing it, `size` = (width along the street, depth). The plot, with the strip
+    between it and the carriageway, must be clear of footprints (0.5 m), walls (0.3 m), every carriageway (1 m), parked
+    cars (2.5 m) and street-light poles (1 m), inside `clip`, and outside `avoid` (a geometry, such as the dressed
+    block's street). Candidates every `step` metres on both sides are taken in a hashed order, so reruns give the same
+    places, and each new one keeps `spacing` from those taken. Returns [{"kind", "x", "z", "yaw", "w", "d"}] in builder
+    axes (z north), yaw in degrees clockwise from north: the way the open front faces."""
+    w_along, depth = size
+    blockers = [p.buffer(0.5) for p in footprints if not p.is_empty]
+    blockers += [w.buffer(0.3) for w in walls if not w.is_empty]
+    blockers += [Point(c["x"], c["z"]).buffer(2.5) for c in parked]
+    blockers += [Point(l["x"], l["z"]).buffer(1.0) for l in lights]
+    btree = shapely.STRtree(blockers) if blockers else None
+    lanes = [l.buffer(widths[c] / 2 + 1.0) for _, c, l in roads if c in TRAFFIC_CLASSES]
+    ltree = shapely.STRtree(lanes) if lanes else None
+    candidates = []
+    for rid, cls, line in roads:
+        if cls not in HIDING_CLASSES or line.length < w_along + 2 * step:
+            continue
+        half_w = widths[cls] / 2
+        for k, d in enumerate(np.arange(w_along / 2 + step, line.length - w_along / 2 - step + 1e-6, step)):
+            a = np.array(line.interpolate(d - w_along / 2).coords[0])
+            b = np.array(line.interpolate(d + w_along / 2).coords[0])
+            t = b - a
+            if np.linalg.norm(t) < w_along * 0.95:
+                continue                                     # the street bends here
+            t = t / np.linalg.norm(t)
+            left = np.array([-t[1], t[0]])
+            c = np.array(line.interpolate(d).coords[0])
+            for side in (1, -1):
+                n = left * side
+                front = c + n * (half_w + setback)
+                centre = front + n * depth / 2
+                corners = [front - t * w_along / 2, front + t * w_along / 2, front + t * w_along / 2 + n * depth,
+                           front - t * w_along / 2 + n * depth]
+                plot = Polygon([tuple(p) for p in corners])
+                # The way in: from the carriageway's edge to the plot's front.
+                way_in = Polygon([tuple(p) for p in (c + n * half_w - t * w_along / 2, c + n * half_w + t * w_along / 2,
+                                                     front + t * w_along / 2, front - t * w_along / 2)])
+                candidates.append((unit_hash(rid, "hide", k, side), plot, way_in, centre, -n))
+    candidates.sort(key=lambda x: x[0])
+    taken = []
+    for h, plot, way_in, centre, face in candidates:
+        if any(math.hypot(centre[0] - o["x"], centre[1] - o["z"]) < spacing for o in taken):
+            continue
+        if clip is not None and not clip.contains(plot):
+            continue
+        if avoid is not None and plot.intersects(avoid):
+            continue
+        if btree is not None and len(btree.query(plot.union(way_in), predicate="intersects")):
+            continue
+        if ltree is not None and len(ltree.query(plot, predicate="intersects")):
+            continue
+        taken.append({"kind": HIDING_KINDS[len(taken) % len(HIDING_KINDS)], "x": round(float(centre[0]), 2),
+                      "z": round(float(centre[1]), 2), "yaw": round(math.degrees(math.atan2(face[0], face[1])), 1),
+                      "w": w_along, "d": depth})
+    return taken
 
 
 def traffic_network(roads, clip, one_way=()):

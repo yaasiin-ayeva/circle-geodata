@@ -41,9 +41,12 @@ check("Ring Road East: poles 40 m apart", all(abs(g - 40) < 0.5 for g in gaps), 
 check("Ring Road East: no sodium", all(l["kind"] != "sodium" for l in lamps))
 
 other = LineString([(0, 0), (3000, 0)])
-lamps = build_district.place_lights("r3", "primary", "Cantonments Road", other, 9.0)
+lamps = build_district.place_lights("r3", "primary", "A main road off the lap", other, 9.0)
 check("off the lap: some sodium survives", any(l["kind"] == "sodium" for l in lamps),
       f"{sum(l['kind'] == 'sodium' for l in lamps)} of {len(lamps)}")
+lamps = build_district.place_lights("r3", "primary", "Cantonments Road", other, 9.0)
+check("off the lap, on a road the survey saw relit: no sodium", all(l["kind"] != "sodium" for l in lamps),
+      f"{len(lamps)} poles")
 
 
 def lamp(road, x, z, fx, kind="led"):

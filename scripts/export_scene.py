@@ -107,6 +107,10 @@ def main():
         # Flat lists x0, z0, x1, z1, ... with z flipped to glTF's south.
         flip = lambda flat: [v if i % 2 == 0 else round(-v, 1) + 0.0 for i, v in enumerate(flat)]
         scene["solid"] = {k: [flip(f) for f in d["solid"].get(k, [])] for k in ("buildings", "walls")}
+    # Hiding places for the heat chase: the plot's centre, the way its open front faces, its width and depth.
+    if d.get("hiding"):
+        scene["hiding"] = [{"kind": h["kind"], "position": g(h["x"], 0.0, h["z"]), "forward": heading(h["yaw"]),
+                            "w": h["w"], "d": h["d"]} for h in d["hiding"]]
     if args.lookdev:
         lk = json.load(open(args.lookdev))
         scene["files"]["block"] = "osu-lookdev.glb"
