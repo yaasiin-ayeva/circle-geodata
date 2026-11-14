@@ -76,7 +76,7 @@ DISTRICT_RULES = {
                   # The shop signs read in full along the lap (circle-reference texts.csv txt-jamestown-lap-001..003),
                   # by name: the Street View point they were read from and the bearing of their facade from it.
                   # About 1 shop bay in 10 carries a sign here: the game hangs these and no others.
-                  "signs": [("TWM SPORTS EQUIPMENT STORE", 5.539694, -0.207763, 130),
+                  "signs": [("TWM SPORTS EQUIPMENT STORE", 5.539694, -0.207763, 175),
                             ("MAKOLA PRICES", 5.537146, -0.210161, 138),
                             ("SHIP HOUZZ", 5.538331, -0.208946, 131)]},
 }
