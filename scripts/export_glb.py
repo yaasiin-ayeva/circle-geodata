@@ -212,7 +212,7 @@ def material(w, name, spec, obj_dir, tex_roots, max_tex, cache, missing):
     return len(w.gltf["materials"]) - 1
 
 
-def export(obj_path, look_path, tex_roots, out_path, max_tex):
+def export(obj_path, look_path, tex_roots, out_path, max_tex, uv_on=None):
     look = json.load(open(look_path))["materials"]
     V, VT, VN, groups, order = read_obj(obj_path)
     w = GlbWriter()
@@ -232,10 +232,10 @@ def export(obj_path, look_path, tex_roots, out_path, max_tex):
                 spec = {"color": [0.8, 0.8, 0.8], "smoothness": 0.2}
             mat_index[mtl] = material(w, mtl, spec, os.path.dirname(obj_path), tex_roots, max_tex, cache, missing)
         index = idx.astype(np.uint16) if len(p) < 65536 else idx
-        prim = {"attributes": {"POSITION": w.accessor(p, "VEC3", 34962, bounds=True),
-                               "NORMAL": w.accessor(n, "VEC3", 34962),
-                               "TEXCOORD_0": w.accessor(uv, "VEC2", 34962)},
-                "indices": w.accessor(index, "SCALAR", 34963), "material": mat_index[mtl]}
+        attributes = {"POSITION": w.accessor(p, "VEC3", 34962, bounds=True), "NORMAL": w.accessor(n, "VEC3", 34962)}
+        if uv_on is None or mtl.startswith(uv_on):
+            attributes["TEXCOORD_0"] = w.accessor(uv, "VEC2", 34962)
+        prim = {"attributes": attributes, "indices": w.accessor(index, "SCALAR", 34963), "material": mat_index[mtl]}
         nodes.setdefault(obj, []).append(prim)
     for obj, prims in nodes.items():
         w.gltf["meshes"].append({"name": obj, "primitives": prims})
@@ -259,8 +259,11 @@ def main():
     ap.add_argument("--textures", action="append", default=[], help="folder holding ambientCG/ and CC0/ texture sets (repeatable)")
     ap.add_argument("--max-texture", type=int, default=1024)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--uv-only", metavar="PREFIX",
+                    help="write texture coordinates only for materials whose name starts with PREFIX; the district "
+                         "uses M_Wall_, whose v carries the building modules' surface flags (scripts/massing.py)")
     args = ap.parse_args()
-    export(args.obj, args.look, args.textures, args.out, args.max_texture)
+    export(args.obj, args.look, args.textures, args.out, args.max_texture, args.uv_only)
 
 
 if __name__ == "__main__":

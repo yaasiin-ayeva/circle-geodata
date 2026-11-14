@@ -13,11 +13,14 @@ Writes one shared asset set for the Unity and Unreal proof of concept:
   osu-poc-preview.png       top-down check: roads, buildings by height, lights, lap.
 
 Heights come from OSM tags where they exist, otherwise from the typology rules in storeys(); they are
-placeholders until the Open Buildings 2.5D heights are merged (pipeline step 3). Needs shapely, pyproj,
+placeholders until the Open Buildings 2.5D heights are merged (pipeline step 3). Each footprint is then built from
+the modules in massing.py (hipped roofs, bulkheads, set-backs, frame storeys, compound walls); --no-massing keeps
+plain extruded boxes. Needs shapely, pyproj,
 mapbox_earcut, networkx and Pillow (requirements-district.txt).
 """
 import argparse
 import hashlib
+from collections import Counter
 import json
 import math
 import os
@@ -32,6 +35,8 @@ from PIL import Image, ImageDraw
 from pyproj import Transformer
 from shapely.geometry import LineString, MultiLineString, MultiPolygon, Polygon, box
 from shapely.geometry.polygon import orient
+
+import massing
 
 WORLD_ORIGIN_UTM = (808523.0, 616356.0)  # Kwame Nkrumah Interchange ("Circle"), see README
 
@@ -181,31 +186,47 @@ def build(args):
         exclude = {l.strip() for l in open(args.exclude) if l.strip()}
     nb = 0
     heights = []
+    # Building modules (massing.py): who stands in a walled compound, and what keeps the walls out.
+    yards, keep_out = [], []
+    counts = Counter()
     for bid, src, height, floors, blob in load(con, os.path.join(args.slice, "buildings.parquet"), "id, source, height, num_floors"):
-        if bid in exclude:
-            continue
         g = shapely.from_wkb(bytes(blob))
         if not lonlat_box.contains(g.centroid):
             continue
         g = local(g).buffer(0).simplify(0.25)
         polys = list(g.geoms) if isinstance(g, MultiPolygon) else [g]
+        if bid in exclude:
+            keep_out += [p for p in polys if isinstance(p, Polygon)]
+            continue
         for poly in polys:
             if not isinstance(poly, Polygon) or poly.area < 8:
                 continue
             poly = orient(poly, 1.0)
             rnd = unit_hash(bid)
+            near = oxford is not None and poly.distance(oxford) < 35
             if height:
                 h = float(height)
-            elif floors:
-                h = float(floors) * STOREY_M
+                n = None
             else:
-                near = oxford is not None and poly.distance(oxford) < 35
-                h = storeys(poly.area, rnd, near) * STOREY_M
-            h += 0.4 + rnd * 0.6  # parapet
+                n = int(floors) if floors else storeys(poly.area, rnd, near)
+                h = n * STOREY_M
+            parapet = 0.4 + rnd * 0.6
+            h += parapet
             heights.append(h)
             c = poly.centroid
             obj = cell_name("Buildings", c.x, c.y)
             wall = WALLS[int(unit_hash(bid, "paint") * len(WALLS))]
+            if not args.no_massing and n is not None:
+                # Houses and small blocks off Oxford Street stand in walled yards.
+                yard = not near and n <= 3 and poly.area < 600
+                massing.building(mesh, obj, wall, bid, poly, n, parapet, near, yard, counts)
+                if yard:
+                    yards.append((bid, poly))
+                else:
+                    keep_out.append(poly)
+                nb += 1
+                continue
+            keep_out.append(poly)
             rings = [poly.exterior] + list(poly.interiors)
             for ring in rings:
                 pts = list(ring.coords)[:-1]
@@ -225,6 +246,13 @@ def build(args):
                     b, cc = cc, b
                 mesh.tri(obj, "M_Roof", (*a, h), (*b, h), (*cc, h))
             nb += 1
+
+    if not args.no_massing:
+        district_roads = []
+        for _, cls, _, g in roads:
+            g = g.intersection(clip.buffer(60))
+            district_roads += [(cls, l) for l in ([g] if isinstance(g, LineString) else getattr(g, "geoms", [])) if isinstance(l, LineString)]
+        massing.compounds(mesh, cell_name, yards, keep_out, district_roads, ROAD_WIDTH, counts, clip, oxford)
 
     # Roads: ribbons with mitred joints, a dashed centre line on the major classes.
     lights = []
@@ -280,7 +308,8 @@ def build(args):
         "axes": "x east, y up, z north, metres from origin",
         "stats": {"buildings": nb, "road_km": round(road_km, 2), "lights": len(lights), "triangles": tris,
                   "vertices": verts, "objects": objs, "lap_m": round(lap["length_m"], 1) if lap else None,
-                  "height_m_median": round(float(np.median(heights)), 1) if heights else None},
+                  "height_m_median": round(float(np.median(heights)), 1) if heights else None,
+                  "massing": {k: (round(v) if isinstance(v, float) else v) for k, v in sorted(counts.items())}},
         "lights": lights,
         "lap": lap,
         "credits": "Buildings and roads: Overture Maps Foundation (ODbL), from OpenStreetMap contributors, "
@@ -486,6 +515,8 @@ def main():
     ap.add_argument("--name", default="osu-poc", choices=sorted(AREAS))
     ap.add_argument("--out", default="data/work/osu-poc")
     ap.add_argument("--exclude", help="file of building ids to leave out (from build_lookdev.py)")
+    ap.add_argument("--no-massing", action="store_true",
+                    help="plain extruded footprints, no roofs, bulkheads, frames or compound walls (the old district)")
     build(ap.parse_args())
 
 

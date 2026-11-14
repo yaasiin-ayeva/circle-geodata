@@ -19,6 +19,7 @@ Pre-production. The area files, the Overture counting and extraction script, the
 | [scripts/overture_slice.py](scripts/overture_slice.py) | Counts or extracts Overture buildings and roads inside an area |
 | [scripts/build_lookdev.py](scripts/build_lookdev.py) | Dresses the first 220 m of Oxford Street at target quality: facades with windows, bars, AC units and shopfronts, invented shop signs, rooms and shop interiors behind lit glass, sidewalks, gutters, power lines, kiosks, umbrellas |
 | [scripts/build_district.py](scripts/build_district.py) | Turns an export into a drivable district for the engines: OBJ meshes, streetlights, a benchmark lap ([requirements-district.txt](requirements-district.txt)) |
+| [scripts/massing.py](scripts/massing.py) | The district's building modules: hipped roofs on houses, stair bulkheads, set-back top storeys, unfinished frame storeys, compound walls with gates along residential streets |
 | [scripts/export_glb.py](scripts/export_glb.py), [scripts/export_scene.py](scripts/export_scene.py) | What the game loads: indexed GLB per 250 m cell with glTF PBR materials, and a scene JSON (lights, lap, parked cars, models) in glTF axes |
 | [scripts/build_kit.py](scripts/build_kit.py) | The Osu facade kit, modelled in Blender from the street survey: 13 low-poly parts (window surround, burglar bars, balcony balusters and rail, shutter box, canopy, kiosk posts, AC unit, polytank, parapet with and without rebar, pole with and without an LED head) exported to one GLB for the game, with a preview render. See [Building the facade kit](#building-the-facade-kit) |
 | [look/look.json](look/look.json) | The look as data: materials, light kinds, night and day environments, taken from the Unity proof of concept |
@@ -82,23 +83,36 @@ python3 scripts/build_district.py --slice data/work/slice --out data/work/osu-po
 
 The look-dev script runs first: its 22 detailed buildings replace the plain ones, which `--exclude` leaves out of the district.
 
-It writes `osu-poc.obj`/`.mtl` (3,184 buildings, 26 km of road, 41,000 triangles), `osu-poc.json` (143 streetlights, a 2.55 km benchmark lap, the spawn point) and a top-down preview. Building heights there come from typology rules until the 2.5D heights are merged. These files were first built for the Unity proof of concept; the game now loads them through the GLB export below.
+It writes `osu-poc.obj`/`.mtl` (3,162 buildings, 26 km of road, 137,000 triangles), `osu-poc.json` (72 streetlights before relighting, a 2.55 km benchmark lap, the spawn point) and a top-down preview. Building heights there come from typology rules until the 2.5D heights are merged.
+
+The buildings are assembled from modules ([scripts/massing.py](scripts/massing.py), 14 November 2026), from the street survey in circle-reference and the roof census in circle-bible's `research/landscape-look.md`. On the 14 November build:
+
+| Module | Rule | Count |
+| --- | --- | ---: |
+| Hipped roof | Houses of 1–2 storeys off Oxford Street on a near-rectangular footprint, 0.5 m overhang, soffit and fascia. Grey sheet, rusted sheet or red tile, tile mostly on 2 storeys | 1,467 (659 grey, 446 rusted, 362 tile) |
+| Stair bulkhead | 3.4 × 2.6 × 2.6 m on most flat roofs of 2 storeys or more | 358 |
+| Set-back top storey | 2 m behind a terrace on half the blocks of 4 storeys or more | 21 |
+| Unfinished frame storey | Bare concrete columns on top of 1 block in 10 off Oxford Street | 55 (1,008 columns) |
+| Compound walls | 2.25 m along the street frontage of residential blocks, 1.2 m back from the road edge, stopping at buildings and shopfronts | 36.6 km, 1,254 steel gates |
+
+`--no-massing` builds the old extruded boxes, for comparisons. The game tells compound walls, walls under pitched roofs and houses in yards apart by flags in the walls' texture coordinates (see the top of `massing.py`); export the district with `--uv-only M_Wall_` and pack it with gltfpack's `-kv` so they survive. These files were first built for the Unity proof of concept; the game now loads them through the GLB export below.
 
 For the game (three.js, decision of 13 November 2026), the same files become compressed GLB and a scene JSON:
 
 ```sh
-python3 scripts/export_glb.py data/work/osu-poc/osu-poc.obj --out data/work/web/osu-poc.glb
+python3 scripts/export_glb.py data/work/osu-poc/osu-poc.obj --uv-only M_Wall_ --out data/work/web/osu-poc.glb
 python3 scripts/export_glb.py data/work/osu-poc/osu-lookdev.obj --textures ../circle-game/art/textures --out data/work/web/osu-lookdev.glb
 python3 scripts/export_scene.py --district data/work/osu-poc/osu-poc.json --lookdev data/work/osu-poc/osu-lookdev.json --out data/work/web/osu-scene.json
 # Scenes exported before 13 Nov 2026: apply the street survey's lighting rules without rebuilding
 python3 scripts/relight_scene.py data/work/web/osu-scene.json
 python3 tests/test_street_lights.py
-gltfpack -i data/work/web/osu-poc.glb -o data/work/web/osu-poc.pack.glb -cc -kn -km -vpf -vtf
+python3 tests/test_massing.py
+gltfpack -i data/work/web/osu-poc.glb -o data/work/web/osu-poc.pack.glb -cc -kn -km -kv -vpf -vtf
 gltfpack -i data/work/web/osu-lookdev.glb -o data/work/web/osu-lookdev.pack.glb -cc -kn -km -vpf -vtf
 cd ../circle-game && npm run data    # copies the packed GLB, the scene JSON and look.json into the game
 ```
 
-On 13 November the district came to 0.53 MB and the look-dev block to 1.79 MB after meshopt compression (0.4 MB of geometry, 1.4 MB of atlases still in JPEG and PNG); KTX2 textures come next, through ktx2-encoder and glTF-Transform (decision of 13 November 2026), since the npm gltfpack has no BasisU. Both files pass the Khronos glTF validator with no errors or warnings. Generated textures from the Unity proof of concept (pavers, lattice, foliage cards, puddles, skies, now in `circle-game/art/textures/Generated`) are not ported yet; `look.json` marks them.
+On 13 November the district came to 0.53 MB (1.94 MB with the building modules of 14 November) and the look-dev block to 1.79 MB after meshopt compression (0.4 MB of geometry, 1.4 MB of atlases still in JPEG and PNG); KTX2 textures come next, through ktx2-encoder and glTF-Transform (decision of 13 November 2026), since the npm gltfpack has no BasisU. Both files pass the Khronos glTF validator with no errors or warnings. Generated textures from the Unity proof of concept (pavers, lattice, foliage cards, puddles, skies, now in `circle-game/art/textures/Generated`) are not ported yet; `look.json` marks them.
 
 `latest` picks the newest release on Overture's public bucket; a fixed name from the [release list](https://docs.overturemaps.org/release/) works too. Downloads and working files go under `data/`, which is not committed.
 
