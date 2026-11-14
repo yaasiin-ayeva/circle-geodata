@@ -132,12 +132,17 @@ gltfpack -i data/work/web/jamestown.glb -o data/work/web/jamestown.pack.glb -cc 
   - no compound walls and no yards: buildings stand on the street line;
   - walls painted ochre, mint, grey, concrete and pale blue;
   - the lighthouse as a landmark: an octagonal tower 28 m high, white with a red band, a red gallery and a lit lantern. The footprint under it is left out.
-- **The 14 November build** (Overture 2026-10-21.0): 4,345 buildings, 27.4 km of road, 217 street lights and 129,400 triangles. After gltfpack it is 1.95 MB, against 1.36 MB before the shed roofs.
-  - **Roofs:** 2,207 hipped and 1,896 shed; 3,907 grey, 120 rusted and 76 red.
-  - **Roof area:** 90% sheet, 1.9% red.
-  - **Inside the two surveyed frames:** flat roofs cover 1.8% in Bukom against 5% counted, and 16% in Ussher Town against 2% counted. There the large footprints, often several touching roofs merged into one, get 3 to 6 storeys from the typology rules and a flat roof. Jamestown's storey counts are not measured yet.
+- **Storeys:**
+  - Footprints with OpenStreetMap levels keep them: 1,525 of the 4,345, mostly one storey. In Street View, 4 of 4 checked were right.
+  - The others of 150 m² or more draw their storeys from the lap count of 82 buildings (44% one, 40% two, 9% three, 7% four or more), whatever their size. Of 7 large footprints checked, 5 were two storeys or less, so the typology rules' 3 to 6 storeys and a flat roof were wrong there.
+  - Smaller footprints keep the typology rules.
+- **Real signs at their places:** `DISTRICT_RULES` lists the three signs read in full along the lap, by name, place and the bearing of their facade. `export_scene.py` writes them as the scene's `signs`, and the game hangs each one once. About 1 shop bay in 10 carries a sign on the lap.
+- **The 14 November build** (Overture 2026-10-21.0): 4,345 buildings, 27.4 km of road, 217 street lights and 127,700 triangles.
+  - **Roofs:** 2,255 hipped and 1,857 shed; 3,915 grey, 121 rusted and 76 red.
+  - **Roof area:** 94% sheet, 2.2% red.
+  - **Inside the two surveyed frames:** flat roofs cover 2.6% in Bukom against 5% counted, and 1.9% in Ussher Town against 2% counted. Before the storey rule, Ussher Town was 16% flat.
 - **The benchmark lap** is 1.53 km: High Street, Ga Mashie Street, Nii Tackie Tawiah Street, Okai Pesemaku Street, Nii Owoo Street, Lutterodt Street and back to High Street.
-- **In the game:** `?district=jamestown`. The district has no dressed block, so it carries no `--lookdev` and no shop signs.
+- **In the game:** `?district=jamestown`. The district has no dressed block, so it carries no `--lookdev`.
 - **Not built yet:** James Fort, Ussher Fort, the harbour, kiosks along the street edges, timber poles with tangled wires, the white-over-blue band on long walls.
 
 `export_scene.py` names the scene's GLB after the district file (`jamestown.json` gives `jamestown.glb`); `--glb` overrides it.

@@ -56,13 +56,29 @@ AREAS = {
 #   yards: houses stand in walled compounds with gates (Osu); in the old town buildings stand on the street line.
 #   paints: the facade paints, (material, weight); None keeps the even mix of WALLS.
 #   landmarks: hand-built pieces, by name, at (lat, lon).
+#   storeys, storeys_from_m2: footprints of that area or more without a height draw their storeys from this
+#   (storeys, weight) list instead of the typology rules, where footprint size does not predict height.
+#   signs: real shop signs at their places, (name, lat, lon, bearing of the facade); the game draws the names.
 DISTRICT_RULES = {
     "osu": {"yards": True, "paints": None, "landmarks": []},
     # Jamestown: no compound walls; houses painted yellow, ochre, green and pale grey; the lighthouse.
     "jamestown": {"yards": False,
                   "paints": [("M_Wall_Ochre", 0.30), ("M_Wall_Mint", 0.20), ("M_Wall_Grey", 0.20), ("M_Wall_Concrete", 0.20),
                              ("M_Wall_PaleBlue", 0.10)],
-                  "landmarks": [("lighthouse", 5.5331, -0.2122)]},
+                  "landmarks": [("lighthouse", 5.5331, -0.2122)],
+                  # Storeys of footprints of 150 m2 or more that carry no mapped floors, drawn whatever their size:
+                  # the large footprints along the lap are often a row of one-storey shops or several roofs merged
+                  # into one (7 checked in Street View: 1, 1, 2, 2, 3, 4 and about 12 storeys), where the typology
+                  # rules gave them 3 to 6 storeys and a flat roof. The draw is the lap count of 82 buildings (44% one
+                  # storey, 40% two, 9% three, 7% four or more; circle-reference obs-jamestown-storeys-*). Footprints
+                  # with OpenStreetMap levels keep them: 4 of 4 tagged one storey were one storey in Street View.
+                  "storeys": [(1, 0.44), (2, 0.40), (3, 0.09), (4, 0.04), (5, 0.03)], "storeys_from_m2": 150,
+                  # The shop signs read in full along the lap (circle-reference texts.csv txt-jamestown-lap-001..003),
+                  # by name: the Street View point they were read from and the bearing of their facade from it.
+                  # About 1 shop bay in 10 carries a sign here: the game hangs these and no others.
+                  "signs": [("TWM SPORTS EQUIPMENT STORE", 5.539694, -0.207763, 130),
+                            ("MAKOLA PRICES", 5.537146, -0.210161, 138),
+                            ("SHIP HOUZZ", 5.538331, -0.208946, 131)]},
 }
 
 ROAD_WIDTH = {"motorway": 22.0, "trunk": 18.0, "primary": 13.0, "secondary": 10.0, "tertiary": 8.5,
@@ -263,7 +279,12 @@ def build(args):
                 h = float(height)
                 n = None
             else:
-                n = int(floors) if floors else storeys(poly.area, rnd, near)
+                if floors:
+                    n = int(floors)
+                elif rules.get("storeys") and poly.area >= rules["storeys_from_m2"]:
+                    n = massing.pick(rules["storeys"], unit_hash(bid, "storeys"))
+                else:
+                    n = storeys(poly.area, rnd, near)
                 h = n * STOREY_M
             parapet = 0.4 + rnd * 0.6
             h += parapet
@@ -374,6 +395,8 @@ def build(args):
                   "massing": {k: (round(v) if isinstance(v, float) else v) for k, v in sorted(counts.items())}},
         "lights": lights,
         "lap": lap,
+        "signs": [{"name": n, "x": round(float(e - oe), 2), "z": round(float(nn - on), 2), "bearing": b}
+                  for n, lat, lon, b in rules.get("signs", []) for e, nn in [to_utm.transform(lon, lat)]],
         "credits": "Buildings and roads: Overture Maps Foundation (ODbL), from OpenStreetMap contributors, "
                    "Google Open Buildings and Microsoft. Heights from typology rules.",
     }

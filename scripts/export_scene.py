@@ -75,6 +75,12 @@ def main():
                     "points": [[round(path[i], 2), round(-path[i + 1], 2)] for i in range(0, len(path), 2)],
                     "spawn": {"position": g(lap["spawn"]["x"], lap["spawn"].get("y", 0.0), lap["spawn"]["z"]),
                               "forward": heading(lap["spawn"]["yaw"])}}
+    # Real signs at their places (build_district DISTRICT_RULES "signs"): a point on the street and the direction of
+    # the facade that carries the sign, on the ground; the game casts from one along the other.
+    if d.get("signs"):
+        scene["signs"] = [{"name": sg["name"], "from": [sg["x"], -sg["z"]],
+                           "toward": [round(math.sin(math.radians(sg["bearing"])), 4), round(-math.cos(math.radians(sg["bearing"])), 4)]}
+                          for sg in d["signs"]]
     if args.lookdev:
         lk = json.load(open(args.lookdev))
         scene["files"]["block"] = "osu-lookdev.glb"
