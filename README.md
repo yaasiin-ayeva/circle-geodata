@@ -141,6 +141,7 @@ gltfpack -i data/work/web/jamestown.glb -o data/work/web/jamestown.pack.glb -cc 
   - **Roofs:** 2,255 hipped and 1,857 shed; 3,915 grey, 121 rusted and 76 red.
   - **Roof area:** 94% sheet, 2.2% red.
   - **Inside the two surveyed frames:** flat roofs cover 2.6% in Bukom against 5% counted, and 1.9% in Ussher Town against 2% counted. Before the storey rule, Ussher Town was 16% flat.
+- **Parked cars:** with no dressed block to park them, `build_district.py` parks cars parallel to the road edge (`"parking"` in `DISTRICT_RULES`, `place_parked()`). They stand within 250 m of the lap, on residential, unclassified, tertiary and secondary roads and on High Street, one place every 6.5 m on each side. A place is taken about one time in four, one in three on High Street, if it is clear of junctions, buildings, the spawn and other cars. Those chances and the paints (taxis on about 12% of places) are estimates, not counts. The 14 November build has 240 places, 25 of them taxis; `export_scene.py` writes them as the scene's `parked`, and `tests/test_parking.py` checks the rule on a synthetic street.
 - **The benchmark lap** is 1.53 km: High Street, Ga Mashie Street, Nii Tackie Tawiah Street, Okai Pesemaku Street, Nii Owoo Street, Lutterodt Street and back to High Street.
 - **In the game:** `?district=jamestown`. The district has no dressed block, so it carries no `--lookdev`.
 - **Not built yet:** James Fort, Ussher Fort, the harbour, kiosks along the street edges, timber poles with tangled wires, the white-over-blue band on long walls.

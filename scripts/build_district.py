@@ -9,7 +9,8 @@ Writes one shared asset set for the Unity and Unreal proof of concept:
                             x = east, y = up, z = north. Unreal's importer converts to its Z-up frame.
   osu-poc.json              origin, bounds, streetlights, the benchmark lap (flat [x0, z0, x1, z1, ...])
                             and the spawn point, in Unity axes (x east, y up, z north), metres from the
-                            district origin.
+                            district origin; "parked" cars along the streets where the district's rules ask
+                            for them (DISTRICT_RULES "parking", not Osu).
   osu-poc-preview.png       top-down check: roads, buildings by height, lights, lap.
 
 Heights come from OSM tags where they exist, otherwise from the typology rules in storeys(); they are
@@ -33,7 +34,7 @@ import numpy as np
 import shapely
 from PIL import Image, ImageDraw
 from pyproj import Transformer
-from shapely.geometry import LineString, MultiLineString, MultiPolygon, Polygon, box
+from shapely.geometry import LineString, MultiLineString, MultiPolygon, Point, Polygon, box
 from shapely.geometry.polygon import orient
 
 import massing
@@ -59,6 +60,12 @@ AREAS = {
 #   storeys, storeys_from_m2: footprints of that area or more without a height draw their storeys from this
 #   (storeys, weight) list instead of the typology rules, where footprint size does not predict height.
 #   signs: real shop signs at their places, (name, lat, lon, bearing of the facade); the game draws the names.
+#   parking: cars parked parallel to the road edge, for districts without a dressed look-dev block (place_parked()):
+#   the road classes parked on and the chance a place is taken ("classes", "take"), named streets with their own
+#   chance whatever their class ("streets"), how far from the lap ("lap_m"), one place every "step_m" on each side,
+#   the car's centre "inset_m" inside the road edge on roads narrower than "narrow_m" and "wide_inset_m" on wider
+#   ones, the clearances to junctions, buildings, the spawn and other cars, and the paints as (colour, weight).
+#   Osu has none: its parked cars come from build_lookdev.py.
 DISTRICT_RULES = {
     "osu": {"yards": True, "paints": None, "landmarks": []},
     # Jamestown: no compound walls; houses painted yellow, ochre, green and pale grey; the lighthouse.
@@ -78,7 +85,22 @@ DISTRICT_RULES = {
                   # About 1 shop bay in 10 carries a sign here: the game hangs these and no others.
                   "signs": [("TWM SPORTS EQUIPMENT STORE", 5.539694, -0.207763, 175),
                             ("MAKOLA PRICES", 5.537146, -0.210161, 138),
-                            ("SHIP HOUZZ", 5.538331, -0.208946, 131)]},
+                            ("SHIP HOUZZ", 5.538331, -0.208946, 131)],
+                  # Parked cars along the streets (circle-reference jamestown-identity-survey.md: side streets about
+                  # 6 m of asphalt with no kerb and no sidewalk, kiosks and tables on sandy edges; High Street wider,
+                  # two lanes each way, with kerbs; vehicles.md: cars park on sandy verges). Within 250 m of the lap, a
+                  # place every 6.5 m on each side, taken about one time in four on the side streets and one in three
+                  # on High Street, which is classed primary and parked on by name: estimates, not counted. On roads
+                  # under 7 m the car's centre is 1.0 m inside the asphalt edge, its outer side at the sand; 1.1 m on
+                  # wider roads. No place within 12 m of a junction, 1.5 m of a building, 6 m of the spawn or 5.5 m of
+                  # another car. Paints in the order vehicles.md gives for private cars (dark grey and black first,
+                  # then silver, white, red, blue), and a taxi waiting on about 12% of the places: weights estimated.
+                  "parking": {"classes": ["residential", "unclassified", "tertiary", "secondary"], "take": 0.25,
+                              "streets": {"High Street": 0.35}, "lap_m": 250.0, "step_m": 6.5,
+                              "inset_m": 1.0, "wide_inset_m": 1.1, "narrow_m": 7.0,
+                              "junction_m": 12.0, "building_m": 1.5, "spawn_m": 6.0, "gap_m": 5.5,
+                              "colours": [("grey", 0.20), ("black", 0.20), ("silver", 0.18), ("white", 0.16),
+                                          ("red", 0.08), ("blue", 0.06), ("taxi", 0.12)]}},
 }
 
 ROAD_WIDTH = {"motorway": 22.0, "trunk": 18.0, "primary": 13.0, "secondary": 10.0, "tertiary": 8.5,
@@ -374,6 +396,16 @@ def build(args):
 
     lap = benchmark_lap(roads, clip, area["lap"], to_utm, (oe, on))
 
+    # Parked cars along the streets, where the district has no dressed block to park them (DISTRICT_RULES "parking").
+    parked = []
+    if rules.get("parking"):
+        pieces = []
+        for rid, cls, name, g in roads:
+            g = g.intersection(clip)
+            pieces += [(rid, cls, name, l) for l in ([g] if isinstance(g, LineString) else list(getattr(g, "geoms", [])))
+                       if isinstance(l, LineString) and l.length >= 1]
+        parked = place_parked(rules["parking"], pieces, keep_out + [p for _, p in yards], lap)
+
     os.makedirs(args.out, exist_ok=True)
     base = os.path.join(args.out, args.name)
     with open(base + ".mtl", "w") as f:
@@ -389,7 +421,8 @@ def build(args):
         "offset_from_world_origin_m": {"x": round(oe - WORLD_ORIGIN_UTM[0], 2), "z": round(on - WORLD_ORIGIN_UTM[1], 2)},
         "bounds_m": {"xmin": round(minx, 1), "xmax": round(maxx, 1), "zmin": round(miny, 1), "zmax": round(maxy, 1)},
         "axes": "x east, y up, z north, metres from origin",
-        "stats": {"buildings": nb, "road_km": round(road_km, 2), "lights": len(lights), "triangles": tris,
+        "stats": {"buildings": nb, "road_km": round(road_km, 2), "lights": len(lights),
+                  **({"parked": len(parked)} if rules.get("parking") else {}), "triangles": tris,
                   "vertices": verts, "objects": objs, "lap_m": round(lap["length_m"], 1) if lap else None,
                   "height_m_median": round(float(np.median(heights)), 1) if heights else None,
                   "massing": {k: (round(v) if isinstance(v, float) else v) for k, v in sorted(counts.items())}},
@@ -397,6 +430,8 @@ def build(args):
         "lap": lap,
         "signs": [{"name": n, "x": round(float(e - oe), 2), "z": round(float(nn - on), 2), "bearing": b}
                   for n, lat, lon, b in rules.get("signs", []) for e, nn in [to_utm.transform(lon, lat)]],
+        # Only districts with a parking rule carry the key, so Osu's file is unchanged.
+        **({"parked": parked} if parked else {}),
         "credits": "Buildings and roads: Overture Maps Foundation (ODbL), from OpenStreetMap contributors, "
                    "Google Open Buildings and Microsoft. Heights from typology rules.",
     }
@@ -404,6 +439,9 @@ def build(args):
         json.dump(meta, f, indent=1)
     preview(base + "-preview.png", roads, clip, mesh, lights, lap)
     print(json.dumps(meta["stats"]))
+    if rules.get("parking"):
+        mix = Counter(c["colour"] for c in parked)
+        print(f"parked: {len(parked)} places, " + ", ".join(f"{n} {k}" for k, n in mix.most_common()))
 
 
 def ribbon(mesh, line, w, lift, mat, prefix):
@@ -530,6 +568,114 @@ def dedupe(lights, min_gap):
         if all((l["x"] - k["x"]) ** 2 + (l["z"] - k["z"]) ** 2 >= min_gap ** 2 for k in kept):
             kept.append(l)
     return kept
+
+
+# The game's parked car, width and length in metres (circle-game src/render/city.ts, a 1.74 x 4.3 m body).
+CAR_BODY_M = (1.74, 4.3)
+
+
+def junctions(lines, tol=0.05):
+    """Points where three road arms or more meet: three segment ends, a segment ending on another, two crossing.
+    Overture segments often run on through a junction, so their ends alone do not find them all; two segments
+    meeting end to end (one street continued) are no junction."""
+    tree = shapely.STRtree(lines)
+    found = {}
+    for i, a in enumerate(lines):
+        for j in tree.query(a):
+            if j <= i:
+                continue
+            x = a.intersection(lines[j])
+            for part in getattr(x, "geoms", [x]):
+                if part.is_empty:
+                    continue
+                # Two segments sharing a stretch meet at its ends.
+                ends = [part] if part.geom_type == "Point" else [Point(part.coords[0]), Point(part.coords[-1])]
+                for p in ends:
+                    found.setdefault((round(p.x, 1), round(p.y, 1)), p)
+    out = []
+    for p in found.values():
+        arms = 0
+        for k in tree.query(p, predicate="dwithin", distance=tol):
+            l = lines[k]
+            at_end = min(p.distance(Point(l.coords[0])), p.distance(Point(l.coords[-1]))) <= tol
+            arms += 1 if at_end and not l.is_closed else 2
+        if arms >= 3:
+            out.append(p)
+    return out
+
+
+def place_parked(rule, pieces, buildings, lap, widths=ROAD_WIDTH):
+    """Cars parked parallel to the road edge, for a district without a dressed block (DISTRICT_RULES "parking").
+
+    pieces: (road id, class, name, line) of every road in the district, clipped to it, in metres; the rule's classes
+    and streets are parked on, and all of them make the junctions. buildings: the footprints the cars keep clear of.
+    lap: benchmark_lap()'s dict, or None for no limit around the lap. Every place is a station along the road, one
+    each step_m from half a step in, on each side; it is taken when its hash falls under the street's chance and it
+    clears the junctions, the buildings (the car's long axis, rule "building_m" away), the spawn and the cars already
+    placed. A car also stays off every other road's asphalt (its centre half a car's width outside that carriageway),
+    which keeps it out of the side street at a sharp junction and off a road running alongside. The heading is
+    along the road, either way. Returns [{"x", "z", "y", "yaw", "colour"}] in builder axes, yaw in degrees
+    clockwise from north, as build_lookdev.py writes its parked cars."""
+    if not pieces:
+        return []
+    lines = [l for _, _, _, l in pieces]
+    jn = junctions(lines)
+    jtree = shapely.STRtree(jn) if jn else None
+    btree = shapely.STRtree(buildings) if buildings else None
+    # Other roads' carriageways, with flat ends so a street's next segment does not stop the cars on this one.
+    bands = shapely.STRtree([l.buffer(widths[c] / 2 + CAR_BODY_M[0] / 2, cap_style="flat") for _, c, _, l in pieces])
+    lap_line = None
+    if lap and lap.get("path") and rule.get("lap_m"):
+        lap_line = LineString(list(zip(lap["path"][0::2], lap["path"][1::2])))
+    spawn = Point(lap["spawn"]["x"], lap["spawn"]["z"]) if lap and lap.get("spawn") else None
+    gap, half = rule["gap_m"], CAR_BODY_M[1] / 2
+    grid, out = {}, []
+    seen = Counter()
+
+    def clear_of_cars(c):
+        gx, gz = int(math.floor(c[0] / gap)), int(math.floor(c[1] / gap))
+        return all((c[0] - o[0]) ** 2 + (c[1] - o[1]) ** 2 >= gap ** 2
+                   for dx in (-1, 0, 1) for dz in (-1, 0, 1) for o in grid.get((gx + dx, gz + dz), []))
+
+    for i, (rid, cls, name, line) in enumerate(pieces):
+        piece = seen[rid]            # a road cut in several pieces by the district's edge
+        seen[rid] += 1
+        take = rule.get("streets", {}).get(name, rule["take"] if cls in rule["classes"] else 0.0)
+        if take <= 0 or line.length < rule["step_m"]:
+            continue
+        w = widths[cls]
+        off = w / 2 - (rule["inset_m"] if w < rule["narrow_m"] else rule["wide_inset_m"])
+        for k, d in enumerate(np.arange(rule["step_m"] / 2, line.length - rule["step_m"] / 2 + 1e-6, rule["step_m"])):
+            p = np.array(line.interpolate(d).coords[0])
+            t = np.subtract(line.interpolate(min(d + 1.0, line.length)).coords[0], line.interpolate(max(d - 1.0, 0.0)).coords[0])
+            if np.linalg.norm(t) < 1e-6:
+                continue
+            t = t / np.linalg.norm(t)
+            left = np.array([-t[1], t[0]])
+            for side in (1, -1):
+                if unit_hash(rid, "park", piece, side, k) >= take:
+                    continue
+                c = p + left * side * off
+                pt = Point(c)
+                if lap_line is not None and pt.distance(lap_line) > rule["lap_m"]:
+                    continue
+                if spawn is not None and pt.distance(spawn) < rule["spawn_m"]:
+                    continue
+                if jtree is not None and len(jtree.query(pt, predicate="dwithin", distance=rule["junction_m"])):
+                    continue
+                axis = LineString([c - t * half, c + t * half])
+                if btree is not None and len(btree.query(axis, predicate="dwithin", distance=rule["building_m"])):
+                    continue
+                if any(j != i for j in bands.query(pt, predicate="intersects")):
+                    continue
+                if not clear_of_cars(c):
+                    continue
+                grid.setdefault((int(math.floor(c[0] / gap)), int(math.floor(c[1] / gap))), []).append(c)
+                face = t if unit_hash(rid, "parkdir", piece, side, k) < 0.5 else -t
+                out.append({"x": round(float(c[0]), 2), "z": round(float(c[1]), 2), "y": 0.0,
+                            "yaw": round(math.degrees(math.atan2(face[0], face[1])), 1),
+                            "colour": massing.pick(rule["colours"], unit_hash(rid, "parkcol", piece, side, k))})
+    return out
 
 
 def benchmark_lap(roads, clip, lap_spec, to_utm, origin):

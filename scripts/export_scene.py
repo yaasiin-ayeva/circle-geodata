@@ -10,7 +10,8 @@ keyed by each light's "kind".
 
 Contents: street lights (pole foot, lamp head, light position, kind, road), look-dev lights (shops,
 kiosks, bulbs, billboard floods, facade uplights with their targets), the benchmark lap and its spawn,
-parked cars and generated-model placements.
+parked cars (the look-dev block's or, without --lookdev, those build_district.py parked along the streets)
+and generated-model placements.
 """
 import argparse
 import json
@@ -30,6 +31,11 @@ def heading(yaw_deg):
     """A Unity yaw (degrees clockwise from north, seen from above) as a glTF ground direction."""
     a = math.radians(yaw_deg)
     return [round(math.sin(a), 5), 0.0, round(-math.cos(a), 5)]
+
+
+def parked_cars(cars):
+    """Parked cars (build_lookdev's or build_district's "parked"): paint, position, heading."""
+    return [{"colour": c["colour"], "position": g(c["x"], c["y"], c["z"]), "forward": heading(c["yaw"])} for c in cars]
 
 
 def street_lights(lamps):
@@ -91,11 +97,13 @@ def main():
                 e["target"] = g(l["tx"], l["ty"], l["tz"])
             lights.append(e)
         scene["blockLights"] = lights
-        scene["parked"] = [{"colour": c["colour"], "position": g(c["x"], c["y"], c["z"]), "forward": heading(c["yaw"])}
-                           for c in lk.get("parked", [])]
+        scene["parked"] = parked_cars(lk.get("parked", []))
         scene["models"] = [{"kind": m["kind"], "position": g(m["x"], m["y"], m["z"]), "forward": heading(m["yaw"]),
                             "scale": m.get("scale", 1.0)} for m in lk.get("models", [])]
         scene["blockOutline"] = [[x, -z] for x, z in lk.get("outline", [])]
+    elif d.get("parked"):
+        # No dressed block (Jamestown): the cars build_district.py parked along the streets.
+        scene["parked"] = parked_cars(d["parked"])
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     json.dump(scene, open(args.out, "w"), indent=1)
     n_lamps = sum(1 for s in scene["streetLights"] if "light" in s)
