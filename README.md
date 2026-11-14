@@ -110,7 +110,7 @@ python3 scripts/relight_scene.py data/work/web/osu-scene.json
 python3 tests/test_street_lights.py
 python3 tests/test_massing.py
 gltfpack -i data/work/web/osu-poc.glb -o data/work/web/osu-poc.pack.glb -cc -kn -km -kv -vpf -vtf
-gltfpack -i data/work/web/osu-lookdev.glb -o data/work/web/osu-lookdev.pack.glb -cc -kn -km -vpf -vtf
+gltfpack -i data/work/web/osu-lookdev.glb -o data/work/web/osu-lookdev.pack.glb -cc -kn -km -kv -vpf -vtf   # -kv: the foliage cards need their UVs
 cd ../circle-game && npm run data    # copies the packed GLB, the scene JSON and look.json into the game
 ```
 
