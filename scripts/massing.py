@@ -13,8 +13,8 @@ boundary walls) and circle-bible's research/landscape-look.md (roof materials):
   blocks, 1.2 m back from the road edge, stop short of every building and of shopfronts, and open on a steel
   gate in front of each yard's house.
 
-Nothing here adds a material per building kind beyond four: M_RoofSheet_Rust, M_RoofTile_Red, M_Gate and
-M_Concrete_Raw. Compound walls, fascias, soffits and bulkheads reuse the wall paints (M_Wall_*), so a cell
+Nothing here adds a material per building kind beyond five: M_RoofSheet_Rust, M_RoofTile_Red, M_RoofSheet_Painted
+(districts beyond Osu), M_Gate and M_Concrete_Raw. Compound walls, fascias, soffits and bulkheads reuse the wall paints (M_Wall_*), so a cell
 draws them with the walls it already has. The game tells these surfaces apart by a flag in the integer
 thousands of the texture v coordinate (district meshes carry no textures): see NO_OPENINGS, NO_PARAPET, YARD.
 """
@@ -42,6 +42,22 @@ NO_OPENINGS, NO_PARAPET, YARD = 1, 2, 4
 # district's wall materials; circle-game repaints them in the surveyed palette.
 BOUNDARY_PAINTS = [("M_Wall_Concrete", 0.30), ("M_Wall_PaleBlue", 0.25), ("M_Wall_Terracotta", 0.15),
                    ("M_Wall_Ochre", 0.15), ("M_Wall_Grey", 0.15)]
+
+# Roof palettes per district (circle-reference catalogue/district-roofs.md, roofs counted from above on 14 Nov 2026):
+# the material mix of pitched roofs, the share of eligible houses given a pitched roof, and the pitch of sheet roofs
+# in degrees (tile-red roofs keep 28). Osu keeps the mix by storeys in building(), which its count matches (75% grey
+# or rusted, 24% red among 240 pitched roofs). Grey and rust are not told apart from above: their split is a guess.
+# Districts not listed fall back to Osu.
+ROOF_PALETTES = {
+    # 80 of 86 roof points grey, beige or dark sheet, 1 clearly rusted, 2 red, 3 flat; low-pitched, edge to edge.
+    "jamestown": {"mix": [("M_Roof", 0.95), ("M_RoofSheet_Rust", 0.03), ("M_RoofTile_Red", 0.02)], "pitched": 0.97, "pitch": 12},
+    # North Ridge, about 156 roofs: of the 125 pitched, grey 48, brown 29, red 37, painted purple, blue or green 11.
+    "cantonments-ridge": {"mix": [("M_Roof", 0.38), ("M_RoofSheet_Rust", 0.23), ("M_RoofTile_Red", 0.30),
+                                  ("M_RoofSheet_Painted", 0.09)], "pitched": 0.85, "pitch": 18},
+    # Spintex, about 125 roofs: of the 101 not flat or beige, red 40, grey 34, brown 16, painted 11.
+    "spintex": {"mix": [("M_Roof", 0.33), ("M_RoofSheet_Rust", 0.16), ("M_RoofTile_Red", 0.40),
+                        ("M_RoofSheet_Painted", 0.11)], "pitched": 0.85, "pitch": 18},
+}
 
 WALL_H = 2.25                         # a boundary wall, coping included
 GATE_W, GATE_H = 3.2, 2.1             # a steel vehicle gate
@@ -200,8 +216,10 @@ def frame_storey(mesh, obj, poly, z, hgt=2.9):
     return n
 
 
-def building(mesh, obj, wall_mat, bid, poly, n_storeys, parapet, near_oxford, yard, counts):
-    """One building's massing: a house, a frame or a block. yard: it stands in a walled compound."""
+def building(mesh, obj, wall_mat, bid, poly, n_storeys, parapet, near_oxford, yard, counts, district="osu"):
+    """One building's massing: a house, a frame or a block. yard: it stands in a walled compound. district picks the
+    roof palette (ROOF_PALETTES; Osu's mix when it has none)."""
+    palette = ROOF_PALETTES.get(district)
     base = YARD if yard else 0
     area = poly.area
     eaves = n_storeys * STOREY_M
@@ -209,14 +227,16 @@ def building(mesh, obj, wall_mat, bid, poly, n_storeys, parapet, near_oxford, ya
     rect_fit = poly.area / axes[5].area if axes else 0.0
     # Houses: hipped roofs where the footprint is near a rectangle and narrow enough to span.
     if (n_storeys <= 2 and not near_oxford and 30 <= area <= 400 and axes and rect_fit >= 0.8
-            and 4.0 <= axes[4] <= 15.0 and axes[3] <= 40.0 and h01(bid, "hip") < 0.85):
+            and 4.0 <= axes[4] <= 15.0 and axes[3] <= 40.0 and h01(bid, "hip") < (palette["pitched"] if palette else 0.85)):
         r = h01(bid, "roof")
-        if n_storeys == 1:
+        if palette:
+            roof = pick(palette["mix"], r)
+        elif n_storeys == 1:
             roof = pick([("M_Roof", 0.5), ("M_RoofSheet_Rust", 0.4), ("M_RoofTile_Red", 0.1)], r)
         else:
             roof = pick([("M_Roof", 0.35), ("M_RoofSheet_Rust", 0.2), ("M_RoofTile_Red", 0.45)], r)
         walls(mesh, obj, wall_mat, poly, 0.0, eaves, base | NO_PARAPET)
-        hip_roof(mesh, obj, roof, wall_mat, poly, eaves, 28 if roof == "M_RoofTile_Red" else 18)
+        hip_roof(mesh, obj, roof, wall_mat, poly, eaves, 28 if roof == "M_RoofTile_Red" else (palette["pitch"] if palette else 18))
         counts["hip_roofs"] += 1
         counts[f"roof {roof}"] += 1
         return "house"

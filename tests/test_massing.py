@@ -120,5 +120,30 @@ check("street: no wall in front of the shop", not near_shop, f"{len(near_shop)} 
 f = Counter(flags_of(t) for (o, mat), ts in m.groups.items() if mat != "M_Gate" for t in ts if t[3])
 check("street: compound walls flagged NO_OPENINGS", set(f) == {massing.NO_OPENINGS}, dict(f))
 
+# District roof palettes: the same houses get the district's mix and pitch.
+def roof_mix(district, n=400):
+    mats, pitches = Counter(), []
+    for i in range(n):
+        m, c = Mesh(), Counter()
+        if massing.building(m, "o", "M_Wall_Ochre", f"d{i}", house, 1, 0.6, False, True, c, district) != "house":
+            continue
+        roof = [(mat, ts) for (o, mat), ts in m.groups.items() if mat.startswith("M_Roof")][0]
+        mats[roof[0]] += 1
+        ridge = max(p[2] for t in roof[1] for p in t[:3])
+        pitches.append((roof[0], ridge - massing.STOREY_M))
+    return mats, pitches
+mats, _ = roof_mix("jamestown")
+total = sum(mats.values())
+check("Jamestown: almost every pitched roof grey", mats["M_Roof"] / total > 0.88 and mats["M_RoofTile_Red"] / total < 0.06, dict(mats))
+mats, pitches = roof_mix("spintex")
+total = sum(mats.values())
+check("Spintex: red the largest share, painted roofs present", mats["M_RoofTile_Red"] / total > 0.3 and mats["M_RoofSheet_Painted"] > 0, dict(mats))
+_, jt = roof_mix("jamestown", 60)
+_, sp = roof_mix("spintex", 60)
+rise = lambda ps: max(h for mat, h in ps if mat != "M_RoofTile_Red")
+check("Jamestown: sheet roofs flatter than Spintex's", rise(jt) < rise(sp), f"{rise(jt):.2f} m against {rise(sp):.2f} m")
+mats, _ = roof_mix("nowhere", 200)
+check("unknown district: Osu's mix, no painted roofs", mats["M_RoofSheet_Painted"] == 0 and mats["M_Roof"] > 0, dict(mats))
+
 print("massing: " + ("all checks passed" if not failures else f"{failures} failed"))
 sys.exit(1 if failures else 0)

@@ -43,7 +43,7 @@ WORLD_ORIGIN_UTM = (808523.0, 616356.0)  # Kwame Nkrumah Interchange ("Circle"),
 AREAS = {
     # About 1.3 km2 of Osu: Danquah Circle, the north half of Oxford Street, Ring Road East.
     "osu-poc": {"south": 5.5575, "north": 5.5695, "west": -0.1870, "east": -0.1780,
-                "origin": (5.5669, -0.1809), "lap": ("Oxford Street", 5.5600)},
+                "origin": (5.5669, -0.1809), "lap": ("Oxford Street", 5.5600), "district": "osu"},
 }
 
 ROAD_WIDTH = {"motorway": 22.0, "trunk": 18.0, "primary": 13.0, "secondary": 10.0, "tertiary": 8.5,
@@ -219,7 +219,7 @@ def build(args):
             if not args.no_massing and n is not None:
                 # Houses and small blocks off Oxford Street stand in walled yards.
                 yard = not near and n <= 3 and poly.area < 600
-                massing.building(mesh, obj, wall, bid, poly, n, parapet, near, yard, counts)
+                massing.building(mesh, obj, wall, bid, poly, n, parapet, near, yard, counts, area.get("district", "osu"))
                 if yard:
                     yards.append((bid, poly))
                 else:

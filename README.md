@@ -89,7 +89,7 @@ The buildings are assembled from modules ([scripts/massing.py](scripts/massing.p
 
 | Module | Rule | Count |
 | --- | --- | ---: |
-| Hipped roof | Houses of 1–2 storeys off Oxford Street on a near-rectangular footprint, 0.5 m overhang, soffit and fascia. Grey sheet, rusted sheet or red tile, tile mostly on 2 storeys | 1,467 (659 grey, 446 rusted, 362 tile) |
+| Hipped roof | Houses of 1–2 storeys off Oxford Street on a near-rectangular footprint, 0.5 m overhang, soffit and fascia. Grey sheet, rusted sheet or red tile, tile mostly on 2 storeys. Other districts take their own palette (`ROOF_PALETTES`, counted from above in circle-reference `district-roofs.md`): Jamestown nearly all grey sheet at a 12° pitch, North Ridge and Spintex more red and some painted purple, blue or green sheet | 1,467 (659 grey, 446 rusted, 362 tile) |
 | Stair bulkhead | 3.4 × 2.6 × 2.6 m on most flat roofs of 2 storeys or more | 358 |
 | Set-back top storey | 2 m behind a terrace on half the blocks of 4 storeys or more | 21 |
 | Unfinished frame storey | Bare concrete columns on top of 1 block in 10 off Oxford Street | 55 (1,008 columns) |

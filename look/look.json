@@ -1052,6 +1052,17 @@
    "emission": 0.95,
    "map": "interiors-atlas.png",
    "emissionMap": "interiors-atlas.png"
+  },
+  "M_RoofSheet_Painted": {
+   "color": [
+    0.36,
+    0.37,
+    0.56
+   ],
+   "smoothness": 0.3,
+   "metallic": 0.3,
+   "texture": "CorrugatedSteel005",
+   "tiling": 1.0
   }
  },
  "lightKinds": {
