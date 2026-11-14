@@ -20,9 +20,23 @@ Pre-production. The area files, the Overture counting and extraction script, the
 | [scripts/build_lookdev.py](scripts/build_lookdev.py) | Dresses the first 220 m of Oxford Street at target quality: facades with windows, bars, AC units and shopfronts, invented shop signs, rooms and shop interiors behind lit glass, sidewalks, gutters, power lines, kiosks, umbrellas |
 | [scripts/build_district.py](scripts/build_district.py) | Turns an export into a drivable district for the engines: OBJ meshes, streetlights, a benchmark lap ([requirements-district.txt](requirements-district.txt)) |
 | [scripts/export_glb.py](scripts/export_glb.py), [scripts/export_scene.py](scripts/export_scene.py) | What the game loads: indexed GLB per 250 m cell with glTF PBR materials, and a scene JSON (lights, lap, parked cars, models) in glTF axes |
+| [scripts/build_kit.py](scripts/build_kit.py) | The Osu facade kit, modelled in Blender from the street survey: 13 low-poly parts (window surround, burglar bars, balcony balusters and rail, shutter box, canopy, kiosk posts, AC unit, polytank, parapet with and without rebar, pole with and without an LED head) exported to one GLB for the game, with a preview render. See [Building the facade kit](#building-the-facade-kit) |
 | [look/look.json](look/look.json) | The look as data: materials, light kinds, night and day environments, taken from the Unity proof of concept |
 | [tests/](tests/) | A test of the script against a synthetic release |
 | [pipeline/README.md](pipeline/README.md) | The ten pipeline steps, from download to streamed district tiles |
+
+## Building the facade kit
+
+The kit needs Blender 5.2 or later and nothing else; it runs in the background, from a factory-fresh Blender.
+
+```sh
+blender -b --factory-startup -P scripts/build_kit.py -- \
+  --out ../circle-game/public/kit/osu-kit.glb --preview kit-preview.png
+```
+
+- Each part is a root named `kit_<part>` in part space: X along the wall, Y up, Z out of the wall (Blender's −Y, which the glTF export turns into +Z), origin on the wall at the part's anchor.
+- Materials are named `M_Kit_*`; the game tints `M_Kit_Trim` and `M_Kit_Sheet` per instance and swaps `M_Kit_LED` for its lamp material.
+- The GLB goes to Git LFS in circle-game; on the team's Mac the runner jobs `blender-kit` and `kit-publish` build and commit it.
 
 ## Reference frame
 
