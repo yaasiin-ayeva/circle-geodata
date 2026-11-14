@@ -152,9 +152,10 @@ gltfpack -i data/work/web/jamestown.glb -o data/work/web/jamestown.pack.glb -cc 
 - **`roads`:** the drivable network, noded at every crossing, for the traffic (`traffic_network()`).
 - **`solid`:** what the cars collide with (`solid_outlines()`, checked by `tests/test_solid.py`):
   - the outline of every building, look-dev and landmark ones included, simplified to 0.5 m;
-  - the compound walls, their closed gates included.
-  - **Counts:** Osu 3,184 outlines and 596 walls, Jamestown 4,346 outlines and no walls.
-- **Format:** both are written on one line each, as flat lists of numbers, so the Osu scene is 288 KB (95 KB compressed) and Jamestown's 399 KB.
+  - the compound walls, their closed gates included;
+  - **kept off the carriageway:** mapped footprints sometimes reach onto the road (kiosks, canopies, a misplaced centreline: 23 outlines in Osu and 57 in Jamestown lay within 1 m of a centreline). The part of an outline on a drivable road, up to 0.3 m short of its edge and with the junctions' corners, is left out of the collisions; the buildings are still drawn whole;
+  - **counts:** Osu 3,184 outlines and 637 wall pieces, Jamestown 4,342 outlines and no walls.
+- **Format:** both are written on one line each, as flat lists of numbers, so the Osu scene is 289 KB (95 KB compressed) and Jamestown's 399 KB.
 
 `latest` picks the newest release on Overture's public bucket; a fixed name from the [release list](https://docs.overturemaps.org/release/) works too. Downloads and working files go under `data/`, which is not committed.
 

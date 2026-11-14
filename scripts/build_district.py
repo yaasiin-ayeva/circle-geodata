@@ -436,7 +436,7 @@ def build(args):
         # The drivable network for the game's traffic (circle-game src/vehicles/traffic.ts).
         "roads": traffic_network(roads, clip),
         # What the game's cars collide with (circle-game src/core/scene.ts addSolid).
-        "solid": solid_outlines(keep_out + [p for _, p in yards], compound_walls),
+        "solid": solid_outlines(keep_out + [p for _, p in yards], compound_walls, [(cls, g) for _, cls, _, g in roads]),
         "credits": "Buildings and roads: Overture Maps Foundation (ODbL), from OpenStreetMap contributors, "
                    "Google Open Buildings and Microsoft. Heights from typology rules.",
     }
@@ -612,24 +612,42 @@ def junctions(lines, tol=0.05):
 TRAFFIC_CLASSES = ("motorway", "trunk", "primary", "secondary", "tertiary", "residential", "unclassified")
 
 
-def solid_outlines(footprints, walls, tolerance=0.5):
+def solid_outlines(footprints, walls, roads=(), tolerance=0.5, kerb=0.3):
     """What the game's cars collide with: the outline of every building (look-dev ones and landmarks included) and
     the compound walls with their closed gates, simplified to `tolerance` metres and rounded to 0.1 m. Each outline
-    or wall is a flat list x0, z0, x1, z1, ...; an outline is a closed ring without its first point repeated."""
+    or wall is a flat list x0, z0, x1, z1, ...; an outline is a closed ring without its first point repeated.
+
+    roads: (class, line) of the drivable network. Mapped footprints sometimes reach onto the carriageway (kiosks,
+    canopies, a misplaced centreline: 23 outlines in Osu and 57 in Jamestown lie within 1 m of one), which would
+    block the street the traffic and the lap drive. The part of an outline that lies on the carriageway, up to `kerb`
+    metres short of its edge, is left out, and so is what remains of the outline if under 4 m2."""
+    carriage = None
+    # Round ends, so the corners of the junctions, where the cars cut across, are kept clear too.
+    lanes = [line.buffer(max(0.5, ROAD_WIDTH[cls] / 2 - kerb)) for cls, line in roads if cls in TRAFFIC_CLASSES]
+    if lanes:
+        carriage = shapely.union_all(lanes)
     rings, lines = [], []
     for p in footprints:
         if not isinstance(p, Polygon) or p.is_empty:
             continue
-        q = p.simplify(tolerance)
-        if not isinstance(q, Polygon) or q.is_empty or q.area < 4:
-            continue
-        pts = list(q.exterior.coords)[:-1]
-        if len(pts) >= 3:
-            rings.append([round(float(c), 1) for xy in pts for c in xy[:2]])
+        if carriage is not None and p.intersects(carriage):
+            p = p.difference(carriage)
+        for q in (list(p.geoms) if hasattr(p, "geoms") else [p]):
+            if not isinstance(q, Polygon) or q.is_empty:
+                continue
+            q = q.simplify(tolerance)
+            if not isinstance(q, Polygon) or q.is_empty or q.area < 4:
+                continue
+            pts = list(q.exterior.coords)[:-1]
+            if len(pts) >= 3:
+                rings.append([round(float(c), 1) for xy in pts for c in xy[:2]])
     for w in walls:
-        w = w.simplify(tolerance)
-        if isinstance(w, LineString) and w.length >= 1:
-            lines.append([round(float(c), 1) for xy in w.coords for c in xy[:2]])
+        if carriage is not None and w.intersects(carriage):
+            w = w.difference(carriage)
+        for piece in (list(w.geoms) if hasattr(w, "geoms") else [w]):
+            piece = piece.simplify(tolerance)
+            if isinstance(piece, LineString) and piece.length >= 1:
+                lines.append([round(float(c), 1) for xy in piece.coords for c in xy[:2]])
     return {"buildings": rings, "walls": lines}
 
 

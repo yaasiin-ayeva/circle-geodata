@@ -43,5 +43,17 @@ check("the wall keeps its ends and loses its 0.1 m wobble", walls[0][:2] == [0.0
       str(walls[0]))
 check("nothing at all gives empty lists", bd.solid_outlines([], []) == {"buildings": [], "walls": []})
 
+# A residential street (6 m wide) along z = 20: a kiosk mapped on it goes, a house reaching 1 m onto it is cut back to
+# 0.3 m inside the kerb, a footway passes nowhere near the carriageway rule.
+street = [("residential", LineString([(-50, 20), (50, 20)])), ("footway", LineString([(-50, 40), (50, 40)]))]
+kiosk_on_road = box(-2, 18.5, 2, 21.5)
+house_on_kerb = box(10, 21.0, 20, 30)
+house_on_footway = box(-10, 38, 0, 45)
+cut = bd.solid_outlines([kiosk_on_road, house_on_kerb, house_on_footway], [], street)["buildings"]
+check("a kiosk on the carriageway is left out", len(cut) == 2, f"{len(cut)} rings")
+zs = [v for v in cut[0][1::2]]
+check("a house on the kerb is cut back to 2.7 m from the centre", abs(min(zs) - 22.7) < 0.05, f"min z {min(zs)}")
+check("footways do not cut buildings", any(min(r[1::2]) == 38.0 for r in cut))
+
 print("solid outlines: " + ("all checks passed" if not failures else f"{failures} failed"))
 sys.exit(1 if failures else 0)
