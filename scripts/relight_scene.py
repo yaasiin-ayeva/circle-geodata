@@ -35,19 +35,24 @@ def reshape(lamp):
 
 
 def thin(lamps, gap_for):
-    """Keeps lamps in order along the road's main axis, each at least gap_for(k) after the last one kept."""
+    """Keeps poles in order along the road's main axis, each at least gap_for(k) after the last one kept. Lamps on
+    one foot are one pole: the two heads of a twin-arm pole in the Ring Road's median (build_district.place_lights)
+    are kept or dropped together."""
     if not lamps:
         return []
-    xs = [l["foot"][0] for l in lamps]
-    zs = [l["foot"][2] for l in lamps]
+    poles = {}
+    for l in lamps:
+        poles.setdefault((round(l["foot"][0], 2), round(l["foot"][2], 2)), []).append(l)
+    feet = list(poles)
+    xs = [x for x, _ in feet]
+    zs = [z for _, z in feet]
     along_z = (max(zs) - min(zs)) >= (max(xs) - min(xs))
-    ordered = sorted(lamps, key=lambda l: l["foot"][2] if along_z else l["foot"][0])
+    ordered = sorted(feet, key=lambda f: f[1] if along_z else f[0])
     kept = [ordered[0]]
-    for l in ordered[1:]:
-        last = kept[-1]
-        if math.dist((l["foot"][0], l["foot"][2]), (last["foot"][0], last["foot"][2])) >= gap_for(len(kept)):
-            kept.append(l)
-    return kept
+    for f in ordered[1:]:
+        if math.dist(f, kept[-1]) >= gap_for(len(kept)):
+            kept.append(f)
+    return [l for f in kept for l in poles[f]]
 
 
 def relight(scene):

@@ -6,6 +6,7 @@ the traffic network, and the tile each cell goes to.
     python3 tests/test_ring_road.py
 """
 import os
+from collections import Counter
 import sys
 
 import numpy as np
@@ -102,6 +103,42 @@ one = [r for r in net if r.get("oneway")]
 check("one-way pieces are flagged, the others not", one and all(r["name"] in (E, W) for r in one) and
       not any(r.get("oneway") for r in net if r["name"] not in (E, W)))
 check("each one-way piece runs its carriageway's way", all((r["pts"][2] - r["pts"][0] > 0) == (r["name"] == E) for r in one))
+
+# The cross-section (circle-reference street-survey.md): the Ring Road's carriageways 7 m wide, Danquah Circle's ring
+# 9.5 m, its slip roads and every other road by class.
+check("a Ring Road carriageway is 7 m wide, Danquah Circle 9.5 m, a slip road and other roads by class",
+      bd.road_width("primary", "Ring Road East") == 7.0 and bd.road_width("primary", "Ring Road Central") == 7.0 and
+      bd.road_width("primary", "Danquah Circle") == 9.5 and bd.road_width("tertiary", "Ring Road East") == 8.5 and
+      bd.road_width("primary", "Oxford Street") == 13.0 and bd.road_width("residential") == 6.0)
+saved = bd.DUAL_CARRIAGEWAYS
+bd.DUAL_CARRIAGEWAYS = (E, W, "Narrow Road")
+net = bd.traffic_network(roads, box(-1000, -1000, 1000, 1000), (E, W))
+check("the traffic's network carries the carriageway's width", all(r["w"] == 7.0 for r in net if r["name"] in (E, W)) and
+      all(r["w"] == 13.0 for r in net if r["name"] == "Flyover"))
+# Two carriageways 14.5 m apart centre to centre, as Ring Road East: a 7.5 m grass median, the poles in its middle with
+# a head over each carriageway; then the same pair 8 m apart, where the median has no room: the poles on the verge.
+east = ("e2", LineString([(-300, -7.25), (300, -7.25)]))
+west = ("w2", LineString([(300, 7.25), (-300, 7.25)]))
+pair = [east, west]
+lamps = []
+for rid, line in pair:
+    lamps += bd.place_lights(rid, "primary", E if rid == "e2" else W, line, bd.road_width("primary", E), pair)
+twins = bd.dedupe([l for l in lamps if "twin" in l], bd.RING_STEP_M * 0.75)
+kept = bd.dedupe(twins + [l for l in lamps if "twin" not in l], 7.0)
+feet = sorted({(l["x"], l["z"]) for l in kept})
+yaws = Counter(round(l["yaw"]) % 360 for l in kept)
+gaps = np.diff([x for x, _ in feet])
+check("median poles stand in the middle of the median", feet and all(abs(z) < 0.05 for _, z in feet),
+      f"{len(feet)} poles, z {sorted({z for _, z in feet})[:3]}")
+check("each has two heads, one over each carriageway", len(kept) == 2 * len(feet) and yaws[0] == yaws[180] == len(feet),
+      str(dict(yaws)))
+check("one row about a pole step apart, not one per carriageway", gaps.min() >= bd.RING_STEP_M * 0.75 - 1e-6 and
+      gaps.mean() < bd.RING_STEP_M * 1.3, f"gaps {gaps.min():.0f} to {gaps.max():.0f} m, mean {gaps.mean():.0f}")
+narrow = [("n1", LineString([(-300, -4), (300, -4)])), ("n2", LineString([(300, 4), (-300, 4)]))]
+side = bd.place_lights("n1", "primary", "Narrow Road", narrow[0][1], 7.0, narrow)
+check("with no room in the median the poles stand on the outer verge", side and all(abs(l["z"] + 4 + 4.7) < 0.05 for l in side),
+      str(sorted({l["z"] for l in side})))
+bd.DUAL_CARRIAGEWAYS = saved
 
 # Tiles: a cell named Buildings_<i>_<j> (250 m) goes to the 500 m tile holding it; an unnamed object by its vertices.
 V = np.array([[-1200.0, 0.0, 300.0], [-1210.0, 0.0, 310.0], [-1190.0, 3.0, 320.0]], dtype=np.float32)   # OBJ: X west

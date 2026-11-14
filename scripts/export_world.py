@@ -25,6 +25,13 @@ def name_world(scene_path, world_file):
     """Writes "world": world_file into the scene's files, leaving the rest of the file as export_scene.py wrote it (the
     long road and solid lists stay on their single lines)."""
     text = open(scene_path).read()
+    if '"files": {' not in text:
+        # Written compact (relight_scene.py): set the key and keep it compact.
+        scene = json.loads(text)
+        scene["files"]["world"] = world_file
+        with open(scene_path, "w") as f:
+            json.dump(scene, f, separators=(",", ":"))
+        return
     if '"world":' in text[:text.find('"streetLights"')]:
         start = text.index('"world":')
         end = text.index("\n", start)

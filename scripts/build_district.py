@@ -151,9 +151,33 @@ DISTRICT_RULES = {
 
 ROAD_WIDTH = {"motorway": 22.0, "trunk": 18.0, "primary": 13.0, "secondary": 10.0, "tertiary": 8.5,
               "residential": 6.0, "unclassified": 6.0, "living_street": 5.0, "service": 4.5}
+# The Ring Road's cross-section (circle-reference catalogue/street-survey.md, Ring Road East at 5.5679,-0.1828):
+# 2 + 2 lanes, about 7 m per carriageway, either side of a grass median of about 8-10 m with twin-arm LED poles in it;
+# Danquah Circle's ring about 9-10 m wide around its island. The class widths drew each carriageway 13 m wide, which
+# covered the median and stood the poles on the asphalt (the user's test drive of 14 Nov 2026). Each carriageway is
+# mapped as its own one-way road, so the width is the carriageway's. Ring Road Central and the Ako Adjei Interchange's
+# ramps are not surveyed; they take Ring Road East's 7 m.
+DUAL_CARRIAGEWAYS = ("Ring Road Central", "Ring Road East", "Ako Adjei Interchange")
+CARRIAGEWAY_M = 7.0
+NAMED_WIDTH = {"Danquah Circle": 9.5}
+
+
+def road_width(cls, name="", widths=None):
+    """The carriageway's width (m): by class, except the Ring Road's surveyed main carriageways and Danquah Circle."""
+    widths = widths or ROAD_WIDTH
+    if cls in MAJOR_CLASSES:
+        if name in DUAL_CARRIAGEWAYS:
+            return CARRIAGEWAY_M
+        if name in NAMED_WIDTH:
+            return NAMED_WIDTH[name]
+    return widths[cls]
+
+
 ROAD_LIFT = {"motorway": 0.09, "trunk": 0.08, "primary": 0.07, "secondary": 0.06, "tertiary": 0.05,
              "residential": 0.04, "unclassified": 0.04, "living_street": 0.04, "service": 0.035}
 MAJOR = {"motorway", "trunk", "primary", "secondary", "tertiary"}
+# The classes a surveyed width overrides: the Ring Road's slip roads (tertiary) keep theirs.
+MAJOR_CLASSES = ("motorway", "trunk", "primary")
 STOREY_M = 3.2
 CELL_M = 250.0
 
@@ -482,6 +506,8 @@ def build(args):
     # Roads: ribbons with mitred joints, a dashed centre line on the major classes.
     lights = []
     road_km = 0.0
+    # The dual carriageways, for the median's poles (place_lights).
+    carriageways = [(rid, g) for rid, cls, name, g in roads if name in DUAL_CARRIAGEWAYS and cls in MAJOR_CLASSES]
     for rid, cls, name, g in roads:
         g = g.intersection(clip)
         lines = [g] if isinstance(g, LineString) else list(getattr(g, "geoms", []))
@@ -489,7 +515,7 @@ def build(args):
             if not isinstance(line, LineString) or line.length < 1:
                 continue
             road_km += line.length / 1000
-            w, lift = ROAD_WIDTH[cls], ROAD_LIFT[cls]
+            w, lift = road_width(cls, name), ROAD_LIFT[cls]
             mat = "M_AsphaltMajor" if cls in MAJOR else "M_Asphalt"
             ribbon(mesh, line, w, lift, mat, "Roads")
             # Oxford Street has no lane markings (street survey; OSM lane_markings=no).
@@ -502,9 +528,13 @@ def build(args):
                     if isinstance(seg, LineString) and seg.length > 0.5:
                         ribbon(mesh, seg, 0.15, lift + 0.01, "M_RoadPaint", "Roads")
             if cls in MAJOR:
-                lights += place_lights(rid, cls, name, line, w)
+                lights += place_lights(rid, cls, name, line, w, carriageways)
 
-    lights = dedupe(lights, 7.0)
+    # The median's twin-arm poles first, one row about a pole step apart (both carriageways place them), then the rest.
+    twins = dedupe([l for l in lights if "twin" in l], RING_STEP_M * 0.75)
+    lights = dedupe(twins + [l for l in lights if "twin" not in l], 7.0)
+    for l in lights:
+        l.pop("twin", None)
 
     # Ground under everything, with a margin. A corridor lays it per cell, and not under the areas it leaves out.
     m = 60.0
@@ -576,7 +606,8 @@ def build(args):
         # The drivable network for the game's traffic (circle-game src/vehicles/traffic.ts).
         "roads": traffic_network(roads, clip, ONE_WAY_ROADS),
         # What the game's cars collide with (circle-game src/core/scene.ts addSolid).
-        "solid": solid_outlines(keep_out + [p for _, p in yards], compound_walls, [(cls, g) for _, cls, _, g in roads]),
+        "solid": solid_outlines(keep_out + [p for _, p in yards], compound_walls,
+                                [(cls, g, road_width(cls, name)) for _, cls, name, g in roads]),
         # Where the game's hiding places stand (circle-game src/world/hiding.ts).
         "hiding": hiding,
         "credits": "Buildings and roads: Overture Maps Foundation (ODbL), from OpenStreetMap contributors, "
@@ -676,9 +707,31 @@ def light_spots(rid, name, length):
     return list(np.arange(16.0, length, 32.0)), "alternate"
 
 
-def place_lights(rid, cls, name, line, w):
+def median_width(p, left, w, rid, carriageways, reach=25.0):
+    """Centre to centre (m) from a point on a carriageway's centreline to the other carriageway across the median, to
+    its left (the median side: Ghana drives on the right), or None when no other carriageway lies within `reach`."""
+    a = p + left * (w / 2)
+    probe = LineString([a, p + left * reach])
+    best = None
+    for other, g in carriageways:
+        if other == rid or not probe.intersects(g):
+            continue
+        x = probe.intersection(g)
+        for part in getattr(x, "geoms", [x]):
+            if part.is_empty:
+                continue
+            d = float(Point(p).distance(part))
+            if best is None or d < best:
+                best = d
+    return best
+
+
+def place_lights(rid, cls, name, line, w, carriageways=()):
     """Poles along major roads, following the street survey on the lap (see LAP_ROADS) and, elsewhere, one pole
-    every 32 m on alternating sides, so the night has dark gaps between pools."""
+    every 32 m on alternating sides, so the night has dark gaps between pools. On a dual carriageway
+    (DUAL_CARRIAGEWAYS, with the other carriageways in `carriageways`: (road id, line)) a pole stands in the middle
+    of the median with a head over each carriageway, a twin-arm pole (two lamps on one foot sharing a "twin" key);
+    where the median is under 2 m, on the outer verge."""
     out = []
     on_lap = name in LAP_ROADS
     spots, rule = light_spots(rid, name, line.length)
@@ -692,6 +745,24 @@ def place_lights(rid, cls, name, line, w):
             continue
         t = (q - p) / np.linalg.norm(q - p)
         left = np.array([-t[1], t[0]])
+        if name in DUAL_CARRIAGEWAYS and carriageways:
+            across = median_width(p, left, w, rid, carriageways)
+            if across is not None and across - w >= 2.0:
+                foot = p + left * (across / 2)
+                for face in (-left, left):
+                    lamp = {"x": round(float(foot[0]), 2), "y": 0.0, "z": round(float(foot[1]), 2),
+                            "yaw": round(math.degrees(math.atan2(face[0], face[1])), 1),
+                            "kind": kind, "road": name or cls, "twin": f"{rid}:{k}"}
+                    out.append(lamp)
+                continue
+            if across is not None:
+                # No room in the median: the outer verge, the arm over this carriageway.
+                pos = p - left * (w / 2 + 1.2)
+                face = left
+                out.append({"x": round(float(pos[0]), 2), "y": 0.0, "z": round(float(pos[1]), 2),
+                            "yaw": round(math.degrees(math.atan2(face[0], face[1])), 1),
+                            "kind": kind, "road": name or cls})
+                continue
         if rule == "east":
             s = 1 if left[0] >= 0 else -1
         elif rule == "left":
@@ -710,10 +781,19 @@ def place_lights(rid, cls, name, line, w):
 
 
 def dedupe(lights, min_gap):
-    kept = []
+    """Lamps at least `min_gap` m from every pole kept before them; the heads of a twin-arm pole (one "twin" key) are
+    kept or dropped together."""
+    kept, poles, twins = [], [], set()
     for l in lights:
-        if all((l["x"] - k["x"]) ** 2 + (l["z"] - k["z"]) ** 2 >= min_gap ** 2 for k in kept):
+        tw = l.get("twin")
+        if tw is not None and tw in twins:
             kept.append(l)
+            continue
+        if all((l["x"] - x) ** 2 + (l["z"] - z) ** 2 >= min_gap ** 2 for x, z in poles):
+            kept.append(l)
+            poles.append((l["x"], l["z"]))
+            if tw is not None:
+                twins.add(tw)
     return kept
 
 
@@ -759,13 +839,14 @@ def solid_outlines(footprints, walls, roads=(), tolerance=0.5, kerb=0.3):
     the compound walls with their closed gates, simplified to `tolerance` metres and rounded to 0.1 m. Each outline
     or wall is a flat list x0, z0, x1, z1, ...; an outline is a closed ring without its first point repeated.
 
-    roads: (class, line) of the drivable network. Mapped footprints sometimes reach onto the carriageway (kiosks,
+    roads: (class, line) or (class, line, width) of the drivable network (the width by class when not given). Mapped footprints sometimes reach onto the carriageway (kiosks,
     canopies, a misplaced centreline: 23 outlines in Osu and 57 in Jamestown lie within 1 m of one), which would
     block the street the traffic and the lap drive. The part of an outline that lies on the carriageway, up to `kerb`
     metres short of its edge, is left out, and so is what remains of the outline if under 4 m2."""
     carriage = None
     # Round ends, so the corners of the junctions, where the cars cut across, are kept clear too.
-    lanes = [line.buffer(max(0.5, ROAD_WIDTH[cls] / 2 - kerb)) for cls, line in roads if cls in TRAFFIC_CLASSES]
+    lanes = [r[1].buffer(max(0.5, (r[2] if len(r) > 2 else ROAD_WIDTH[r[0]]) / 2 - kerb))
+             for r in roads if r[0] in TRAFFIC_CLASSES]
     if lanes:
         carriage = shapely.union_all(lanes)
     rings, lines = [], []
@@ -891,7 +972,7 @@ def traffic_network(roads, clip, one_way=()):
         mid = piece.interpolate(0.5, normalized=True)
         cls, name, line = src[int(tree.nearest(mid))]
         pts = list(piece.simplify(0.5).coords)
-        entry = {"cls": cls, "w": ROAD_WIDTH[cls], "name": name}
+        entry = {"cls": cls, "w": road_width(cls, name), "name": name}
         if name in one_way:
             if line.project(Point(pts[0])) > line.project(Point(pts[-1])):
                 pts = pts[::-1]
@@ -920,7 +1001,8 @@ def place_parked(rule, pieces, buildings, lap, widths=ROAD_WIDTH):
     jtree = shapely.STRtree(jn) if jn else None
     btree = shapely.STRtree(buildings) if buildings else None
     # Other roads' carriageways, with flat ends so a street's next segment does not stop the cars on this one.
-    bands = shapely.STRtree([l.buffer(widths[c] / 2 + CAR_BODY_M[0] / 2, cap_style="flat") for _, c, _, l in pieces])
+    bands = shapely.STRtree([l.buffer(road_width(c, n, widths) / 2 + CAR_BODY_M[0] / 2, cap_style="flat")
+                             for _, c, n, l in pieces])
     lap_line = None
     if lap and lap.get("path") and rule.get("lap_m"):
         lap_line = LineString(list(zip(lap["path"][0::2], lap["path"][1::2])))
@@ -940,7 +1022,7 @@ def place_parked(rule, pieces, buildings, lap, widths=ROAD_WIDTH):
         take = rule.get("streets", {}).get(name, rule["take"] if cls in rule["classes"] else 0.0)
         if take <= 0 or line.length < rule["step_m"]:
             continue
-        w = widths[cls]
+        w = road_width(cls, name, widths)
         off = w / 2 - (rule["inset_m"] if w < rule["narrow_m"] else rule["wide_inset_m"])
         for k, d in enumerate(np.arange(rule["step_m"] / 2, line.length - rule["step_m"] / 2 + 1e-6, rule["step_m"])):
             p = np.array(line.interpolate(d).coords[0])
@@ -1125,7 +1207,7 @@ def preview(path, roads, clip, mesh, lights, lap):
         g = g.intersection(clip)
         for line in ([g] if isinstance(g, LineString) else list(getattr(g, "geoms", []))):
             if isinstance(line, LineString):
-                dr.line([P(*c) for c in line.coords], fill=(60, 64, 72), width=max(1, int(ROAD_WIDTH[cls] * s)))
+                dr.line([P(*c) for c in line.coords], fill=(60, 64, 72), width=max(1, int(road_width(cls, name) * s)))
     if lap:
         wp = list(zip(lap["path"][0::2], lap["path"][1::2]))
         dr.line([P(*c) for c in wp] + [P(*wp[0])], fill=(228, 0, 43), width=3)

@@ -172,9 +172,9 @@ For the vertical slice's drives on the Ring Road (circle-bible `bible/game-desig
 - **Tiles:** `export_glb.py --tile-m 500` groups the 250 m cells in squares of 500 m: 17 tiles, 1.72 MB packed (14 to 244 KB each, 35 primitives on average).
   - A tile of fewer than 200 triangles (a sliver of ground margin) joins its nearest neighbour.
   - `tiles.json` lists each tile's file, ground bounds in glTF x and z, triangles and sizes, and `export_scene.py --tiles` copies the list into the scene.
-  - The scene is 414 KB, 102 KB gzipped.
+  - The scene is 413 KB, 103 KB gzipped.
 - **The world:** `export_world.py` writes `osu-world.json`, osu-poc first (home) and the Ring Road after it, with each area's offset from home's origin.
-  - It also names the file in home's scene (`files.world` in `osu-scene.json`), so it runs after `export_scene.py`. A scene that names no world loads alone.
+  - It also names the file in home's scene (`files.world` in `osu-scene.json`), so it runs after `export_scene.py`; a scene already relit by `relight_scene.py` (compact JSON) works too. A scene that names no world loads alone.
   - The game loads home whole, merges both scenes, and streams the tiles by distance (circle-game `docs/world.md`).
 - **Rebuild** (after osu-poc and its scene, above):
 
@@ -192,7 +192,10 @@ For the vertical slice's drives on the Ring Road (circle-bible `bible/game-desig
   - At the vertical slice's 36,176 buildings in 4.4 MB of GeoParquet (16 km² of land), it should come to 7 to 9 MB in all.
   - DuckDB reads from Overture's bucket only the row groups that cover the box, but those are larger than the output, so the transfer is likely tens of MB (not measured).
   - Not downloaded: it waits for approval. Then `VERTICAL_SLICE` in the corridor's `"within"` becomes milestone-2's box and the lap's west route points move to Circle.
-- **Not built yet:** the Ring Road's real cross-section. Each carriageway is drawn at the primary width of 13 m and their centrelines are about 11 m apart, so the two ribbons cover the grass median, and its poles stand on asphalt. The survey measured 7 m carriageways either side of an 8–10 m median. Also not built: the billboards and gantry along the Ring Road (`texts.csv` rows `txt-osu-ringdanquah-*`), and the Danquah Circle island.
+- **Cross-section** (`road_width()`, the user's test drive of 14 Nov 2026): each carriageway of Ring Road East, Ring Road Central and the Ako Adjei Interchange is 7 m wide, as the survey measured on Ring Road East (circle-reference `street-survey.md`; Central and the interchange's ramps are not surveyed and take the same), and Danquah Circle's ring 9.5 m (surveyed 9–10 m). The class width had drawn each 13 m: on Ring Road East the centrelines are mostly 14 to 15 m apart, so the ribbons covered the grass median and its poles stood on the asphalt. The median is now ground, 7 to 8 m wide on Ring Road East.
+  - **Median poles:** on a dual carriageway a pole stands in the middle of the median with a head over each carriageway (two lamps on one foot: a twin-arm pole), about 40 m apart in one row (`place_lights()`, `median_width()`); where the median is under 2 m it stands on the outer verge. `relight_scene.py` keeps both heads of a pole together.
+  - The widths reach the traffic's network (`w`), the parked cars' clearances, the collision outlines' carve-out and the preview; the side streets' hiding places still clear every carriageway by its class width. In the game, Danquah's island fitted inside the ring grows from 54.9 × 41.3 m to 58.4 × 44.8 m (surveyed about 56 × 47 m).
+- **Not built yet:** the billboards and gantry along the Ring Road (`texts.csv` rows `txt-osu-ringdanquah-*`).
 
 **What every district's scene carries for the game's systems** (all three areas, 14 November 2026):
 - **`roads`:** the drivable network, noded at every crossing, for the traffic (`traffic_network()`); pieces of one-way roads carry `"oneway": true` and run the way the traffic goes.
