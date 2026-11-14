@@ -352,12 +352,13 @@ def build(args):
             counts["landmarks"] += 1
             keep_out.append(p.buffer(4.0))
 
+    compound_walls = []
     if not args.no_massing:
         district_roads = []
         for _, cls, _, g in roads:
             g = g.intersection(clip.buffer(60))
             district_roads += [(cls, l) for l in ([g] if isinstance(g, LineString) else getattr(g, "geoms", [])) if isinstance(l, LineString)]
-        massing.compounds(mesh, cell_name, yards, keep_out, district_roads, ROAD_WIDTH, counts, clip, oxford)
+        compound_walls = massing.compounds(mesh, cell_name, yards, keep_out, district_roads, ROAD_WIDTH, counts, clip, oxford)
 
     # Roads: ribbons with mitred joints, a dashed centre line on the major classes.
     lights = []
@@ -434,6 +435,8 @@ def build(args):
         **({"parked": parked} if parked else {}),
         # The drivable network for the game's traffic (circle-game src/vehicles/traffic.ts).
         "roads": traffic_network(roads, clip),
+        # What the game's cars collide with (circle-game src/core/scene.ts addSolid).
+        "solid": solid_outlines(keep_out + [p for _, p in yards], compound_walls),
         "credits": "Buildings and roads: Overture Maps Foundation (ODbL), from OpenStreetMap contributors, "
                    "Google Open Buildings and Microsoft. Heights from typology rules.",
     }
@@ -607,6 +610,27 @@ def junctions(lines, tol=0.05):
 
 
 TRAFFIC_CLASSES = ("motorway", "trunk", "primary", "secondary", "tertiary", "residential", "unclassified")
+
+
+def solid_outlines(footprints, walls, tolerance=0.5):
+    """What the game's cars collide with: the outline of every building (look-dev ones and landmarks included) and
+    the compound walls with their closed gates, simplified to `tolerance` metres and rounded to 0.1 m. Each outline
+    or wall is a flat list x0, z0, x1, z1, ...; an outline is a closed ring without its first point repeated."""
+    rings, lines = [], []
+    for p in footprints:
+        if not isinstance(p, Polygon) or p.is_empty:
+            continue
+        q = p.simplify(tolerance)
+        if not isinstance(q, Polygon) or q.is_empty or q.area < 4:
+            continue
+        pts = list(q.exterior.coords)[:-1]
+        if len(pts) >= 3:
+            rings.append([round(float(c), 1) for xy in pts for c in xy[:2]])
+    for w in walls:
+        w = w.simplify(tolerance)
+        if isinstance(w, LineString) and w.length >= 1:
+            lines.append([round(float(c), 1) for xy in w.coords for c in xy[:2]])
+    return {"buildings": rings, "walls": lines}
 
 
 def traffic_network(roads, clip):

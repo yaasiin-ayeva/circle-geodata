@@ -333,9 +333,10 @@ def compounds(mesh, cell_name, yards, keep_out, roads, road_width, counts, distr
     building reaches the frontage itself, and near `avoid` (Oxford Street's line, its shops face the road).
     yards: (bid, footprint) of the buildings in compounds; keep_out: every other footprint, look-dev ones
     included; roads: (class, line); district: the district's outline.
+    Returns the walls' lines, gates included (the gates stand closed), for the game's collisions.
     """
     if not yards:
-        return
+        return []
     corridors = shapely.union_all([line.buffer(road_width[cls] / 2 + VERGE_M, cap_style="flat") for cls, line in roads])
     blocks = district.difference(corridors)
     frontage = shapely.boundary(blocks)
@@ -348,7 +349,7 @@ def compounds(mesh, cell_name, yards, keep_out, roads, road_width, counts, distr
     lines = lines.simplify(0.25)
     pieces = [g for g in getattr(lines, "geoms", [lines]) if isinstance(g, LineString) and g.length >= 2.0]
     if not pieces:
-        return
+        return []
     network = MultiLineString(pieces)
     # Gates: the frontage point nearest each yard house, at most 30 m away, no two within 8 m.
     gates = []
@@ -388,3 +389,4 @@ def compounds(mesh, cell_name, yards, keep_out, roads, road_width, counts, distr
             for side in (-1, 1):
                 post(mesh, obj, paint, c + t * side * (GATE_W / 2 + 0.22), 0.44, 0.0, WALL_H + 0.35)
             counts["gates"] += 1
+    return pieces

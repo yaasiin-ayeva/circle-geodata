@@ -92,6 +92,10 @@ def main():
         scene["roads"] = [{"cls": r["cls"], "w": r["w"], "name": r["name"],
                            "pts": [[r["pts"][i], round(-r["pts"][i + 1], 1)] for i in range(0, len(r["pts"]), 2)]}
                           for r in d["roads"]]
+    if d.get("solid"):
+        # Flat lists x0, z0, x1, z1, ... with z flipped to glTF's south.
+        flip = lambda flat: [v if i % 2 == 0 else round(-v, 1) + 0.0 for i, v in enumerate(flat)]
+        scene["solid"] = {k: [flip(f) for f in d["solid"].get(k, [])] for k in ("buildings", "walls")}
     if args.lookdev:
         lk = json.load(open(args.lookdev))
         scene["files"]["block"] = "osu-lookdev.glb"
@@ -110,7 +114,15 @@ def main():
         # No dressed block (Jamestown): the cars build_district.py parked along the streets.
         scene["parked"] = parked_cars(d["parked"])
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    json.dump(scene, open(args.out, "w"), indent=1)
+    # The road network and the solid outlines are long lists of numbers for the game, not for reading: one line
+    # each, the rest of the scene indented.
+    compact = {k: scene.pop(k) for k in ("roads", "solid") if k in scene}
+    text = json.dumps(scene, indent=1)
+    for k, v in compact.items():
+        text = text[:text.rstrip().rfind("}")].rstrip() + f',\n "{k}": {json.dumps(v, separators=(",", ":"))}\n}}'
+        scene[k] = v
+    with open(args.out, "w") as f:
+        f.write(text + "\n")
     n_lamps = sum(1 for s in scene["streetLights"] if "light" in s)
     print(f"{os.path.basename(args.out)}: {len(scene['streetLights'])} street lights ({n_lamps} lit), "
           f"{len(scene.get('blockLights', []))} block lights, lap {scene['lap']['length_m']:.0f} m "

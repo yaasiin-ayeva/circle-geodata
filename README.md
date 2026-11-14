@@ -148,6 +148,14 @@ gltfpack -i data/work/web/jamestown.glb -o data/work/web/jamestown.pack.glb -cc 
 
 `export_scene.py` names the scene's GLB after the district file (`jamestown.json` gives `jamestown.glb`); `--glb` overrides it.
 
+**What every district's scene carries for the game's systems** (both districts, 14 November 2026):
+- **`roads`:** the drivable network, noded at every crossing, for the traffic (`traffic_network()`).
+- **`solid`:** what the cars collide with (`solid_outlines()`, checked by `tests/test_solid.py`):
+  - the outline of every building, look-dev and landmark ones included, simplified to 0.5 m;
+  - the compound walls, their closed gates included.
+  - **Counts:** Osu 3,184 outlines and 596 walls, Jamestown 4,346 outlines and no walls.
+- **Format:** both are written on one line each, as flat lists of numbers, so the Osu scene is 288 KB (95 KB compressed) and Jamestown's 399 KB.
+
 `latest` picks the newest release on Overture's public bucket; a fixed name from the [release list](https://docs.overturemaps.org/release/) works too. Downloads and working files go under `data/`, which is not committed.
 
 ## Publishing under ODbL
