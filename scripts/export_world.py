@@ -10,14 +10,31 @@ laps) is small and is merged at load. Each area carries its offset from home's o
 east, z south), from the scenes' WGS84 origins in UTM 30N, so areas built from different origins still line up;
 the Ring Road shares Osu's origin, so its offset is zero.
 
-The game asks for <name>-world.json when it starts on that district (?district=osu, the default), and falls back to
-the district alone when the file is missing.
+It also names the world file in home's scene (files.world), which is how the game knows to ask for it: a scene that
+names no world (Jamestown, or Osu's scene exported again without this step) loads alone, and the game never asks for a
+file that is not there. Run it after export_scene.py.
 """
 import argparse
 import json
 import os
 
 from pyproj import Transformer
+
+
+def name_world(scene_path, world_file):
+    """Writes "world": world_file into the scene's files, leaving the rest of the file as export_scene.py wrote it (the
+    long road and solid lists stay on their single lines)."""
+    text = open(scene_path).read()
+    if '"world":' in text[:text.find('"streetLights"')]:
+        start = text.index('"world":')
+        end = text.index("\n", start)
+        text = text[:start] + f'"world": {json.dumps(world_file)}' + ("," if text[end - 1] == "," else "") + text[end:]
+    else:
+        at = text.index('"files": {') + len('"files": {')
+        text = text[:at] + f'\n  "world": {json.dumps(world_file)},' + text[at:]
+    json.loads(text)
+    with open(scene_path, "w") as f:
+        f.write(text)
 
 
 def main():
@@ -59,6 +76,7 @@ def main():
     with open(args.out, "w") as f:
         json.dump(world, f, indent=1)
         f.write("\n")
+    name_world(args.scenes[0], os.path.basename(args.out))
     for a in areas:
         print(f"{a['name']}: offset {a['offset']}, lap {a['lap_m']:.0f} m, "
               f"{a['tiles'] or 'one'} {'tiles' if a['tiles'] else 'file'}, {a['packed_bytes'] / 1048576:.2f} MB packed, "

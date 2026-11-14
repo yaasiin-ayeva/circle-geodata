@@ -173,7 +173,9 @@ For the vertical slice's drives on the Ring Road (circle-bible `bible/game-desig
   - A tile of fewer than 200 triangles (a sliver of ground margin) joins its nearest neighbour.
   - `tiles.json` lists each tile's file, ground bounds in glTF x and z, triangles and sizes, and `export_scene.py --tiles` copies the list into the scene.
   - The scene is 414 KB, 102 KB gzipped.
-- **The world:** `export_world.py` writes `osu-world.json`, osu-poc first (home) and the Ring Road after it, with each area's offset from home's origin. The game loads home whole, merges both scenes, and streams the tiles by distance (circle-game `docs/world.md`).
+- **The world:** `export_world.py` writes `osu-world.json`, osu-poc first (home) and the Ring Road after it, with each area's offset from home's origin.
+  - It also names the file in home's scene (`files.world` in `osu-scene.json`), so it runs after `export_scene.py`. A scene that names no world loads alone.
+  - The game loads home whole, merges both scenes, and streams the tiles by distance (circle-game `docs/world.md`).
 - **Rebuild** (after osu-poc and its scene, above):
 
   ```sh
