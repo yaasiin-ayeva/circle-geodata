@@ -366,13 +366,23 @@ OXFORD_GAP_M = (35.0, 145.0)
 RING_STEP_M = 40.0
 
 
-def lamp_kind(rid, stretch, k, on_lap):
-    """White LED everywhere on the lap (80% neutral, 20% cold); off the lap 20% of stretches keep sodium.
-    Dead poles: whole dark stretches (about one in eight), and off the lap about one pole in four more
-    (research/landscape-look.md: about half of Accra's MiDA-era lights were off in a 2024 sample)."""
+# Main roads off the lap whose heads were all seen as white LED by day (circle-reference observations.csv,
+# obs-accra-lights-heads-main-001, Aug-Oct 2024): they never draw sodium. Cantonments Road carries solar all-in-one
+# LED poles (a panel on top), still to add to the facade kit.
+LED_ROADS = ("Cantonments Road", "Independence Avenue", "Ring Road Central", "Castle Road", "Liberation Road",
+             "Kojo Thompson Road", "Kinbu Road")
+
+
+def lamp_kind(rid, stretch, k, on_lap, name=""):
+    """White LED everywhere on the lap (80% neutral, 20% cold); off the lap 10% of stretches keep sodium, the rest
+    as on the lap. circle-reference counted 1 sodium-era head of 14 off the lap (Street View, Aug-Oct 2024; the
+    2020-21 programme put LED on the main roads), so sodium stays a minority kept for the mix (decision of
+    14 Nov 2026). Dead poles: whole dark stretches (about one in eight), and off the lap about one pole in four more.
+    The city is darker than that (most poles dark on main roads in Oct 2024), but the game's nights stay lighter
+    for comfort of play (decision of 14 Nov 2026)."""
     r = unit_hash(rid, stretch, "kind")
     kind = "led_cool" if r >= 0.8 else "led"
-    if not on_lap and 0.6 <= r < 0.8:
+    if not on_lap and 0.7 <= r < 0.8 and name not in LED_ROADS:
         kind = "sodium"
     if unit_hash(rid, stretch) < 0.12 or (not on_lap and unit_hash(rid, "dead", k) < 0.25):
         kind = "dead"
@@ -403,7 +413,7 @@ def place_lights(rid, cls, name, line, w):
     step = 88.0 if name == "Oxford Street" else (RING_STEP_M if on_lap else 32.0)
     for k, d in enumerate(spots):
         stretch = int(d // (step * 6))
-        kind = lamp_kind(rid, stretch, k, on_lap)
+        kind = lamp_kind(rid, stretch, k, on_lap, name)
         p = np.array(line.interpolate(d).coords[0])
         q = np.array(line.interpolate(min(d + 1.0, line.length)).coords[0])
         if np.linalg.norm(q - p) < 1e-6:
