@@ -114,6 +114,30 @@ cd ../circle-game && npm run data    # copies the packed GLB, the scene JSON and
 
 On 13 November the district came to 0.53 MB (1.94 MB with the building modules of 14 November) and the look-dev block to 1.79 MB after meshopt compression (0.4 MB of geometry, 1.4 MB of atlases still in JPEG and PNG); KTX2 textures come next, through ktx2-encoder and glTF-Transform (decision of 13 November 2026), since the npm gltfpack has no BasisU. Both files pass the Khronos glTF validator with no errors or warnings. Generated textures from the Unity proof of concept (pavers, lattice, foliage cards, puddles, skies, now in `circle-game/art/textures/Generated`) are not ported yet; `look.json` marks them.
 
+### Jamestown, the first district beyond Osu
+
+The old town (Jamestown, Bukom and Ussher Town), from circle-reference's district card `jamestown-identity-survey.md`. Its area is `jamestown` in [aoi/slices.geojson](aoi/slices.geojson) (about 1.3 × 1.4 km); the build rules are in `DISTRICT_RULES` in `build_district.py`.
+
+```sh
+python3 scripts/overture_slice.py export --release latest --name jamestown --out data/work/slice-jamestown
+python3 scripts/build_district.py --slice data/work/slice-jamestown --name jamestown --out data/work/jamestown
+python3 scripts/export_glb.py data/work/jamestown/jamestown.obj --uv-only M_Wall_ --out data/work/web/jamestown.glb
+python3 scripts/export_scene.py --district data/work/jamestown/jamestown.json --out data/work/web/jamestown-scene.json
+gltfpack -i data/work/web/jamestown.glb -o data/work/web/jamestown.pack.glb -cc -kn -km -kv -vpf -vtf
+```
+
+- **What differs from Osu:**
+  - roofs from Jamestown's palette (grey sheet on 93% of the roof area);
+  - no compound walls and no yards: buildings stand on the street line;
+  - walls painted ochre, mint, grey, concrete and pale blue;
+  - the lighthouse as a landmark: an octagonal tower 28 m high, white with a red band, a red gallery and a lit lantern. The footprint under it is left out.
+- **The 14 November build** (Overture 2026-10-21.0): 4,345 buildings, 27.4 km of road, 217 street lights and 97,600 triangles. Of the 2,207 hipped roofs, 2,094 are grey.
+- **The benchmark lap** is 1.53 km: High Street, Ga Mashie Street, Nii Tackie Tawiah Street, Okai Pesemaku Street, Nii Owoo Street, Lutterodt Street and back to High Street.
+- **In the game:** `?district=jamestown`. The district has no dressed block, so it carries no `--lookdev` and no shop signs.
+- **Not built yet:** James Fort, Ussher Fort, the harbour, kiosks along the street edges, timber poles with tangled wires, the white-over-blue band on long walls.
+
+`export_scene.py` names the scene's GLB after the district file (`jamestown.json` gives `jamestown.glb`); `--glb` overrides it.
+
 `latest` picks the newest release on Overture's public bucket; a fixed name from the [release list](https://docs.overturemaps.org/release/) works too. Downloads and working files go under `data/`, which is not committed.
 
 ## Publishing under ODbL

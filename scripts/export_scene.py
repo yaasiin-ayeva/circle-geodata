@@ -54,7 +54,10 @@ def main():
     ap.add_argument("--district", required=True)
     ap.add_argument("--lookdev")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--glb", help="the district GLB the scene goes with (default: named after --district, "
+                                  "osu-poc.json -> osu-poc.glb)")
     args = ap.parse_args()
+    glb = args.glb or os.path.splitext(os.path.basename(args.district))[0] + ".glb"
 
     d = json.load(open(args.district))
     scene = {
@@ -62,7 +65,7 @@ def main():
         "origin_wgs84": d.get("origin_wgs84"),
         "bounds_m": {"xmin": d["bounds_m"]["xmin"], "xmax": d["bounds_m"]["xmax"],
                      "zmin": -d["bounds_m"]["zmax"], "zmax": -d["bounds_m"]["zmin"]},
-        "files": {"district": "osu-poc.glb", "look": "look.json"},
+        "files": {"district": glb, "look": "look.json"},
         "credits": d.get("credits", ""),
         "streetLights": street_lights(d["lights"]),
     }

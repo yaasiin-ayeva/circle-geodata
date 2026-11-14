@@ -1063,6 +1063,24 @@
    "metallic": 0.3,
    "texture": "CorrugatedSteel005",
    "tiling": 1.0
+  },
+  "M_Lighthouse_White": {
+   "color": [
+    0.9,
+    0.9,
+    0.88
+   ],
+   "smoothness": 0.35,
+   "metallic": 0.0
+  },
+  "M_Lighthouse_Red": {
+   "color": [
+    0.62,
+    0.13,
+    0.1
+   ],
+   "smoothness": 0.35,
+   "metallic": 0.0
   }
  },
  "lightKinds": {

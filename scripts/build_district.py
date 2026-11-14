@@ -40,10 +40,29 @@ import massing
 
 WORLD_ORIGIN_UTM = (808523.0, 616356.0)  # Kwame Nkrumah Interchange ("Circle"), see README
 
+JAMESTOWN_ORIGIN = (5.5395, -0.2080)          # High Street by Ussher Fort, where the lap starts
+JAMESTOWN_LAP = ("High Street", 5.5335)          # set from the slice's road names
+
 AREAS = {
     # About 1.3 km2 of Osu: Danquah Circle, the north half of Oxford Street, Ring Road East.
     "osu-poc": {"south": 5.5575, "north": 5.5695, "west": -0.1870, "east": -0.1780,
                 "origin": (5.5669, -0.1809), "lap": ("Oxford Street", 5.5600), "district": "osu"},
+    # Jamestown, Bukom and Ussher Town (aoi/slices.geojson "jamestown"; slice in data/work/slice-jamestown).
+    "jamestown": {"south": 5.5300, "north": 5.5425, "west": -0.2175, "east": -0.2055,
+                  "origin": JAMESTOWN_ORIGIN, "lap": JAMESTOWN_LAP, "district": "jamestown"},
+}
+
+# What changes from one district to the next (circle-reference district cards, catalogue/*-identity-survey.md).
+#   yards: houses stand in walled compounds with gates (Osu); in the old town buildings stand on the street line.
+#   paints: the facade paints, (material, weight); None keeps the even mix of WALLS.
+#   landmarks: hand-built pieces, by name, at (lat, lon).
+DISTRICT_RULES = {
+    "osu": {"yards": True, "paints": None, "landmarks": []},
+    # Jamestown: no compound walls; houses painted yellow, ochre, green and pale grey; the lighthouse.
+    "jamestown": {"yards": False,
+                  "paints": [("M_Wall_Ochre", 0.30), ("M_Wall_Mint", 0.20), ("M_Wall_Grey", 0.20), ("M_Wall_Concrete", 0.20),
+                             ("M_Wall_PaleBlue", 0.10)],
+                  "landmarks": [("lighthouse", 5.5331, -0.2122)]},
 }
 
 ROAD_WIDTH = {"motorway": 22.0, "trunk": 18.0, "primary": 13.0, "secondary": 10.0, "tertiary": 8.5,
@@ -66,6 +85,8 @@ MATERIALS = {
     "M_Wall_Terracotta": (0.71, 0.40, 0.29),
     "M_Wall_Grey": (0.56, 0.56, 0.54),
     "M_Wall_Mint": (0.62, 0.76, 0.66),
+    "M_Lighthouse_White": (0.90, 0.90, 0.88),
+    "M_Lighthouse_Red": (0.62, 0.13, 0.10),
 }
 WALLS = [m for m in MATERIALS if m.startswith("M_Wall_")]
 
@@ -155,8 +176,37 @@ def load(con, path, cols):
     return con.execute(f"SELECT {cols}, geometry::BLOB FROM '{path}'").fetchall()
 
 
+def lighthouse(mesh, obj, x, y):
+    """Jamestown Lighthouse (1930s): a 28 m tower, white with a broad red band, a gallery and a red-capped lantern
+    (circle-reference jamestown-identity-survey.md). An octagonal prism tapering from 2.6 to 2.0 m in radius."""
+    sides = 8
+    def ring(r, z):
+        return [(x + r * math.cos(2 * math.pi * k / sides + math.pi / 8), y + r * math.sin(2 * math.pi * k / sides + math.pi / 8), z)
+                for k in range(sides)]
+    def band(mat, r0, z0, r1, z1):
+        a, b = ring(r0, z0), ring(r1, z1)
+        for k in range(sides):
+            k2 = (k + 1) % sides
+            mesh.quad(obj, mat, a[k], a[k2], b[k2], b[k])
+    def disc(mat, r, z, up=True):
+        pts = ring(r, z)
+        for k in range(1, sides - 1):
+            mesh.tri(obj, mat, *((pts[0], pts[k], pts[k + 1]) if up else (pts[0], pts[k + 1], pts[k])))
+    taper = lambda z: 2.6 - 0.6 * z / 25.0
+    for mat, z0, z1 in (("M_Lighthouse_White", 0.0, 13.0), ("M_Lighthouse_Red", 13.0, 19.0), ("M_Lighthouse_White", 19.0, 25.0)):
+        band(mat, taper(z0), z0, taper(z1), z1)
+    disc("M_Lighthouse_Red", 2.9, 25.0, up=False)                      # gallery floor, seen from below
+    band("M_Lighthouse_Red", 2.9, 25.0, 2.9, 25.25)
+    disc("M_Lighthouse_White", 2.9, 25.25)
+    band("M_Lighthouse_Red", 2.9, 25.25, 2.9, 26.2)                    # gallery railing as a solid band
+    band("M_Lamp_LED", 1.3, 25.25, 1.3, 27.0)                          # lantern glass, lit at night
+    band("M_Lighthouse_Red", 1.4, 27.0, 0.2, 28.4)                     # red cap
+    disc("M_Lighthouse_White", 2.6, 0.0, up=False)
+
+
 def build(args):
     area = AREAS[args.name]
+    rules = DISTRICT_RULES.get(area.get("district", "osu"), DISTRICT_RULES["osu"])
     to_utm = Transformer.from_crs("EPSG:4326", "EPSG:32630", always_xy=True)
     oe, on = to_utm.transform(area["origin"][1], area["origin"][0])
 
@@ -180,6 +230,9 @@ def build(args):
         roads.append((rid, cls, name or "", local(g)))
     oxford = shapely.union_all([g for _, _, n, g in roads if n == "Oxford Street"]) if roads else None
 
+    landmark_points = [shapely.geometry.Point(*np.array(to_utm.transform(lon, lat)) - (oe, on))
+                       for _, lat, lon in rules["landmarks"]]
+
     # Buildings, minus those a detailed look-dev version replaces.
     exclude = set()
     if args.exclude and os.path.exists(args.exclude):
@@ -194,6 +247,8 @@ def build(args):
         if not lonlat_box.contains(g.centroid):
             continue
         g = local(g).buffer(0).simplify(0.25)
+        if any(g.contains(p) for p in landmark_points):
+            continue                                    # the landmark is built by hand below
         polys = list(g.geoms) if isinstance(g, MultiPolygon) else [g]
         if bid in exclude:
             keep_out += [p for p in polys if isinstance(p, Polygon)]
@@ -215,10 +270,11 @@ def build(args):
             heights.append(h)
             c = poly.centroid
             obj = cell_name("Buildings", c.x, c.y)
-            wall = WALLS[int(unit_hash(bid, "paint") * len(WALLS))]
+            wall = (massing.pick(rules["paints"], unit_hash(bid, "paint")) if rules["paints"]
+                    else WALLS[int(unit_hash(bid, "paint") * len(WALLS))])
             if not args.no_massing and n is not None:
                 # Houses and small blocks off Oxford Street stand in walled yards.
-                yard = not near and n <= 3 and poly.area < 600
+                yard = rules["yards"] and not near and n <= 3 and poly.area < 600
                 massing.building(mesh, obj, wall, bid, poly, n, parapet, near, yard, counts, area.get("district", "osu"))
                 if yard:
                     yards.append((bid, poly))
@@ -246,6 +302,12 @@ def build(args):
                     b, cc = cc, b
                 mesh.tri(obj, "M_Roof", (*a, h), (*b, h), (*cc, h))
             nb += 1
+
+    for (kind, _, _), p in zip(rules["landmarks"], landmark_points):
+        if kind == "lighthouse":
+            lighthouse(mesh, cell_name("Landmarks", p.x, p.y), p.x, p.y)
+            counts["landmarks"] += 1
+            keep_out.append(p.buffer(4.0))
 
     if not args.no_massing:
         district_roads = []
