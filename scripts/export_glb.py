@@ -11,6 +11,13 @@ Atlases written by build_lookdev.py (signs, billboards, interiors) are embedded 
 OBJ; tiled photo textures (ambientCG sets) are embedded from --textures when given, downscaled to
 --max-texture. Compression (meshopt geometry, KTX2 textures) is a later pass: gltfpack.
 
+For a district the game streams (the Ring Road), --tile-m 500 writes the cells in squares of 500 m instead, one GLB
+per square in a folder named after --out, with tiles.json listing each tile's file, bounds and triangles;
+--gltfpack packs them as it goes:
+
+    python3 scripts/export_glb.py data/work/ring-road/ring-road.obj --uv-only M_Wall_ --tile-m 500 \
+        --gltfpack gltfpack --out data/work/web/ring-road.glb
+
 Axes: the OBJ is X = west, Y = up, Z = north. glTF is written as x = east, y = up, z = south (a half turn
 about Y, so face winding is kept). JSON positions from the builders (x east, z north) map to glTF as
 (x, y, -z).
@@ -20,7 +27,9 @@ import io
 import json
 import math
 import os
+import re
 import struct
+import subprocess
 import sys
 
 import numpy as np
@@ -212,25 +221,27 @@ def material(w, name, spec, obj_dir, tex_roots, max_tex, cache, missing):
     return len(w.gltf["materials"]) - 1
 
 
-def export(obj_path, look_path, tex_roots, out_path, max_tex, uv_on=None):
-    look = json.load(open(look_path))["materials"]
-    V, VT, VN, groups, order = read_obj(obj_path)
+def write_glb(V, VT, VN, groups, keys, look, obj_dir, tex_roots, max_tex, out_path, uv_on, missing, unknown):
+    """One GLB of the (object, material) groups in keys: a node per object, a primitive per material. Returns the
+    file's statistics and the bounds of its positions in glTF axes ([xmin, ymin, zmin], [xmax, ymax, zmax])."""
     w = GlbWriter()
-    mat_index, cache, missing, unknown = {}, {}, set(), set()
+    mat_index, cache = {}, {}
     nodes = {}
     tris = verts_in = verts_out = 0
-    for obj, mtl in order:
+    lo, hi = np.full(3, np.inf), np.full(3, -np.inf)
+    for obj, mtl in keys:
         corners = groups[(obj, mtl)]
         p, uv, n, idx = weld(V, VT, VN, corners)
         verts_in += len(corners)
         verts_out += len(p)
         tris += len(idx) // 3
+        lo, hi = np.minimum(lo, p.min(axis=0)), np.maximum(hi, p.max(axis=0))
         if mtl not in mat_index:
             spec = look.get(mtl)
             if spec is None:
                 unknown.add(mtl)
                 spec = {"color": [0.8, 0.8, 0.8], "smoothness": 0.2}
-            mat_index[mtl] = material(w, mtl, spec, os.path.dirname(obj_path), tex_roots, max_tex, cache, missing)
+            mat_index[mtl] = material(w, mtl, spec, obj_dir, tex_roots, max_tex, cache, missing)
         index = idx.astype(np.uint16) if len(p) < 65536 else idx
         attributes = {"POSITION": w.accessor(p, "VEC3", 34962, bounds=True), "NORMAL": w.accessor(n, "VEC3", 34962)}
         if uv_on is None or mtl.startswith(uv_on):
@@ -243,9 +254,84 @@ def export(obj_path, look_path, tex_roots, out_path, max_tex, uv_on=None):
         w.gltf["scenes"][0]["nodes"].append(len(w.gltf["nodes"]) - 1)
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     w.write(out_path)
-    size = os.path.getsize(out_path)
-    print(f"{os.path.basename(out_path)}: {len(nodes)} cells, {sum(len(p) for p in nodes.values())} primitives, {len(mat_index)} materials, "
-          f"{tris} triangles, vertices {verts_in} -> {verts_out}, {len(w.gltf.get('images', []))} images, {size / 1048576:.2f} MB")
+    stats = {"cells": len(nodes), "primitives": sum(len(p) for p in nodes.values()), "materials": len(mat_index),
+             "triangles": tris, "vertices_in": verts_in, "vertices": verts_out, "images": len(w.gltf.get("images", [])),
+             "bytes": os.path.getsize(out_path)}
+    return stats, (lo, hi)
+
+
+CELL_M = 250.0     # build_district.py's cells: objects are named <prefix>_<i>_<j>, i = floor(east / 250), j = floor(north / 250)
+MIN_TILE_TRIANGLES = 200
+
+
+def tile_of(obj, corners, V, tile_m):
+    """The tile (i, j) an object goes to, east and north from the district origin in tile_m steps: from the cell in
+    its name, or for an object without one (a landmark, the ground of a box district) from the centre of its
+    vertices."""
+    m = re.match(r"^.*_(-?\d+)_(-?\d+)$", obj)
+    if m:
+        e, n = (int(m.group(1)) + 0.5) * CELL_M, (int(m.group(2)) + 0.5) * CELL_M
+    else:
+        c = V[np.array([k[0] for k in corners], dtype=np.int64) - 1].mean(axis=0)
+        e, n = -c[0], c[2]                                 # OBJ axes: X = west, Z = north
+    return int(math.floor(e / tile_m)), int(math.floor(n / tile_m))
+
+
+def pack(gltfpack, src, dst):
+    """gltfpack with the district's flags (README): meshopt geometry, names and materials kept, the walls' texture
+    coordinates kept (-kv) for the building modules' flags."""
+    subprocess.run([gltfpack, "-i", src, "-o", dst, "-cc", "-kn", "-km", "-kv", "-vpf", "-vtf"], check=True,
+                   stdout=subprocess.DEVNULL)
+
+
+def export(obj_path, look_path, tex_roots, out_path, max_tex, uv_on=None, tile_m=None, gltfpack=None):
+    look = json.load(open(look_path))["materials"]
+    V, VT, VN, groups, order = read_obj(obj_path)
+    missing, unknown = set(), set()
+    obj_dir = os.path.dirname(obj_path)
+    if not tile_m:
+        s, _ = write_glb(V, VT, VN, groups, order, look, obj_dir, tex_roots, max_tex, out_path, uv_on, missing, unknown)
+        print(f"{os.path.basename(out_path)}: {s['cells']} cells, {s['primitives']} primitives, {s['materials']} materials, "
+              f"{s['triangles']} triangles, vertices {s['vertices_in']} -> {s['vertices']}, {s['images']} images, {s['bytes'] / 1048576:.2f} MB")
+    else:
+        # Tiles for streaming: the cells grouped into squares of tile_m, one GLB each, in a folder named after
+        # out_path (ring-road.glb -> ring-road/ring-road_<i>_<j>.glb), and the list of them in tiles.json there.
+        stem = os.path.splitext(os.path.basename(out_path))[0]
+        folder = os.path.join(os.path.dirname(out_path), stem)
+        tiles = {}
+        for key in order:
+            tiles.setdefault(tile_of(key[0], groups[key], V, tile_m), []).append(key)
+        # A tile of a few triangles (a sliver of ground margin) is not worth a request: it joins the nearest tile.
+        size = {t: sum(len(groups[k]) for k in keys) // 3 for t, keys in tiles.items()}
+        for t in sorted(tiles, key=lambda t: size[t]):
+            others = [o for o in tiles if o != t and size[o] >= MIN_TILE_TRIANGLES]
+            if size[t] < MIN_TILE_TRIANGLES and others:
+                near = min(others, key=lambda o: (o[0] - t[0]) ** 2 + (o[1] - t[1]) ** 2)
+                tiles[near] += tiles.pop(t)
+                size[near] += size.pop(t)
+        listing = []
+        for (i, j), keys in sorted(tiles.items()):
+            name = f"{stem}_{i}_{j}"
+            path = os.path.join(folder, name + ".glb")
+            s, (lo, hi) = write_glb(V, VT, VN, groups, keys, look, obj_dir, tex_roots, max_tex, path, uv_on, missing, unknown)
+            entry = {"file": f"{stem}/{name}.glb", "tile": [i, j],
+                     "bounds": [round(float(lo[0]), 1), round(float(lo[2]), 1), round(float(hi[0]), 1), round(float(hi[2]), 1)],
+                     "height_m": round(float(hi[1]), 1), "triangles": s["triangles"], "primitives": s["primitives"],
+                     "bytes": s["bytes"]}
+            if gltfpack:
+                packed = os.path.join(folder, name + ".pack.glb")
+                pack(gltfpack, path, packed)
+                entry["packed_bytes"] = os.path.getsize(packed)
+            listing.append(entry)
+        index = {"district": stem, "tile_m": tile_m, "axes": "bounds: glTF x and z (z south), metres from the district origin",
+                 "tiles": listing}
+        with open(os.path.join(folder, "tiles.json"), "w") as f:
+            json.dump(index, f, indent=1)
+        total = sum(t["bytes"] for t in listing)
+        packed = sum(t.get("packed_bytes", 0) for t in listing)
+        print(f"{stem}/: {len(listing)} tiles of {tile_m:.0f} m, {sum(t['triangles'] for t in listing)} triangles, "
+              f"{sum(t['primitives'] for t in listing)} primitives, {total / 1048576:.2f} MB"
+              + (f", packed {packed / 1048576:.2f} MB (largest tile {max(t['packed_bytes'] for t in listing) / 1048576:.2f} MB)" if gltfpack else ""))
     if unknown:
         print("materials not in look.json (grey):", ", ".join(sorted(unknown)))
     if missing:
@@ -262,8 +348,16 @@ def main():
     ap.add_argument("--uv-only", metavar="PREFIX",
                     help="write texture coordinates only for materials whose name starts with PREFIX; the district "
                          "uses M_Wall_, whose v carries the building modules' surface flags (scripts/massing.py)")
+    ap.add_argument("--tile-m", type=float, metavar="M",
+                    help="write tiles for the game to stream instead of one file: the 250 m cells grouped into squares "
+                         "of M metres (a multiple of 250), one GLB each in a folder named after --out, listed in its "
+                         "tiles.json")
+    ap.add_argument("--gltfpack", metavar="PATH", help="with --tile-m, pack each tile with this gltfpack (the "
+                    "district's flags) into <tile>.pack.glb and list the packed sizes")
     args = ap.parse_args()
-    export(args.obj, args.look, args.textures, args.out, args.max_texture, args.uv_only)
+    if args.tile_m and args.tile_m % CELL_M:
+        ap.error("--tile-m must be a multiple of 250")
+    export(args.obj, args.look, args.textures, args.out, args.max_texture, args.uv_only, args.tile_m, args.gltfpack)
 
 
 if __name__ == "__main__":
