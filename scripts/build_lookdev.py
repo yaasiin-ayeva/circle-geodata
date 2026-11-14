@@ -148,7 +148,8 @@ FACADES = [m for m in MATERIALS if m.startswith("M_Facade_")]
 
 # With --models, the trees, kiosks, container shops and bougainvillea that have a converted 3D model are not built
 # as geometry: their places go to the JSON ("models") and the game puts the models there (circle-game
-# art/models, the source models). A kind with no model yet keeps its procedural geometry.
+# art/models, the source models: none today, the generated stand-ins were removed on 14 Nov 2026). A kind with no
+# model yet keeps its procedural geometry.
 MODEL_KINDS = set()
 DEFAULT_MODEL_DIR = "../circle-game/art/models"
 

@@ -2,6 +2,8 @@
 
 The open-data pipeline that rebuilds Accra for **CHALE**: roads, buildings, heights and terrain, from sources that allow commercial use. It feeds the browser game in `circle-game` (three.js) and produces the merged map database that the ODbL requires us to publish.
 
+New to the project? Start with circle-bible's [CONTRIBUTING.md](https://github.com/yaasiin-ayeva/circle-bible/blob/main/CONTRIBUTING.md). This repository is public: nothing confidential goes in it.
+
 Sources and their licences are listed in [SOURCES.md](SOURCES.md).
 
 ## Status
@@ -84,7 +86,7 @@ python3 scripts/build_district.py --slice data/work/slice --out data/work/osu-po
 
 The look-dev script runs first: its 22 detailed buildings replace the plain ones, which `--exclude` leaves out of the district.
 
-It writes `osu-poc.obj`/`.mtl` (3,162 buildings, 26 km of road, 137,000 triangles), `osu-poc.json` (72 streetlights before relighting, a 2.55 km benchmark lap, the spawn point) and a top-down preview. Building heights there come from typology rules until the 2.5D heights are merged.
+It writes `osu-poc.obj`/`.mtl` (3,162 buildings, 26 km of road, 137,000 triangles), `osu-poc.json` (71 streetlights before relighting, a 2.55 km benchmark lap, the spawn point) and a top-down preview. Building heights there come from typology rules until the 2.5D heights are merged.
 
 The buildings are assembled from modules ([scripts/massing.py](scripts/massing.py), 14 November 2026), from the street survey in circle-reference and the roof census in circle-bible's `research/landscape-look.md`. On the 14 November build:
 
