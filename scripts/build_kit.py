@@ -66,6 +66,7 @@ def material(name, rgb, rough=0.8, metal=0.0, emit=None, double=False):
         if "Emission Strength" in b.inputs:
             b.inputs["Emission Strength"].default_value = 4.0
     m.use_backface_culling = not double
+    m.diffuse_color = (*rgb, 1)   # what Workbench (the preview) shows
     MATS[name] = m
     return m
 
@@ -353,40 +354,57 @@ PARTS = [window, bars, balcony_balusters, balcony_rail, shutter_box, lambda: can
 # ---------------------------------------------------------------------------------------------- export and preview
 
 def preview(objects, path):
-    """Renders every part side by side, in front of a grey wall, with the Workbench engine."""
+    """Renders every part side by side in front of a dark wall, seen from the front and a little from the right,
+    with the Workbench engine. The kit objects themselves are hidden from the render while their copies pose."""
     scene = bpy.context.scene
     col = bpy.data.collections.new("preview")
     scene.collection.children.link(col)
+    for ob in objects:
+        ob.hide_render = True
     copies, x = [], 0.0
     for ob in objects:
-        w = max(ob.dimensions.x, 1.0)
+        w = max(ob.dimensions.x, 0.8)
         c = ob.copy()
+        c.hide_render = False
         c.location = (x + w / 2, 0, 0)
         col.objects.link(c)
         copies.append(c)
-        x += w + 0.6
-    wall = bpy.data.objects.new("wall", bpy.data.meshes.new("wall"))
-    bm = bmesh.new()
-    bmesh.ops.create_cube(bm, size=1.0, matrix=Matrix.Translation((x / 2, 0.3, 4.5)) @ Matrix.Diagonal((x + 4, 0.6, 9.5, 1)))
-    bm.to_mesh(wall.data)
-    bm.free()
-    col.objects.link(wall)
+        x += w + 0.8
+    def slab(name, matrix, rgb):
+        me = bpy.data.meshes.new(name)
+        bm = bmesh.new()
+        bmesh.ops.create_cube(bm, size=1.0, matrix=matrix)
+        bm.to_mesh(me)
+        bm.free()
+        me.materials.append(material("M_Preview_" + name, rgb, 0.9))
+        ob = bpy.data.objects.new(name, me)
+        col.objects.link(ob)
+        return ob
+    wall = slab("wall", Matrix.Translation((x / 2, 0.15, 5)) @ Matrix.Diagonal((x + 4, 0.3, 10.5, 1)), (0.09, 0.1, 0.12))
+    ground = slab("ground", Matrix.Translation((x / 2, -6, -0.05)) @ Matrix.Diagonal((x + 4, 12, 0.1, 1)), (0.2, 0.19, 0.18))
+    target = bpy.data.objects.new("target", None)
+    target.location = (x / 2, -0.5, 3.2)
+    col.objects.link(target)
     cam = bpy.data.objects.new("cam", bpy.data.cameras.new("cam"))
     cam.data.type = "ORTHO"
-    cam.data.ortho_scale = x + 2
-    cam.location = (x / 2, -30, 5.5)
-    cam.rotation_euler = (math.radians(80), 0, 0)
+    cam.data.ortho_scale = x * 1.02
+    cam.location = (x / 2 + 10, -60, 14)
     col.objects.link(cam)
+    track = cam.constraints.new("TRACK_TO")
+    track.target, track.track_axis, track.up_axis = target, "TRACK_NEGATIVE_Z", "UP_Y"
     scene.camera = cam
     scene.render.engine = "BLENDER_WORKBENCH"
     scene.display.shading.light = "STUDIO"
     scene.display.shading.color_type = "MATERIAL"
     scene.display.shading.show_cavity = True
-    scene.render.resolution_x, scene.render.resolution_y = 2400, 800
+    scene.display.shading.show_shadows = True
+    scene.render.resolution_x, scene.render.resolution_y = 2400, 760
     scene.render.filepath = path
     bpy.ops.render.render(write_still=True)
-    for c in copies + [wall, cam]:
+    for c in copies + [wall, ground, target, cam]:
         bpy.data.objects.remove(c, do_unlink=True)
+    for ob in objects:
+        ob.hide_render = False
 
 
 def main():
