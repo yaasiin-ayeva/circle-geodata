@@ -42,6 +42,9 @@ rows = [
     place("Kofi's Tailoring", "fashion_and_apparel_store", 840, 0, 0.99),
     place("Dr. Mensah", "hospital", 860, 0, 0.99),
     place("Tamale Airport", "airport", 880, 0, 0.99),
+    # Filed under a category its name contradicts.
+    place("KFC 37 Liberation", "hospital", 1200, 0, 0.99),
+    place("Akofena Travel Consult", "museum", 1250, 0, 0.99),
     # Kept: a fuel station at the lower floor for safety kinds, a trotro station from OpenStreetMap.
     place("TotalEnergies Station", "gas_station", 900, 0, 0.6, brand="TotalEnergies"),
     place("La Main Lorry Station", "bus_station", 950, 0, 1.0, "infrastructure"),
@@ -59,8 +62,9 @@ check("the hospital outranks a bank, the bank a hotel",
       by["Rabito Clinic"]["rank"] > by["Ecobank Osu"]["rank"] > by["G.C Royal Hotel"]["rank"])
 check("a bank pinned twice shows once; another bank beside it stays",
       names.count("Ecobank Osu") == 1 and "Ecobank" not in names and "Access Bank Osu" in names, str(names))
-check("unsure, closed, outside, unshown kinds, people and false airports are left out",
-      not {"Maybe Chop Bar", "Old Fuel", "Far Hotel", "Kofi's Tailoring", "Dr. Mensah", "Tamale Airport"} & set(names),
+check("unsure, closed, outside, unshown kinds, people, false airports and contradicted categories are left out",
+      not {"Maybe Chop Bar", "Old Fuel", "Far Hotel", "Kofi's Tailoring", "Dr. Mensah", "Tamale Airport", "KFC 37 Liberation",
+       "Akofena Travel Consult"} & set(names),
       str(names))
 check("a fuel station passes at the safety floor", "TotalEnergies Station" in names)
 check("stations come from OpenStreetMap", by.get("La Main Lorry Station", {}).get("cat") == "transit")

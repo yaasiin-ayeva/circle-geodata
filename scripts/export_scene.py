@@ -107,6 +107,11 @@ def main():
     if d.get("places"):
         scene["places"] = [{"name": p["name"], "cat": p["cat"], "at": [p["x"], round(-p["z"], 1) + 0.0], "rank": p["rank"],
                             **({"brand": True} if p.get("brand") else {})} for p in d["places"]]
+    # The central reservations of the dual carriageways: the median's middle line (glTF axes), its width between
+    # the two carriageways' asphalt, its kerb height, already cut where roads cross it (build_district find_medians).
+    if d.get("medians"):
+        scene["medians"] = [{"pts": [[x, round(-z, 1) + 0.0] for x, z in m["pts"]], "w": m["w"], "h": m["h"],
+                             **({"name": m["name"]} if m.get("name") else {})} for m in d["medians"]]
     if d.get("solid"):
         # Flat lists x0, z0, x1, z1, ... with z flipped to glTF's south.
         flip = lambda flat: [v if i % 2 == 0 else round(-v, 1) + 0.0 for i, v in enumerate(flat)]
@@ -135,7 +140,7 @@ def main():
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     # The road network, the solid outlines and the places are long lists for the game, not for reading: one line
     # each, the rest of the scene indented.
-    compact = {k: scene.pop(k) for k in ("roads", "solid", "places") if k in scene}
+    compact = {k: scene.pop(k) for k in ("roads", "solid", "places", "medians") if k in scene}
     text = json.dumps(scene, indent=1)
     for k, v in compact.items():
         text = text[:text.rstrip().rfind("}")].rstrip() + f',\n "{k}": {json.dumps(v, separators=(",", ":"))}\n}}'

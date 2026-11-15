@@ -53,6 +53,12 @@ CLOSED = {"closed", "permanently_closed", "temporarily_closed"}
 # Names that are no place a driver would look for: a person's practice (no real private people in the game), or an
 # address.
 PERSONAL = re.compile(r"^(dr|doctor|prof|rev|pastor|apostle|bishop|mr|mrs|ms|madam|hon)\.?\s", re.I)
+# An Overture place whose category its name contradicts is left out: a "hospital" with no word of care in its name (a
+# "KFC 37 Liberation" filed as a hospital), a "landmark" named like a business (a "travel consult").
+CARE = re.compile(r"hospital|clinic|medic|health|maternity|polyclinic|dental|surgery|infirmary|emergency|diagnostic|"
+                  r"specialist|eye|heart|cancer|children", re.I)
+BUSINESS = re.compile(r"\b(consult|consulting|ltd|limited|enterprise|enterprises|services?|company|agency|travels?|"
+                      r"tours?|ventures|solutions)\b", re.I)
 CUT = re.compile(r"\s+(?:[-|–—(/]|\|\|\|).*$")
 WORD = re.compile(r"[a-z0-9]+")
 NON_LATIN = re.compile(r"[\u0370-\u1fff\u2e80-\uffff]")
@@ -135,6 +141,9 @@ def select_places(rows, inside, to_local):
                 continue
         name = clean_name(r.get("name"))
         if not name:
+            continue
+        if r["source"] == "places" and ((cat == "hospital" and not CARE.search(name))
+                                        or (cat in ("landmark", "hotel", "market") and BUSINESS.search(name))):
             continue
         x, z = to_local(r["lon"], r["lat"])
         if not inside(x, z):

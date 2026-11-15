@@ -117,6 +117,45 @@
           ]
         ]
       }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "north-37",
+        "milestone": 4,
+        "description": "North of the vertical slice along Liberation Road: the Ako Adjei Interchange to 37 Circle, the 37 Military Hospital and the airport approach (the liberation corridor, build_district.py AREAS). Overlaps the vertical slice by 500 m so the corridor's roads join the Ring Road's.",
+        "south": 5.57,
+        "north": 5.61,
+        "west": -0.2,
+        "east": -0.165
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -0.2,
+              5.57
+            ],
+            [
+              -0.165,
+              5.57
+            ],
+            [
+              -0.165,
+              5.61
+            ],
+            [
+              -0.2,
+              5.61
+            ],
+            [
+              -0.2,
+              5.57
+            ]
+          ]
+        ]
+      }
     }
   ]
 }
