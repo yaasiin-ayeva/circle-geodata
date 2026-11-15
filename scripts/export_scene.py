@@ -103,6 +103,10 @@ def main():
         scene["roads"] = [{"cls": r["cls"], "w": r["w"], "name": r["name"], **({"oneway": True} if r.get("oneway") else {}),
                            "pts": [[r["pts"][i], round(-r["pts"][i + 1], 1)] for i in range(0, len(r["pts"]), 2)]}
                           for r in d["roads"]]
+    # The named places for the maps (scripts/places.py), best first: name, icon category, a point (glTF axes), rank.
+    if d.get("places"):
+        scene["places"] = [{"name": p["name"], "cat": p["cat"], "at": [p["x"], round(-p["z"], 1) + 0.0], "rank": p["rank"],
+                            **({"brand": True} if p.get("brand") else {})} for p in d["places"]]
     if d.get("solid"):
         # Flat lists x0, z0, x1, z1, ... with z flipped to glTF's south.
         flip = lambda flat: [v if i % 2 == 0 else round(-v, 1) + 0.0 for i, v in enumerate(flat)]
@@ -129,9 +133,9 @@ def main():
         # No dressed block (Jamestown): the cars build_district.py parked along the streets.
         scene["parked"] = parked_cars(d["parked"])
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    # The road network and the solid outlines are long lists of numbers for the game, not for reading: one line
+    # The road network, the solid outlines and the places are long lists for the game, not for reading: one line
     # each, the rest of the scene indented.
-    compact = {k: scene.pop(k) for k in ("roads", "solid") if k in scene}
+    compact = {k: scene.pop(k) for k in ("roads", "solid", "places") if k in scene}
     text = json.dumps(scene, indent=1)
     for k, v in compact.items():
         text = text[:text.rstrip().rfind("}")].rstrip() + f',\n "{k}": {json.dumps(v, separators=(",", ":"))}\n}}'

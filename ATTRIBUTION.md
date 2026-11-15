@@ -8,6 +8,8 @@ Map data
 Includes data from Overture Maps Foundation (ODbL 1.0).
 Building footprints and heights: Google Open Buildings (CC BY 4.0),
 Microsoft Global ML Building Footprints (CDLA-Permissive-2.0).
+Places: Overture Maps Foundation (CDLA-Permissive-2.0), from Meta, Microsoft,
+Foursquare and AllThePlaces.
 Contains modified Copernicus Sentinel data [year].
 Produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence
 and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA;

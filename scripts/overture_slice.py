@@ -29,6 +29,19 @@ S3_ROOT = "s3://overturemaps-us-west-2/release"
 LAYERS = {
     "buildings": "theme=buildings/type=building/*",
     "roads": "theme=transportation/type=segment/*",
+    "places": "theme=places/type=place/*",
+    "land_use": "theme=base/type=land_use/*",
+    "infrastructure": "theme=base/type=infrastructure/*",
+}
+# What `export` writes (--layers picks some): buildings.parquet, roads.parquet, and places.parquet, the named places
+# for the game's maps: Overture places, plus OpenStreetMap's named land use (hospitals, campuses, stadiums, parks, with
+# their area) and its transport stations, from Overture's base theme. scripts/places.py chooses among them.
+EXPORTS = ("buildings", "roads", "places")
+# The base theme's classes that name a place a driver knows (land use by its area, stations by their name).
+BASE_CLASSES = {
+    "land_use": ("hospital", "clinic", "university", "college", "school", "stadium", "park", "plaza", "cemetery",
+                 "military", "barracks", "military_school", "retail", "marketplace", "beach_resort", "zoo", "golf_course"),
+    "infrastructure": ("bus_station", "railway_station", "international_airport", "airport", "ferry_terminal"),
 }
 
 
@@ -86,7 +99,9 @@ def source_glob(args, layer):
 def connect(args, spatial):
     con = duckdb.connect()
     if not args.source:
-        con.execute("INSTALL httpfs; LOAD httpfs; SET s3_region='us-west-2';")
+        # Overture's bucket is public: read it anonymously, whatever AWS credentials the environment holds.
+        con.execute("INSTALL httpfs; LOAD httpfs; SET s3_region='us-west-2'; "
+                    "SET s3_access_key_id=''; SET s3_secret_access_key=''; SET s3_session_token='';")
     if spatial:
         con.execute("INSTALL spatial; LOAD spatial;")
     return con
@@ -147,21 +162,31 @@ def count(args):
 def export(args):
     if not args.out:
         sys.exit("export needs --out")
+    layers = args.layers.split(",") if args.layers else list(EXPORTS)
+    unknown = sorted(set(layers) - set(EXPORTS))
+    if unknown:
+        sys.exit(f"--layers takes {', '.join(EXPORTS)}, not {', '.join(unknown)}")
     w, s, e, n = load_aoi(args.aoi, args.name)
     con = connect(args, spatial=True)
     os.makedirs(args.out, exist_ok=True)
     flt = bbox_filter(w, s, e, n)
     clip = f"ST_Intersects(geometry, ST_MakeEnvelope({w}, {s}, {e}, {n}))"
-    con.execute(
-        f"""
-        COPY (
-          SELECT id, sources[1].dataset AS source, height, num_floors, class, subtype,
-                 names.primary AS name, geometry
-          FROM read_parquet('{source_glob(args, "buildings")}', hive_partitioning=1)
-          WHERE {flt} AND {clip}
-        ) TO '{os.path.join(args.out, "buildings.parquet")}' (FORMAT parquet)
-        """
-    )
+    if "buildings" in layers:
+        con.execute(
+            f"""
+            COPY (
+              SELECT id, sources[1].dataset AS source, height, num_floors, class, subtype,
+                     names.primary AS name, geometry
+              FROM read_parquet('{source_glob(args, "buildings")}', hive_partitioning=1)
+              WHERE {flt} AND {clip}
+            ) TO '{os.path.join(args.out, "buildings.parquet")}' (FORMAT parquet)
+            """
+        )
+    if "places" in layers:
+        export_places(con, args, flt, clip)
+    if "roads" not in layers:
+        print(f"wrote {', '.join(x + '.parquet' for x in layers)} in {args.out}")
+        return
     con.execute(
         f"""
         COPY (
@@ -178,8 +203,38 @@ def export(args):
     summary.update({"aoi": args.name, "release": args.release or args.source})
     with open(os.path.join(args.out, "roads-summary.json"), "w") as f:
         json.dump(summary, f, indent=2)
-    print(f"wrote {args.out}/buildings.parquet, roads.parquet and roads-summary.json; "
+    print(f"wrote {', '.join(x + '.parquet' for x in layers)} and roads-summary.json in {args.out}; "
           f"{summary['road_km_total']} km of road, {summary['road_km_arterial']} km arterial")
+
+
+def export_places(con, args, flt, clip):
+    """places.parquet: one row per named place, as a point, from three sources (column "source"):
+    "places", Overture's places (Meta, Microsoft, Foursquare, AllThePlaces...), with their category, confidence and
+    how much is known of them (websites, socials, phones, a brand); "land_use" and "infrastructure", OpenStreetMap's
+    named land use and stations from the base theme, with their area (m2) and a confidence of 1."""
+    utm = "ST_Transform(geometry, 'EPSG:4326', 'EPSG:32630', always_xy := true)"
+    base = lambda layer: f"""
+        SELECT id, '{layer}' AS source, names.primary AS name, class AS category, 1.0::DOUBLE AS confidence,
+               NULL::VARCHAR AS status, NULL::VARCHAR AS brand, 0 AS websites, 0 AS socials, 0 AS phones,
+               NULL::VARCHAR[] AS datasets, ST_Area({utm})::DOUBLE AS area_m2, ST_PointOnSurface(geometry) AS geometry
+        FROM read_parquet('{source_glob(args, layer)}', hive_partitioning=1)
+        WHERE {flt} AND names.primary IS NOT NULL AND class IN ({", ".join(f"'{c}'" for c in BASE_CLASSES[layer])})
+          AND {clip}"""
+    con.execute(
+        f"""
+        COPY (
+          SELECT id, 'places' AS source, names.primary AS name, coalesce(basic_category, taxonomy.primary) AS category,
+                 confidence, operating_status AS status, coalesce(brand.names.primary, brand.wikidata) AS brand,
+                 coalesce(len(websites), 0) AS websites, coalesce(len(socials), 0) AS socials,
+                 coalesce(len(phones), 0) AS phones, list_transform(sources, lambda x: x.dataset) AS datasets,
+                 0.0::DOUBLE AS area_m2, geometry
+          FROM read_parquet('{source_glob(args, "places")}', hive_partitioning=1)
+          WHERE {flt} AND names.primary IS NOT NULL AND {clip}
+          UNION ALL {base("land_use")}
+          UNION ALL {base("infrastructure")}
+        ) TO '{os.path.join(args.out, "places.parquet")}' (FORMAT parquet)
+        """
+    )
 
 
 def summarize_roads(con, roads):
@@ -208,6 +263,7 @@ def main():
     ap.add_argument("--aoi", default=os.path.join(os.path.dirname(__file__), "..", "aoi", "slices.geojson"))
     ap.add_argument("--name", default="vertical-slice", help="feature name in the AOI file")
     ap.add_argument("--out", help="output folder (default: print only)")
+    ap.add_argument("--layers", help=f"export only these, comma-separated (default: {','.join(EXPORTS)})")
     args = ap.parse_args()
     {"count": count, "export": export}[args.mode](args)
 
