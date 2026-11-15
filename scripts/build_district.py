@@ -38,6 +38,8 @@ import numpy as np
 import shapely
 from PIL import Image, ImageDraw
 from pyproj import Transformer
+
+import places as named_places
 from shapely.geometry import LineString, MultiLineString, MultiPolygon, Point, Polygon, box
 from shapely.geometry.polygon import orient
 
@@ -574,6 +576,17 @@ def build(args):
     hiding = hiding_places(hide_roads, keep_out + [p for _, p in yards], compound_walls, parked, lights,
                            avoid=oxford.buffer(40) if oxford is not None else None, clip=clip)
 
+    # The named places of the area, where the slice has them (an older slice has no places.parquet: none then).
+    spots = []
+    places_path = os.path.join(args.slice, "places.parquet")
+    if os.path.exists(places_path):
+        shapely.prepare(clip)
+        spots = named_places.select_places(named_places.load_places(con, places_path),
+                                           lambda x, z: bool(shapely.contains_xy(clip, x, z)),
+                                           lambda lon, lat: tuple(np.array(to_utm.transform(lon, lat)) - (oe, on)))
+    else:
+        print(f"no {places_path}: no named places (scripts/overture_slice.py export --layers places)")
+
     os.makedirs(args.out, exist_ok=True)
     base = os.path.join(args.out, args.name)
     with open(base + ".mtl", "w") as f:
@@ -596,7 +609,7 @@ def build(args):
         "bounds_m": {"xmin": round(minx, 1), "xmax": round(maxx, 1), "zmin": round(miny, 1), "zmax": round(maxy, 1)},
         "axes": "x east, y up, z north, metres from origin",
         "stats": {"buildings": nb, "road_km": round(road_km, 2), "lights": len(lights),
-                  **({"parked": len(parked)} if rules.get("parking") else {}), "hiding": len(hiding), "triangles": tris,
+                  **({"parked": len(parked)} if rules.get("parking") else {}), "hiding": len(hiding), "places": len(spots), "triangles": tris,
                   "vertices": verts, "objects": objs, "lap_m": round(lap["length_m"], 1) if lap else None,
                   "height_m_median": round(float(np.median(heights)), 1) if heights else None,
                   "massing": {k: (round(v) if isinstance(v, float) else v) for k, v in sorted(counts.items())}},
@@ -613,8 +626,12 @@ def build(args):
                                 [(cls, g, road_width(cls, name)) for _, cls, name, g in roads]),
         # Where the game's hiding places stand (circle-game src/world/hiding.ts).
         "hiding": hiding,
+        # The named places the game's maps show, best first (scripts/places.py; circle-game src/ui/minimap-places.ts).
+        "places": spots,
         "credits": "Buildings and roads: Overture Maps Foundation (ODbL), from OpenStreetMap contributors, "
-                   "Google Open Buildings and Microsoft. Heights from typology rules.",
+                   "Google Open Buildings and Microsoft. Heights from typology rules."
+                   + (" Places: Overture Maps Foundation (CDLA Permissive 2.0 and ODbL), from Meta, Microsoft, "
+                      "Foursquare, AllThePlaces and OpenStreetMap contributors." if spots else ""),
     }
     with open(base + ".json", "w") as f:
         json.dump(meta, f, indent=1)

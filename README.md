@@ -214,6 +214,14 @@ For the vertical slice's drives on the Ring Road (circle-bible `bible/game-desig
   - **How they are picked:** candidates every 6 m on both sides are taken in a hashed order, at least 200 m apart. Kinds take turns: car wash, market shed, crew garage.
   - **Counts:** Osu 5, Jamestown 15, the Ring Road corridor 8. Osu's compound walls line almost every street: 27 candidate plots of 5,290 clear them. From Osu's lap, the nearest hiding place is 256 m away at the median and 461 m at most.
 
+- **`places`:** the named places the game's minimap and big map show, best first (`scripts/places.py`, checked by `tests/test_places.py`):
+  - **Sources:** the slice's `places.parquet` (`overture_slice.py export`, or `--layers places` alone for a slice exported before): Overture places (Meta, Microsoft, Foursquare, AllThePlaces), and OpenStreetMap's named land use (hospitals, campuses, stadiums, parks, with their area) and stations from Overture's base theme. Stations and airports come from OpenStreetMap only: in Accra, Overture's "airports" and "bus stations" are mostly offices named after them.
+  - **Categories:** 15 icons, from the most useful to a driver: hospital, landmark, transit, police, fuel, market, bank, university, embassy, hotel, school, worship, pharmacy, nightlife, food. Other kinds (shops, offices, services) are left out.
+  - **Kept:** Overture places at confidence 0.65 or more (0.55 for hospitals, police and fuel), not closed, with a name that reads (spaces collapsed, all capitals in title case, a long name cut at its dash or bracket, a second script dropped beside a Latin one). Names that start with a title (Dr., Rev., Pastor...) are left out: no real private people in the game. Pins of one place (same category, within 80 m, names sharing most words) merge, and a pin merges into the OpenStreetMap site of its name within 300 m, at the site's point.
+  - **Rank:** the category's weight times the confidence, plus what is known (website, socials, phone, brand, a source besides Meta), or the site's area for OpenStreetMap land use, on one scale (0 to 1) in every area so the game can merge them. `brand: true` marks a place Overture names a brand for: brands are cleared before a public release (circle-bible DECISIONS.md, 14 Nov 2026).
+  - **Counts (2026-10-21.0):** Osu 93, the Ring Road corridor 32, Jamestown 22. Places beyond the areas (37 Military Hospital, north of the Ring Road corridor) come with the areas that hold them.
+  - **Freshness:** as current as the Overture release the city is built from (monthly); rebuilding with a newer `OVERTURE_RELEASE` refreshes them. The game asks no service for places while it runs, so no player's position leaves the machine.
+
 `latest` picks the newest release on Overture's public bucket; a fixed name from the [release list](https://docs.overturemaps.org/release/) works too. Downloads and working files go under `data/`, which is not committed.
 
 ## Publishing under ODbL
