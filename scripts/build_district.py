@@ -42,6 +42,7 @@ from pyproj import Transformer
 import places as named_places
 from shapely.geometry import LineString, MultiLineString, MultiPolygon, Point, Polygon, box
 from shapely.geometry.polygon import orient
+from shapely.ops import substring
 
 import massing
 
@@ -74,6 +75,19 @@ RING_LAP = {"route": [(5.567666, -0.182117),     # westbound, leaving Danquah Ci
                       (5.566147, -0.179392)],    # westbound, before Danquah Circle
             "one_way": ONE_WAY_ROADS}
 
+# North of the vertical slice (aoi/slices.geojson "north-37"; slice in data/work/slice-north): Independence Avenue from
+# the Ako Adjei Interchange to 37 Circle, then Liberation Road past the 37 Military Hospital and 37 Station towards the
+# airport, by the names Overture gives them. Its box starts 400 m inside the vertical slice, at the Ako Adjei
+# Interchange, and leaves out the Ring Road's corridor ("minus"), so the two meet along the edge of the Ring Road's
+# buffer without a gap or an overlap.
+LIBERATION = {"south": 5.5715, "north": 5.6065, "west": -0.2000, "east": -0.1650}
+LIBERATION_ROADS = ("Independence Avenue", "37 Circle", "Liberation Road")
+# Its lap: up the avenue and Liberation Road to the airport end and back (lat, lon, each near a vertex of the road).
+LIBERATION_LAP = {"route": [(5.5739635, -0.1892662),  # Independence Avenue, its northbound (east) carriageway
+                            (5.5891, -0.1818),           # 37 Circle
+                            (5.6045120, -0.1778479),     # Liberation Road northbound, before the crossover
+                            (5.6006832, -0.1788379)]}    # Liberation Road southbound, back towards 37
+
 AREAS = {
     # About 1.3 km2 of Osu: Danquah Circle, the north half of Oxford Street, Ring Road East.
     "osu-poc": {"south": 5.5575, "north": 5.5695, "west": -0.1870, "east": -0.1780,
@@ -86,6 +100,11 @@ AREAS = {
     # loads both in one frame; its lap runs through osu-poc, on the roads of the whole corridor.
     "ring-road": {"corridor": {"roads": RING_ROADS, "half_width_m": 250.0, "within": VERTICAL_SLICE},
                   "minus": ["osu-poc"], "origin": OSU_ORIGIN, "lap": RING_LAP, "district": "ring-road"},
+    # Liberation Road to 37: a corridor 300 m either side of LIBERATION_ROADS inside LIBERATION (wide enough for the 37
+    # Military Hospital's grounds and 37 Station), streamed beside the Ring Road; Osu's origin, so the game loads it in
+    # one frame with the other two.
+    "liberation": {"corridor": {"roads": LIBERATION_ROADS, "half_width_m": 300.0, "within": LIBERATION},
+                   "minus": ["ring-road"], "origin": OSU_ORIGIN, "lap": LIBERATION_LAP, "district": "ring-road"},
 }
 
 # What changes from one district to the next (circle-reference district cards, catalogue/*-identity-survey.md).
@@ -164,9 +183,169 @@ CARRIAGEWAY_M = 7.0
 NAMED_WIDTH = {"Danquah Circle": 9.5}
 
 
-def road_width(cls, name="", widths=None):
-    """The carriageway's width (m): by class, except the Ring Road's surveyed main carriageways and Danquah Circle."""
+# The carriageways of the area's dual carriageways that no survey names, found in its geometry (find_carriageways()):
+# road id -> carriageway width (m). Filled by build() for the area it builds; read by road_width(), the traffic
+# network, the lap and the median's poles. Boulevards with a central reservation (Independence Avenue, Liberation
+# Road, the Spintex and Airport roads) are mapped in OpenStreetMap as one one-way road per carriageway, each drawn the
+# way its traffic runs; drawn at their class's width (18 m for a trunk) two of them covered the median.
+CARRIAGEWAY_W = {}
+DUAL_CLASSES = ("motorway", "trunk", "primary", "secondary")
+
+
+def find_carriageways(roads, sample_m=20.0, min_gap=5.0, max_gap=45.0, share=0.6):
+    """The roads that are one carriageway of a dual carriageway: a road of DUAL_CLASSES with, along at least `share`
+    of its length (points every `sample_m`), another such road to its left (Ghana drives on the right, so the
+    opposite carriageway lies left of the way the traffic runs) between `min_gap` and `max_gap` metres centre to
+    centre, running the other way (within about 35 degrees), under the same name or one of them unnamed (the links).
+    Returns {road id: width}: about 55% of the median distance centre to centre (the rest is the median), between 6.5 m
+    (two lanes) and 10.5 m (three); the Ring Road's surveyed widths (DUAL_CARRIAGEWAYS) still win in road_width().
+    roads: (id, class, name, line in metres)."""
+    cand = [(rid, name, g) for rid, cls, name, g in roads if cls in DUAL_CLASSES and isinstance(g, LineString) and g.length >= 30]
+    if len(cand) < 2:
+        return {}
+    tree = shapely.STRtree([g for _, _, g in cand])
+    out = {}
+    for i, (rid, name, g) in enumerate(cand):
+        hits, gaps, n = 0, [], 0
+        for d in np.arange(min(sample_m / 2, g.length / 2), g.length, sample_m):
+            p = np.array(g.interpolate(d).coords[0])
+            q = np.array(g.interpolate(min(d + 1.0, g.length)).coords[0]) - np.array(g.interpolate(max(d - 1.0, 0.0)).coords[0])
+            if np.linalg.norm(q) < 1e-6:
+                continue
+            t = q / np.linalg.norm(q)
+            left = np.array([-t[1], t[0]])
+            n += 1
+            best = None
+            for j in tree.query(Point(p).buffer(max_gap)):
+                if j == i:
+                    continue
+                orid, oname, og = cand[j]
+                if name and oname and oname != name:
+                    continue
+                at = og.project(Point(p))
+                o = np.array(og.interpolate(at).coords[0])
+                v = o - p
+                dist = float(np.linalg.norm(v))
+                if not (min_gap <= dist <= max_gap) or float(v @ left) < 0.8 * dist:
+                    continue
+                u = np.array(og.interpolate(min(at + 1.0, og.length)).coords[0]) - np.array(og.interpolate(max(at - 1.0, 0.0)).coords[0])
+                if np.linalg.norm(u) < 1e-6 or float(u @ t) / np.linalg.norm(u) > -0.82:
+                    continue
+                best = dist if best is None else min(best, dist)
+            if best is not None:
+                hits += 1
+                gaps.append(best)
+        if n and hits / n >= share:
+            out[rid] = round(float(np.clip(0.55 * np.median(gaps), 6.5, 10.5)), 1)
+    return out
+
+
+MEDIAN_H = 0.15
+
+
+def find_medians(roads, clip, step=4.0, min_gap=5.0, max_gap=45.0, margin=2.0, min_len=6.0):
+    """The central reservations between the carriageways find_carriageways() found: polylines along the middle of
+    each pair, with the width left between their asphalt (centre to centre less the two half widths), cut where
+    another road crosses (half its width and `margin` either side, the gaps a driver turns through) and to clip.
+    Each carriageway is walked every `step` m and paired with the nearest carriageway to its left running the other
+    way; a stretch the other side of the pair already drew is left out, so each median is drawn once. Returns dicts
+    with pts (x, z, local metres), w, h and name. roads: (id, class, name, line in metres)."""
+    carr = [(rid, name, g) for rid, cls, name, g in roads if rid in CARRIAGEWAY_W and isinstance(g, LineString)]
+    if len(carr) < 2:
+        return []
+    # The asphalt as drawn (the Ring Road's surveyed 7 m win over the found widths).
+    width = {rid: road_width(cls, name, rid=rid) for rid, cls, name, _ in roads if rid in CARRIAGEWAY_W}
+    tree = shapely.STRtree([g for _, _, g in carr])
+    ids = {rid for rid, _, _ in carr}
+    others = [(g, road_width(cls, name, rid=rid)) for rid, cls, name, g in roads if rid not in ids]
+    otree = shapely.STRtree([g for g, _ in others]) if others else None
+    seen = {}                                    # 2 m cells -> midpoints already drawn
+    cell = lambda p: (int(p[0] // 2.0), int(p[1] // 2.0))
+
+    def drawn(p):
+        cx, cy = cell(p)
+        return any(np.hypot(*(q - p)) < 3.0 for dx in (-1, 0, 1) for dy in (-1, 0, 1) for q in seen.get((cx + dx, cy + dy), ()))
+
+    runs = []
+    for i, (rid, name, g) in enumerate(sorted(carr, key=lambda c: c[0])):
+        run, n = [], max(2, int(math.ceil(g.length / step)) + 1)
+        samples = []
+        for d in np.linspace(0.0, g.length, n):
+            p = np.array(g.interpolate(d).coords[0])
+            q = np.array(g.interpolate(min(d + 1.0, g.length)).coords[0]) - np.array(g.interpolate(max(d - 1.0, 0.0)).coords[0])
+            best = None
+            if np.linalg.norm(q) > 1e-6:
+                t = q / np.linalg.norm(q)
+                left = np.array([-t[1], t[0]])
+                for j in tree.query(Point(p).buffer(max_gap)):
+                    orid, oname, og = carr[j]
+                    if orid == rid or (name and oname and oname != name):
+                        continue
+                    at = og.project(Point(p))
+                    o = np.array(og.interpolate(at).coords[0])
+                    v = o - p
+                    dist = float(np.linalg.norm(v))
+                    if not (min_gap <= dist <= max_gap) or float(v @ left) < 0.8 * dist:
+                        continue
+                    u = np.array(og.interpolate(min(at + 1.0, og.length)).coords[0]) - np.array(og.interpolate(max(at - 1.0, 0.0)).coords[0])
+                    if np.linalg.norm(u) < 1e-6 or float(u @ t) / np.linalg.norm(u) > -0.82:
+                        continue
+                    w = dist - (width[rid] + width[orid]) / 2
+                    if best is None or dist < best[0]:
+                        best = (dist, (p + o) / 2, w, oname)
+            samples.append(best)
+        for b in samples + [None]:
+            if b is not None and b[2] >= 0.5 and not drawn(b[1]):
+                run.append(b)
+                continue
+            if len(run) >= 2:
+                runs.append((run, name or next((r[3] for r in run if r[3]), "")))
+            run = []
+        for b in samples:
+            if b is not None:
+                seen.setdefault(cell(b[1]), []).append(b[1])
+    out = []
+    for run, name in runs:
+        line = LineString([b[1] for b in run])
+        widths = np.array([b[2] for b in run])
+        cuts = []
+        if otree is not None:
+            for j in otree.query(line):
+                og, ow = others[j]
+                hit = line.intersection(og)
+                for pt in getattr(hit, "geoms", [hit]):
+                    if isinstance(pt, Point):
+                        s = line.project(pt)
+                        cuts.append((s - ow / 2 - margin, s + ow / 2 + margin))
+        cuts.sort()
+        pieces, start = [], 0.0
+        for a, b in cuts + [(line.length, line.length)]:
+            if a > start:
+                pieces.append((start, a))
+            start = max(start, b)
+        for a, b in pieces:
+            if b - a < min_len:
+                continue
+            seg = substring(line, a, b).intersection(clip)
+            for s in getattr(seg, "geoms", [seg]):
+                if not isinstance(s, LineString) or s.length < min_len:
+                    continue
+                s = s.simplify(0.3)
+                at = [line.project(Point(c)) for c in s.coords]
+                w = float(np.median(np.interp(at, np.linspace(0, line.length, len(widths)), widths)))
+                out.append({"pts": [[round(x, 1), round(z, 1)] for x, z in s.coords], "w": round(w, 1), "h": MEDIAN_H,
+                            **({"name": name} if name else {})})
+    return out
+
+
+def road_width(cls, name="", widths=None, rid=None):
+    """The carriageway's width (m): by class, except the Ring Road's surveyed main carriageways and Danquah Circle,
+    and the carriageways find_carriageways() found (by road id)."""
     widths = widths or ROAD_WIDTH
+    if cls in MAJOR_CLASSES and name in DUAL_CARRIAGEWAYS:
+        return CARRIAGEWAY_M
+    if rid is not None and rid in CARRIAGEWAY_W:
+        return CARRIAGEWAY_W[rid]
     if cls in MAJOR_CLASSES:
         if name in DUAL_CARRIAGEWAYS:
             return CARRIAGEWAY_M
@@ -319,24 +498,41 @@ def area_box(area):
     return box(area["west"], area["south"], area["east"], area["north"])
 
 
-def area_outline(area, road_rows, local):
+def corridor_region(spec, road_rows, local):
+    """A corridor's region in metres: its named roads buffered by its half width, inside its box."""
+    lines = [local(g) for _, _, name, g in road_rows if name in spec["roads"]]
+    if not lines:
+        return None
+    region = shapely.union_all(lines).buffer(spec["half_width_m"], quad_segs=4).intersection(local(area_box(spec["within"])))
+    return shapely.make_valid(region.simplify(1.0))
+
+
+def area_outline(area, road_rows, local, lonlat=None):
     """Where an area's content goes, in metres from its origin, and the wider region its lap may use.
 
     A box area (south, north, west, east) is its box, the lap region the same. A corridor area follows named roads:
     the union of every segment named in "corridor"["roads"], buffered by "half_width_m" and kept inside the box
     "within"; that is the lap region. The content then leaves out the boxes of the areas named in "minus", so two
-    areas meet along a shared edge. road_rows: (id, class, name, WGS84 geometry) of the slice. Returns
-    (clip, region, minus): minus is the list of the left-out areas' boxes in WGS84."""
+    areas meet along a shared edge; a corridor named there leaves out its region as this slice's roads draw it (the
+    Liberation Road corridor meets the Ring Road's where their buffers meet). road_rows: (id, class, name, WGS84
+    geometry) of the slice. Returns (clip, region, minus): minus is the list of the left-out areas' outlines in
+    WGS84."""
     if "corridor" not in area:
         clip = local(area_box(area))
         return clip, clip, []
     spec = area["corridor"]
-    lines = [local(g) for _, _, name, g in road_rows if name in spec["roads"]]
-    if not lines:
+    region = corridor_region(spec, road_rows, local)
+    if region is None:
         sys.exit(f"no road named {', '.join(spec['roads'])} in the slice")
-    region = shapely.union_all(lines).buffer(spec["half_width_m"], quad_segs=4).intersection(local(area_box(spec["within"])))
-    region = shapely.make_valid(region.simplify(1.0))
-    minus = [area_box(AREAS[m]) for m in area.get("minus", [])]
+    minus = []
+    for m in area.get("minus", []):
+        other = AREAS[m]
+        if "corridor" not in other:
+            minus.append(area_box(other))
+            continue
+        theirs = corridor_region(other["corridor"], road_rows, local)
+        if theirs is not None and lonlat is not None:
+            minus.append(lonlat(theirs))
     clip = region
     for m in minus:
         clip = clip.difference(local(m))
@@ -345,12 +541,11 @@ def area_outline(area, road_rows, local):
 
 def ground_region(clip, minus, local, margin):
     """The ground a corridor area lays: its clip widened by the margin, less the ground the left-out areas lay
-    themselves (their box's bounds in metres widened by the same margin, as build() grids them), so ground never
-    overlaps."""
+    themselves (their outline in metres widened by the same margin: a box's bounds, as build() grids them, or a
+    corridor's ground), so ground never overlaps."""
     g = clip.buffer(margin, join_style="mitre")
     for m in minus:
-        x0, y0, x1, y1 = local(m).bounds
-        g = g.difference(box(x0 - margin, y0 - margin, x1 + margin, y1 + margin))
+        g = g.difference(local(m).buffer(margin, join_style="mitre"))
     return g
 
 
@@ -394,7 +589,7 @@ def build(args):
     con = duckdb.connect()
     road_rows = [(rid, cls, name or "", shapely.from_wkb(bytes(blob)))
                  for rid, cls, name, blob in load(con, os.path.join(args.slice, "roads.parquet"), "id, class, name")]
-    clip, region, minus = area_outline(area, road_rows, local)
+    clip, region, minus = area_outline(area, road_rows, local, lonlat)
     # Buildings belong to the area whose box (or corridor, less the boxes it leaves out) holds their centroid.
     lonlat_box = area_box(area) if "corridor" not in area else lonlat(region)
     shapely.prepare(lonlat_box)
@@ -411,6 +606,12 @@ def build(args):
             continue
         roads.append((rid, cls, name, local(g)))
     oxford = shapely.union_all([g for _, _, n, g in roads if n == "Oxford Street"]) if roads else None
+    CARRIAGEWAY_W.clear()
+    CARRIAGEWAY_W.update(find_carriageways(roads))
+    if CARRIAGEWAY_W:
+        named = sorted({n for rid, _, n, _ in roads if rid in CARRIAGEWAY_W and n})
+        print(f"dual carriageways: {len(CARRIAGEWAY_W)} carriageway segments, median between them"
+              + (f" ({', '.join(named[:8])}{'...' if len(named) > 8 else ''})" if named else ""))
 
     landmark_points = [shapely.geometry.Point(*np.array(to_utm.transform(lon, lat)) - (oe, on))
                        for _, lat, lon in rules["landmarks"]]
@@ -509,7 +710,8 @@ def build(args):
     lights = []
     road_km = 0.0
     # The dual carriageways, for the median's poles (place_lights).
-    carriageways = [(rid, g) for rid, cls, name, g in roads if name in DUAL_CARRIAGEWAYS and cls in MAJOR_CLASSES]
+    carriageways = [(rid, g) for rid, cls, name, g in roads
+                    if (name in DUAL_CARRIAGEWAYS and cls in MAJOR_CLASSES) or rid in CARRIAGEWAY_W]
     for rid, cls, name, g in roads:
         g = g.intersection(clip)
         lines = [g] if isinstance(g, LineString) else list(getattr(g, "geoms", []))
@@ -517,7 +719,7 @@ def build(args):
             if not isinstance(line, LineString) or line.length < 1:
                 continue
             road_km += line.length / 1000
-            w, lift = road_width(cls, name), ROAD_LIFT[cls]
+            w, lift = road_width(cls, name, rid=rid), ROAD_LIFT[cls]
             mat = "M_AsphaltMajor" if cls in MAJOR else "M_Asphalt"
             ribbon(mesh, line, w, lift, mat, "Roads")
             # Oxford Street has no lane markings (street survey; OSM lane_markings=no).
@@ -526,7 +728,7 @@ def build(args):
                     # Centre lines in Accra are worn: about a third of the dashes are gone.
                     if unit_hash(rid, "dash", int(d0)) < 0.35:
                         continue
-                    seg = shapely.ops.substring(line, d0, d0 + 3.0)
+                    seg = substring(line, d0, d0 + 3.0)
                     if isinstance(seg, LineString) and seg.length > 0.5:
                         ribbon(mesh, seg, 0.15, lift + 0.01, "M_RoadPaint", "Roads")
             if cls in MAJOR:
@@ -535,7 +737,7 @@ def build(args):
     # The median's twin-arm poles first, one row about a pole step apart (both carriageways place them), then the rest.
     twins = dedupe([l for l in lights if "twin" in l], RING_STEP_M * 0.75)
     lights = dedupe(twins + [l for l in lights if "twin" not in l], 7.0)
-    lights, moved, dropped = off_asphalt(lights, [(g, road_width(cls, name)) for _, cls, name, g in roads])
+    lights, moved, dropped = off_asphalt(lights, [(g, road_width(cls, name, rid=rid)) for rid, cls, name, g in roads])
     if moved or dropped:
         print(f"street lights off the asphalt: {moved} moved back, {dropped} dropped")
     for l in lights:
@@ -586,6 +788,9 @@ def build(args):
                                            lambda lon, lat: tuple(np.array(to_utm.transform(lon, lat)) - (oe, on)))
     else:
         print(f"no {places_path}: no named places (scripts/overture_slice.py export --layers places)")
+    medians = find_medians(roads, clip)
+    if medians:
+        print(f"medians: {len(medians)} pieces, {sum(LineString(m['pts']).length for m in medians) / 1000:.2f} km")
 
     os.makedirs(args.out, exist_ok=True)
     base = os.path.join(args.out, args.name)
@@ -609,7 +814,7 @@ def build(args):
         "bounds_m": {"xmin": round(minx, 1), "xmax": round(maxx, 1), "zmin": round(miny, 1), "zmax": round(maxy, 1)},
         "axes": "x east, y up, z north, metres from origin",
         "stats": {"buildings": nb, "road_km": round(road_km, 2), "lights": len(lights),
-                  **({"parked": len(parked)} if rules.get("parking") else {}), "hiding": len(hiding), "places": len(spots), "triangles": tris,
+                  **({"parked": len(parked)} if rules.get("parking") else {}), "hiding": len(hiding), "places": len(spots), "medians_m": round(sum(LineString(m["pts"]).length for m in medians)), "triangles": tris,
                   "vertices": verts, "objects": objs, "lap_m": round(lap["length_m"], 1) if lap else None,
                   "height_m_median": round(float(np.median(heights)), 1) if heights else None,
                   "massing": {k: (round(v) if isinstance(v, float) else v) for k, v in sorted(counts.items())}},
@@ -623,11 +828,13 @@ def build(args):
         "roads": traffic_network(roads, clip, ONE_WAY_ROADS),
         # What the game's cars collide with (circle-game src/core/scene.ts addSolid).
         "solid": solid_outlines(keep_out + [p for _, p in yards], compound_walls,
-                                [(cls, g, road_width(cls, name)) for _, cls, name, g in roads]),
+                                [(cls, g, road_width(cls, name, rid=rid)) for rid, cls, name, g in roads]),
         # Where the game's hiding places stand (circle-game src/world/hiding.ts).
         "hiding": hiding,
         # The named places the game's maps show, best first (scripts/places.py; circle-game src/ui/minimap-places.ts).
         "places": spots,
+        # The central reservations of the dual carriageways, cut at the crossings (find_medians()).
+        "medians": medians,
         "credits": "Buildings and roads: Overture Maps Foundation (ODbL), from OpenStreetMap contributors, "
                    "Google Open Buildings and Microsoft. Heights from typology rules."
                    + (" Places: Overture Maps Foundation (CDLA Permissive 2.0 and ODbL), from Meta, Microsoft, "
@@ -765,7 +972,7 @@ def place_lights(rid, cls, name, line, w, carriageways=()):
             continue
         t = (q - p) / np.linalg.norm(q - p)
         left = np.array([-t[1], t[0]])
-        if name in DUAL_CARRIAGEWAYS and carriageways:
+        if (name in DUAL_CARRIAGEWAYS or rid in CARRIAGEWAY_W) and carriageways:
             across = median_width(p, left, w, rid, carriageways)
             if across is not None and across - w >= 2.0:
                 foot = p + left * (across / 2)
@@ -1005,7 +1212,8 @@ def traffic_network(roads, clip, one_way=()):
     noded at every crossing (Overture segments often run straight through junctions), each piece with the class,
     width and name of the road it lies on, simplified to 0.5 m. Points are x east, z north, as the rest of the file.
     A piece of a road named in one_way is driven one way only: it runs the way its road's geometry runs and carries
-    "oneway": true (the Ring Road's carriageways and Danquah Circle, ONE_WAY_ROADS)."""
+    "oneway": true (the Ring Road's carriageways and Danquah Circle, ONE_WAY_ROADS, and every carriageway
+    find_carriageways() found)."""
     src = []
     for rid, cls, name, g in roads:
         if cls not in TRAFFIC_CLASSES:
@@ -1013,21 +1221,21 @@ def traffic_network(roads, clip, one_way=()):
         g = g.intersection(clip)
         for line in ([g] if isinstance(g, LineString) else list(getattr(g, "geoms", []))):
             if isinstance(line, LineString) and line.length >= 2:
-                src.append((cls, name, line))
+                src.append((cls, name, line, rid))
     if not src:
         return []
-    tree = shapely.STRtree([l for _, _, l in src])
-    noded = shapely.union_all([l for _, _, l in src])
+    tree = shapely.STRtree([l for _, _, l, _ in src])
+    noded = shapely.union_all([l for _, _, l, _ in src])
     pieces = [noded] if isinstance(noded, LineString) else list(getattr(noded, "geoms", []))
     out = []
     for piece in pieces:
         if not isinstance(piece, LineString) or piece.length < 1.0:
             continue
         mid = piece.interpolate(0.5, normalized=True)
-        cls, name, line = src[int(tree.nearest(mid))]
+        cls, name, line, rid = src[int(tree.nearest(mid))]
         pts = list(piece.simplify(0.5).coords)
-        entry = {"cls": cls, "w": road_width(cls, name), "name": name}
-        if name in one_way:
+        entry = {"cls": cls, "w": road_width(cls, name, rid=rid), "name": name}
+        if name in one_way or rid in CARRIAGEWAY_W:
             if line.project(Point(pts[0])) > line.project(Point(pts[-1])):
                 pts = pts[::-1]
             entry["oneway"] = True
@@ -1055,8 +1263,8 @@ def place_parked(rule, pieces, buildings, lap, widths=ROAD_WIDTH):
     jtree = shapely.STRtree(jn) if jn else None
     btree = shapely.STRtree(buildings) if buildings else None
     # Other roads' carriageways, with flat ends so a street's next segment does not stop the cars on this one.
-    bands = shapely.STRtree([l.buffer(road_width(c, n, widths) / 2 + CAR_BODY_M[0] / 2, cap_style="flat")
-                             for _, c, n, l in pieces])
+    bands = shapely.STRtree([l.buffer(road_width(c, n, widths, r) / 2 + CAR_BODY_M[0] / 2, cap_style="flat")
+                             for r, c, n, l in pieces])
     lap_line = None
     if lap and lap.get("path") and rule.get("lap_m"):
         lap_line = LineString(list(zip(lap["path"][0::2], lap["path"][1::2])))
@@ -1076,7 +1284,7 @@ def place_parked(rule, pieces, buildings, lap, widths=ROAD_WIDTH):
         take = rule.get("streets", {}).get(name, rule["take"] if cls in rule["classes"] else 0.0)
         if take <= 0 or line.length < rule["step_m"]:
             continue
-        w = road_width(cls, name, widths)
+        w = road_width(cls, name, widths, rid)
         off = w / 2 - (rule["inset_m"] if w < rule["narrow_m"] else rule["wide_inset_m"])
         for k, d in enumerate(np.arange(rule["step_m"] / 2, line.length - rule["step_m"] / 2 + 1e-6, rule["step_m"])):
             p = np.array(line.interpolate(d).coords[0])
@@ -1194,21 +1402,23 @@ def route_lap(roads, region, spec, to_utm, origin):
         if cls == "service":
             continue
         g = g.intersection(region)
-        src += [(name, l) for l in ([g] if isinstance(g, LineString) else list(getattr(g, "geoms", [])))
+        src += [(name, l, rid in CARRIAGEWAY_W) for l in ([g] if isinstance(g, LineString) else list(getattr(g, "geoms", [])))
                 if isinstance(l, LineString) and l.length >= 1]
-    names = {id(l): n for n, l in src}
+    # By piece: its name, and whether it is driven one way (named in spec["one_way"], or a carriageway
+    # find_carriageways() found).
+    names = {id(l): (n, n in one_way or dual) for n, l, dual in src}
 
     def add(a, b, coords, length, name):
         if not G.has_edge(a, b) or G[a][b]["length"] > length:
             G.add_edge(a, b, length=length, name=name, coords=coords)
 
-    for whole, piece in split_at_shared_vertices([l for _, l in src]):
+    for whole, piece in split_at_shared_vertices([l for _, l, _ in src]):
         a, b = key(piece.coords[0]), key(piece.coords[-1])
         if a == b or piece.length < 0.05:
             continue
-        name = names[id(whole)]
+        name, single = names[id(whole)]
         add(a, b, list(piece.coords), piece.length, name)
-        if name not in one_way:
+        if not single:
             add(b, a, list(piece.coords)[::-1], piece.length, name)
     if G.number_of_nodes() == 0:
         return None
@@ -1261,7 +1471,7 @@ def preview(path, roads, clip, mesh, lights, lap):
         g = g.intersection(clip)
         for line in ([g] if isinstance(g, LineString) else list(getattr(g, "geoms", []))):
             if isinstance(line, LineString):
-                dr.line([P(*c) for c in line.coords], fill=(60, 64, 72), width=max(1, int(road_width(cls, name) * s)))
+                dr.line([P(*c) for c in line.coords], fill=(60, 64, 72), width=max(1, int(road_width(cls, name, rid=rid) * s)))
     if lap:
         wp = list(zip(lap["path"][0::2], lap["path"][1::2]))
         dr.line([P(*c) for c in wp] + [P(*wp[0])], fill=(228, 0, 43), width=3)

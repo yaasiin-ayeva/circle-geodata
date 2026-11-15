@@ -200,6 +200,25 @@ For the vertical slice's drives on the Ring Road (circle-bible `bible/game-desig
   - The widths reach the traffic's network (`w`), the parked cars' clearances, the collision outlines' carve-out and the preview; the side streets' hiding places still clear every carriageway by its class width. In the game, Danquah's island fitted inside the ring grows from 54.9 × 41.3 m to 58.4 × 44.8 m (surveyed about 56 × 47 m).
 - **Not built yet:** the billboards and gantry along the Ring Road (`texts.csv` rows `txt-osu-ringdanquah-*`).
 
+### Liberation Road to 37, north of the Ring Road
+
+The area is `liberation` in `AREAS`, from the slice `north-37` (`aoi/slices.geojson`, 5.570–5.610 N, −0.200 to −0.165; `overture_slice.py export --name north-37 --out data/work/slice-north`).
+
+- **What:** a corridor 300 m either side of Independence Avenue, 37 Circle and Liberation Road (`LIBERATION_ROADS`), from the Ako Adjei Interchange to the airport end of Liberation Road, inside `LIBERATION`. It holds 37 Military Hospital's grounds and 37 Station.
+- **Joined to the Ring Road:** it leaves out the Ring Road's corridor (`"minus": ["ring-road"]`), computed from this slice's roads (`corridor_region()`). The two meet along the edge of the Ring Road's buffer, about 660 m of shared edge with no gap; 105 m² overlap from simplification. Osu's origin, so the game loads the three areas in one frame.
+- **The lap** (`LIBERATION_LAP`), 7.95 km: north on the avenue's northbound carriageway, 37 Circle, Liberation Road to the airport end, a turn through Dr Amilcar Cabral Road, south again, a turn at the Ako Adjei Interchange. The route points sit on graph nodes (snapped 0 to 13 m).
+- **The 15 November build:** 2,209 buildings, 50 km of road, 425 street lights, 524 parked places, 43 places, 4.4 km of median; 20 tiles, 1.74 MB packed; scene 488 KB.
+
+### Dual carriageways, found in the geometry
+
+OpenStreetMap maps a boulevard with a central reservation as one one-way road per carriageway, drawn the way its traffic runs. Before, only the Ring Road's surveyed carriageways (`DUAL_CARRIAGEWAYS`) were treated as such; the others were drawn at their class's width (18 m for a trunk), two-way, and covered their median.
+
+- **Detection** (`find_carriageways()`, checked by `tests/test_carriageways.py`): a motorway, trunk, primary or secondary road with, along at least 60% of its length (every 20 m), another such road 5 to 45 m to its left (Ghana drives on the right), running the opposite way within about 35 degrees, under the same name or one of the two unnamed.
+- **Width:** 55% of the median centre-to-centre distance, between 6.5 m (two lanes) and 10.5 m (three); the Ring Road's surveyed 7 m win.
+- **What follows:** the traffic drives each carriageway one way along its geometry (`"oneway": true`), the lap too, the poles stand in the median with a head over each carriageway, and parked cars and the collision carve-out use the real width.
+- **Found (2026-10-21.0):** Osu 15 carriageway segments, the Ring Road corridor 68 (Independence Avenue, La Road, Ring Road Central and East), Liberation 59 (37 Circle, Giffard Road, Independence Avenue, Liberation Road, Olusegun Obasanjo High Street), Jamestown 13 (Cleland Road, Nii Kojo Ababio Avenue).
+- **`medians`** (`find_medians()`): the central reservation of each pair, for the game's collisions and kerbs. Each entry has `pts` (its middle line, glTF axes in the scene), `w` (the width left between the two carriageways' asphalt), `h` (kerb height, 0.15 m) and `name`. It is drawn once per pair, cut where another road crosses it (half that road's width plus 2 m either side: the openings a driver turns through) and to the area. Osu 0.77 km, the Ring Road 4.25 km, Liberation 4.39 km, Jamestown 0.78 km.
+
 **What every district's scene carries for the game's systems** (all three areas, 14 November 2026):
 - **`roads`:** the drivable network, noded at every crossing, for the traffic (`traffic_network()`); pieces of one-way roads carry `"oneway": true` and run the way the traffic goes.
 - **`solid`:** what the cars collide with (`solid_outlines()`, checked by `tests/test_solid.py`):
@@ -219,7 +238,7 @@ For the vertical slice's drives on the Ring Road (circle-bible `bible/game-desig
   - **Categories:** 15 icons, from the most useful to a driver: hospital, landmark, transit, police, fuel, market, bank, university, embassy, hotel, school, worship, pharmacy, nightlife, food. Other kinds (shops, offices, services) are left out.
   - **Kept:** Overture places at confidence 0.65 or more (0.55 for hospitals, police and fuel), not closed, with a name that reads (spaces collapsed, all capitals in title case, a long name cut at its dash or bracket, a second script dropped beside a Latin one). Names that start with a title (Dr., Rev., Pastor...) are left out: no real private people in the game. Pins of one place (same category, within 80 m, names sharing most words) merge, and a pin merges into the OpenStreetMap site of its name within 300 m, at the site's point.
   - **Rank:** the category's weight times the confidence, plus what is known (website, socials, phone, brand, a source besides Meta), or the site's area for OpenStreetMap land use, on one scale (0 to 1) in every area so the game can merge them. `brand: true` marks a place Overture names a brand for: brands are cleared before a public release (circle-bible DECISIONS.md, 14 Nov 2026).
-  - **Counts (2026-10-21.0):** Osu 93, the Ring Road corridor 32, Jamestown 22. Places beyond the areas (37 Military Hospital, north of the Ring Road corridor) come with the areas that hold them.
+  - **Counts (2026-10-21.0):** Osu 93, the Ring Road corridor 32, Jamestown 22. Liberation holds 43, 37 Military Hospital and 37 Station among them.
   - **Freshness:** as current as the Overture release the city is built from (monthly); rebuilding with a newer `OVERTURE_RELEASE` refreshes them. The game asks no service for places while it runs, so no player's position leaves the machine.
 
 `latest` picks the newest release on Overture's public bucket; a fixed name from the [release list](https://docs.overturemaps.org/release/) works too. Downloads and working files go under `data/`, which is not committed.
