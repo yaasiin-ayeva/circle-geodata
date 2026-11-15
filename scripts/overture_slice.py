@@ -6,7 +6,7 @@ Count buildings by source and roads by class for the vertical slice:
 
     python3 scripts/overture_slice.py count --release latest
 
-Extract both layers to GeoParquet (needs DuckDB's spatial extension):
+Extract both layers to GeoParquet:
 
     python3 scripts/overture_slice.py export --release 2026-10-22.0 --out data/work/slice
 
@@ -15,6 +15,10 @@ latest; the value above is only an example). Data is read straight from
 Overture's public S3 bucket, so the machine needs internet access.
 Use --source to point at a local copy of the release instead.
 
+Reading uses pyarrow (S3 read anonymously) and shapely/pyproj for the clip and the lengths: nothing is downloaded at
+run time but the data itself, unlike DuckDB's httpfs and spatial extensions, which DuckDB fetched from its own server on
+each new machine (blocked where only the data hosts are open, and unpinned).
+
 Overture buildings and roads are ODbL: see ../ATTRIBUTION.md.
 """
 import argparse
@@ -22,16 +26,24 @@ import json
 import os
 import re
 import sys
+from collections import defaultdict
 
-import duckdb
+import numpy as np
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.dataset as ds
+import pyarrow.parquet as pq
+import shapely
+from pyproj import Transformer
 
-S3_ROOT = "s3://overturemaps-us-west-2/release"
+S3_BUCKET = "overturemaps-us-west-2/release"
+S3_REGION = "us-west-2"
 LAYERS = {
-    "buildings": "theme=buildings/type=building/*",
-    "roads": "theme=transportation/type=segment/*",
-    "places": "theme=places/type=place/*",
-    "land_use": "theme=base/type=land_use/*",
-    "infrastructure": "theme=base/type=infrastructure/*",
+    "buildings": "theme=buildings/type=building",
+    "roads": "theme=transportation/type=segment",
+    "places": "theme=places/type=place",
+    "land_use": "theme=base/type=land_use",
+    "infrastructure": "theme=base/type=infrastructure",
 }
 # What `export` writes (--layers picks some): buildings.parquet, roads.parquet, and places.parquet, the named places
 # for the game's maps: Overture places, plus OpenStreetMap's named land use (hospitals, campuses, stadiums, parks, with
@@ -85,78 +97,112 @@ def latest_release():
     return names[-1]
 
 
-def source_glob(args, layer):
+def source_dataset(args, layer):
+    """The layer as a pyarrow dataset: a local copy (--source) or Overture's public bucket, read anonymously whatever
+    AWS credentials the environment holds."""
     if args.source:
-        return os.path.join(args.source, LAYERS[layer])
+        return ds.dataset(os.path.join(args.source, LAYERS[layer]), format="parquet")
     if args.release == "latest":
         args.release = latest_release()
         print(f"Using Overture release {args.release}", file=sys.stderr)
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}\.\d+", args.release or ""):
         sys.exit("--release must look like 2026-10-22.0, or 'latest' (see docs.overturemaps.org/release)")
-    return f"{S3_ROOT}/{args.release}/{LAYERS[layer]}"
+    from pyarrow.fs import S3FileSystem
 
-
-def connect(args, spatial):
-    con = duckdb.connect()
-    if not args.source:
-        # Overture's bucket is public: read it anonymously, whatever AWS credentials the environment holds.
-        con.execute("INSTALL httpfs; LOAD httpfs; SET s3_region='us-west-2'; "
-                    "SET s3_access_key_id=''; SET s3_secret_access_key=''; SET s3_session_token='';")
-    if spatial:
-        con.execute("INSTALL spatial; LOAD spatial;")
-    return con
+    fs = S3FileSystem(anonymous=True, region=S3_REGION)
+    return ds.dataset(f"{S3_BUCKET}/{args.release}/{LAYERS[layer]}", filesystem=fs, format="parquet")
 
 
 ARTERIAL = {"motorway", "trunk", "primary", "secondary", "tertiary"}
+UTM = Transformer.from_crs("EPSG:4326", "EPSG:32630", always_xy=True)
+# GeoParquet 1.0 metadata: WKB in lon/lat (OGC:CRS84 when no crs is given), as DuckDB's spatial COPY wrote it.
+GEO_META = {b"geo": json.dumps({"version": "1.0.0", "primary_column": "geometry",
+                                 "columns": {"geometry": {"encoding": "WKB", "geometry_types": []}}}).encode()}
 
 
 def bbox_filter(w, s, e, n):
-    # Overture rows carry a bbox struct; filtering on it lets DuckDB skip row groups.
-    return (
-        f"bbox.xmin <= {e} AND bbox.xmax >= {w} "
-        f"AND bbox.ymin <= {n} AND bbox.ymax >= {s}"
-    )
+    # Overture rows carry a bbox struct; filtering on it lets the reader skip row groups by their statistics.
+    b = lambda k: pc.field("bbox", k)
+    return (b("xmin") <= e) & (b("xmax") >= w) & (b("ymin") <= n) & (b("ymax") >= s)
+
+
+def read(dset, columns, flt):
+    """Rows matching `flt` as Python dicts, with only the columns this release has."""
+    have = set(dset.schema.names)
+    return dset.to_table(columns=[c for c in columns if c in have], filter=flt).to_pylist()
+
+
+def clipped(rows, w, s, e, n):
+    """Rows whose geometry touches the box, with a shapely geometry under "_g"."""
+    if not rows:
+        return []
+    geoms = shapely.from_wkb([r["geometry"] for r in rows])
+    keep = shapely.intersects(geoms, shapely.box(w, s, e, n))
+    out = []
+    for r, g, k in zip(rows, geoms, keep):
+        if k:
+            r["_g"] = g
+            out.append(r)
+    return out
+
+
+def first_dataset(sources):
+    return (sources or [{}])[0].get("dataset") if sources else None
+
+
+def primary(struct):
+    return (struct or {}).get("primary")
+
+
+def utm(g):
+    return shapely.transform(g, lambda xy: np.column_stack(UTM.transform(xy[:, 0], xy[:, 1])))
+
+
+def write(rows, schema, path):
+    pq.write_table(pa.Table.from_pylist(rows, schema=schema.with_metadata(GEO_META)), path)
 
 
 def count(args):
     w, s, e, n = load_aoi(args.aoi, args.name)
-    con = connect(args, spatial=False)
     flt = bbox_filter(w, s, e, n)
-    b = con.execute(
-        f"""
-        SELECT coalesce(sources[1].dataset, 'unknown') AS source,
-               count(*) AS buildings,
-               count(height) AS with_height,
-               count(num_floors) AS with_floors
-        FROM read_parquet('{source_glob(args, "buildings")}', hive_partitioning=1)
-        WHERE {flt}
-        GROUP BY ALL ORDER BY buildings DESC
-        """
-    ).fetchall()
-    r = con.execute(
-        f"""
-        SELECT coalesce(class, 'unclassified') AS class, count(*) AS segments
-        FROM read_parquet('{source_glob(args, "roads")}', hive_partitioning=1)
-        WHERE subtype = 'road' AND {flt}
-        GROUP BY ALL ORDER BY segments DESC
-        """
-    ).fetchall()
+    by_source = defaultdict(lambda: [0, 0, 0])
+    for r in read(source_dataset(args, "buildings"), ["sources", "height", "num_floors", "bbox"], flt):
+        c = by_source[first_dataset(r.get("sources")) or "unknown"]
+        c[0] += 1
+        c[1] += r.get("height") is not None
+        c[2] += r.get("num_floors") is not None
+    by_class = defaultdict(int)
+    for r in read(source_dataset(args, "roads"), ["class", "subtype", "bbox"], flt & (pc.field("subtype") == "road")):
+        by_class[r.get("class") or "unclassified"] += 1
+    b = sorted(by_source.items(), key=lambda x: -x[1][0])
+    rc = sorted(by_class.items(), key=lambda x: -x[1])
     result = {
         "aoi": args.name,
         "bbox": [w, s, e, n],
         "release": args.release or args.source,
         "buildings_by_source": [
-            {"source": x[0], "buildings": x[1], "with_height": x[2], "with_floors": x[3]} for x in b
+            {"source": k, "buildings": v[0], "with_height": v[1], "with_floors": v[2]} for k, v in b
         ],
-        "road_segments_by_class": [{"class": x[0], "segments": x[1]} for x in r],
-        "buildings_total": sum(x[1] for x in b),
-        "road_segments_total": sum(x[1] for x in r),
+        "road_segments_by_class": [{"class": k, "segments": v} for k, v in rc],
+        "buildings_total": sum(v[0] for _, v in b),
+        "road_segments_total": sum(v for _, v in rc),
     }
     print(json.dumps(result, indent=2))
     if args.out:
         os.makedirs(args.out, exist_ok=True)
         with open(os.path.join(args.out, f"{args.name}-counts.json"), "w") as f:
             json.dump(result, f, indent=2)
+
+
+BUILDINGS = pa.schema([("id", pa.string()), ("source", pa.string()), ("height", pa.float64()),
+                       ("num_floors", pa.int32()), ("class", pa.string()), ("subtype", pa.string()),
+                       ("name", pa.string()), ("geometry", pa.binary())])
+ROADS = pa.schema([("id", pa.string()), ("class", pa.string()), ("subclass", pa.string()), ("name", pa.string()),
+                   ("length_m", pa.float64()), ("geometry", pa.binary())])
+PLACES = pa.schema([("id", pa.string()), ("source", pa.string()), ("name", pa.string()), ("category", pa.string()),
+                    ("confidence", pa.float64()), ("status", pa.string()), ("brand", pa.string()),
+                    ("websites", pa.int64()), ("socials", pa.int64()), ("phones", pa.int64()),
+                    ("datasets", pa.list_(pa.string())), ("area_m2", pa.float64()), ("geometry", pa.binary())])
 
 
 def export(args):
@@ -167,39 +213,27 @@ def export(args):
     if unknown:
         sys.exit(f"--layers takes {', '.join(EXPORTS)}, not {', '.join(unknown)}")
     w, s, e, n = load_aoi(args.aoi, args.name)
-    con = connect(args, spatial=True)
     os.makedirs(args.out, exist_ok=True)
     flt = bbox_filter(w, s, e, n)
-    clip = f"ST_Intersects(geometry, ST_MakeEnvelope({w}, {s}, {e}, {n}))"
     if "buildings" in layers:
-        con.execute(
-            f"""
-            COPY (
-              SELECT id, sources[1].dataset AS source, height, num_floors, class, subtype,
-                     names.primary AS name, geometry
-              FROM read_parquet('{source_glob(args, "buildings")}', hive_partitioning=1)
-              WHERE {flt} AND {clip}
-            ) TO '{os.path.join(args.out, "buildings.parquet")}' (FORMAT parquet)
-            """
-        )
+        rows = clipped(read(source_dataset(args, "buildings"),
+                            ["id", "sources", "height", "num_floors", "class", "subtype", "names", "geometry", "bbox"],
+                            flt), w, s, e, n)
+        write([{"id": r["id"], "source": first_dataset(r.get("sources")), "height": r.get("height"),
+                "num_floors": r.get("num_floors"), "class": r.get("class"), "subtype": r.get("subtype"),
+                "name": primary(r.get("names")), "geometry": r["geometry"]} for r in rows],
+              BUILDINGS, os.path.join(args.out, "buildings.parquet"))
     if "places" in layers:
-        export_places(con, args, flt, clip)
+        export_places(args, flt, (w, s, e, n))
     if "roads" not in layers:
         print(f"wrote {', '.join(x + '.parquet' for x in layers)} in {args.out}")
         return
-    con.execute(
-        f"""
-        COPY (
-          SELECT id, class, subclass, names.primary AS name,
-                 ST_Length(ST_Transform(geometry, 'EPSG:4326', 'EPSG:32630', always_xy := true)) AS length_m,
-                 geometry
-          FROM read_parquet('{source_glob(args, "roads")}', hive_partitioning=1)
-          WHERE subtype = 'road' AND {flt} AND {clip}
-        ) TO '{os.path.join(args.out, "roads.parquet")}' (FORMAT parquet)
-        """
-    )
+    rows = clipped(read(source_dataset(args, "roads"), ["id", "class", "subclass", "subtype", "names", "geometry", "bbox"],
+                        flt & (pc.field("subtype") == "road")), w, s, e, n)
     roads = os.path.join(args.out, "roads.parquet")
-    summary = summarize_roads(con, roads)
+    write([{"id": r["id"], "class": r.get("class"), "subclass": r.get("subclass"), "name": primary(r.get("names")),
+            "length_m": float(shapely.length(utm(r["_g"]))), "geometry": r["geometry"]} for r in rows], ROADS, roads)
+    summary = summarize_roads(roads)
     summary.update({"aoi": args.name, "release": args.release or args.source})
     with open(os.path.join(args.out, "roads-summary.json"), "w") as f:
         json.dump(summary, f, indent=2)
@@ -207,44 +241,50 @@ def export(args):
           f"{summary['road_km_total']} km of road, {summary['road_km_arterial']} km arterial")
 
 
-def export_places(con, args, flt, clip):
+def export_places(args, flt, box):
     """places.parquet: one row per named place, as a point, from three sources (column "source"):
     "places", Overture's places (Meta, Microsoft, Foursquare, AllThePlaces...), with their category, confidence and
     how much is known of them (websites, socials, phones, a brand); "land_use" and "infrastructure", OpenStreetMap's
     named land use and stations from the base theme, with their area (m2) and a confidence of 1."""
-    utm = "ST_Transform(geometry, 'EPSG:4326', 'EPSG:32630', always_xy := true)"
-    base = lambda layer: f"""
-        SELECT id, '{layer}' AS source, names.primary AS name, class AS category, 1.0::DOUBLE AS confidence,
-               NULL::VARCHAR AS status, NULL::VARCHAR AS brand, 0 AS websites, 0 AS socials, 0 AS phones,
-               NULL::VARCHAR[] AS datasets, ST_Area({utm})::DOUBLE AS area_m2, ST_PointOnSurface(geometry) AS geometry
-        FROM read_parquet('{source_glob(args, layer)}', hive_partitioning=1)
-        WHERE {flt} AND names.primary IS NOT NULL AND class IN ({", ".join(f"'{c}'" for c in BASE_CLASSES[layer])})
-          AND {clip}"""
-    con.execute(
-        f"""
-        COPY (
-          SELECT id, 'places' AS source, names.primary AS name, coalesce(basic_category, taxonomy.primary) AS category,
-                 confidence, operating_status AS status, coalesce(brand.names.primary, brand.wikidata) AS brand,
-                 coalesce(len(websites), 0) AS websites, coalesce(len(socials), 0) AS socials,
-                 coalesce(len(phones), 0) AS phones, list_transform(sources, lambda x: x.dataset) AS datasets,
-                 0.0::DOUBLE AS area_m2, geometry
-          FROM read_parquet('{source_glob(args, "places")}', hive_partitioning=1)
-          WHERE {flt} AND names.primary IS NOT NULL AND {clip}
-          UNION ALL {base("land_use")}
-          UNION ALL {base("infrastructure")}
-        ) TO '{os.path.join(args.out, "places.parquet")}' (FORMAT parquet)
-        """
-    )
+    out = []
+    cols = ["id", "names", "basic_category", "taxonomy", "confidence", "operating_status", "brand", "websites",
+            "socials", "phones", "sources", "geometry", "bbox"]
+    for r in clipped(read(source_dataset(args, "places"), cols, flt), *box):
+        name = primary(r.get("names"))
+        if name is None:
+            continue
+        brand = r.get("brand") or {}
+        out.append({"id": r["id"], "source": "places", "name": name,
+                    "category": r.get("basic_category") or primary(r.get("taxonomy")),
+                    "confidence": r.get("confidence"), "status": r.get("operating_status"),
+                    "brand": primary(brand.get("names")) or brand.get("wikidata"),
+                    "websites": len(r.get("websites") or []), "socials": len(r.get("socials") or []),
+                    "phones": len(r.get("phones") or []),
+                    "datasets": [x.get("dataset") for x in r.get("sources") or []], "area_m2": 0.0,
+                    "geometry": r["geometry"]})
+    for layer, classes in BASE_CLASSES.items():
+        f = flt & pc.field("class").isin(list(classes))
+        for r in clipped(read(source_dataset(args, layer), ["id", "names", "class", "geometry", "bbox"], f), *box):
+            name = primary(r.get("names"))
+            if name is None:
+                continue
+            g = r["_g"]
+            out.append({"id": r["id"], "source": layer, "name": name, "category": r.get("class"), "confidence": 1.0,
+                        "status": None, "brand": None, "websites": 0, "socials": 0, "phones": 0, "datasets": None,
+                        "area_m2": float(shapely.area(utm(g))),
+                        "geometry": shapely.to_wkb(shapely.point_on_surface(g))})
+    write(out, PLACES, os.path.join(args.out, "places.parquet"))
 
 
-def summarize_roads(con, roads):
+def summarize_roads(roads):
     """Kilometres of road by class in an exported roads.parquet."""
-    by_class = con.execute(
-        f"""
-        SELECT coalesce(class, 'unclassified') AS class, count(*) AS segments, sum(length_m)::DOUBLE AS m
-        FROM '{roads}' GROUP BY ALL ORDER BY m DESC
-        """
-    ).fetchall()
+    agg = defaultdict(lambda: [0, 0.0])
+    t = pq.read_table(roads, columns=["class", "length_m"]).to_pylist()
+    for r in t:
+        a = agg[r["class"] or "unclassified"]
+        a[0] += 1
+        a[1] += r["length_m"] or 0.0
+    by_class = sorted(((k, v[0], v[1]) for k, v in agg.items()), key=lambda x: -x[2])
     return {
         "note": "segments that touch the area, each measured whole",
         "road_km_total": round(sum(x[2] for x in by_class) / 1000, 1),
