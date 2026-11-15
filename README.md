@@ -76,6 +76,8 @@ python3 scripts/overture_slice.py count --release latest   # needs internet
 python3 scripts/overture_slice.py export --release latest --out data/work/slice
 ```
 
+The slice is read with pyarrow (Overture's S3 bucket, anonymously) and clipped with shapely: no DuckDB extension is downloaded at run time, so the build works where only the data hosts are reachable. DuckDB (core only, extensions never auto-installed) still reads the slice's Parquet in the build scripts. The shop-sign and billboard atlases are drawn with the DejaVu fonts in `look/fonts/` (checked against `SHA256SUMS`), so they come out the same on Linux, macOS and Windows.
+
 Then, for the proof-of-concept district (about 1.3 km² around Danquah Circle, Oxford Street and Ring Road East):
 
 ```sh

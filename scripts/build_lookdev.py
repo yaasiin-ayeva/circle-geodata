@@ -1074,13 +1074,30 @@ def trees(B, street, mouths, footprints, zone):
             break
 
 
+FONTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "look", "fonts")
+
+
+def font(name):
+    """A font from look/fonts (DejaVu 2.37, see its README), checked against SHA256SUMS: the atlases do not depend on
+    which fonts the machine has."""
+    import hashlib
+
+    path = os.path.join(FONTS, name)
+    with open(os.path.join(FONTS, "SHA256SUMS")) as f:
+        sums = {ln.split()[1]: ln.split()[0] for ln in f if ln.strip()}
+    with open(path, "rb") as f:
+        if hashlib.sha256(f.read()).hexdigest() != sums.get(name):
+            sys.exit(f"{path}: not the font listed in look/fonts/SHA256SUMS")
+    return path
+
+
 def billboard_atlas(path):
     """2 x 4 cells of 1024 x 512: big type on flat colour with a simple graphic, the way roadside ads read at night."""
     W, H = 2048, 2048
     cw, ch = W // 2, H // 4
     img = Image.new("RGB", (W, H), (0, 0, 0))
-    bold = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-    cond = "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf"
+    bold = font("DejaVuSans-Bold.ttf")
+    cond = font("DejaVuSansCondensed-Bold.ttf")
     for k, (title, sub, bg, fg) in enumerate(ADS):
         x0, y0 = (k % 2) * cw, (k // 2) * ch
         tile = Image.new("RGB", (cw, ch), bg)          # drawn on its own tile so shapes cannot spill into a neighbour
@@ -1125,8 +1142,8 @@ def sign_atlas(path):
     cw, ch = W // 4, H // 8
     img = Image.new("RGB", (W, H), (0, 0, 0))
     dr = ImageDraw.Draw(img)
-    bold = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-    cond = "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf"
+    bold = font("DejaVuSans-Bold.ttf")
+    cond = font("DejaVuSansCondensed-Bold.ttf")
     for k, (title, sub, bg, fg) in enumerate(SIGNS):
         col, row = k % 4, k // 4
         x0, y0 = col * cw, row * ch
@@ -1246,7 +1263,7 @@ def build(args):
     def local(geom):
         return shapely.transform(geom, lambda xy: np.column_stack(to_utm.transform(xy[:, 0], xy[:, 1])) - (oe, on))
 
-    con = bd.duckdb.connect()
+    con = bd.connect()
     all_roads = [(cls, name, local(shapely.from_wkb(bytes(blob))))
                  for _, cls, name, blob in bd.load(con, os.path.join(args.slice, "roads.parquet"), "id, class, name")]
     oxford = [g for cls, name, g in all_roads if name == "Oxford Street"]

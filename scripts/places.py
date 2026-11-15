@@ -176,9 +176,14 @@ def select_places(rows, inside, to_local):
 
 
 def load_places(con, path):
-    """places.parquet's rows as dicts, with lon and lat (needs DuckDB's spatial extension)."""
+    """places.parquet's rows as dicts, with lon and lat (the points' WKB read by shapely: no DuckDB extension)."""
     cols = ["source", "name", "category", "confidence", "status", "brand", "websites", "socials", "phones", "datasets",
             "area_m2"]
-    con.execute("INSTALL spatial; LOAD spatial;")
-    rows = con.execute(f"SELECT {', '.join(cols)}, ST_X(geometry), ST_Y(geometry) FROM '{path}'").fetchall()
-    return [dict(zip(cols + ["lon", "lat"], r)) for r in rows]
+    import shapely
+
+    rows = con.execute(f"SELECT {', '.join(cols)}, geometry::BLOB FROM '{path}'").fetchall()
+    out = []
+    for r in rows:
+        p = shapely.from_wkb(bytes(r[-1]))
+        out.append(dict(zip(cols + ["lon", "lat"], (*r[:-1], p.x, p.y))))
+    return out

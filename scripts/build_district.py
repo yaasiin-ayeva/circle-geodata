@@ -461,6 +461,12 @@ def cell_name(prefix, e, n):
     return f"{prefix}_{int(math.floor(e / CELL_M))}_{int(math.floor(n / CELL_M))}"
 
 
+def connect():
+    """DuckDB for reading the slice's Parquet files: core only. Extensions are never fetched or loaded behind our back
+    (DuckDB would otherwise download them from its server on first use)."""
+    return duckdb.connect(config={"autoinstall_known_extensions": False, "autoload_known_extensions": False})
+
+
 def load(con, path, cols):
     return con.execute(f"SELECT {cols}, geometry::BLOB FROM '{path}'").fetchall()
 
@@ -586,7 +592,7 @@ def build(args):
     def lonlat(geom):
         return shapely.transform(geom, lambda xy: np.column_stack(to_ll.transform(xy[:, 0] + oe, xy[:, 1] + on)))
 
-    con = duckdb.connect()
+    con = connect()
     road_rows = [(rid, cls, name or "", shapely.from_wkb(bytes(blob)))
                  for rid, cls, name, blob in load(con, os.path.join(args.slice, "roads.parquet"), "id, class, name")]
     clip, region, minus = area_outline(area, road_rows, local, lonlat)
