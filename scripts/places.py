@@ -17,30 +17,44 @@ import re
 # how much a place of the kind matters to a driver finding their way in Accra. Each lists the Overture places'
 # categories (basic_category, else taxonomy.primary) and the base theme's land use and infrastructure classes it takes.
 CATEGORIES = {
-    "hospital": (1.00, {"hospital", "emergency_department", "emergency_or_urgent_care_facility", "clinic"}),
+    "hospital": (1.00, {"hospital", "emergency_department", "emergency_or_urgent_care_facility", "clinic", "health_care",
+                        "dental_clinic", "diagnostics_imaging_or_lab_service", "medical_service"}),
     "landmark": (0.95, {"monument", "museum", "stadium_arena", "stadium", "lighthouse", "fort", "castle", "public_plaza",
-                        "plaza", "park", "beach", "golf_course", "zoo", "amusement_park", "cultural_center"}),
+                        "plaza", "park", "beach", "golf_course", "zoo", "amusement_park", "cultural_center",
+                        "historic_site", "art_gallery"}),
     "transit": (0.90, {"bus_station", "railway_station", "international_airport", "airport", "ferry_terminal"}),
     "police": (0.85, {"police_station"}),
     "fuel": (0.80, {"gas_station"}),
     "market": (0.75, {"market", "farmers_market", "shopping_mall", "department_store", "marketplace", "retail"}),
-    "bank": (0.70, {"bank_or_credit_union"}),
+    "bank": (0.70, {"bank_or_credit_union", "financial_service"}),
     "university": (0.70, {"college_university", "university", "college", "military_school"}),
     "embassy": (0.60, {"embassy"}),
-    "hotel": (0.55, {"hotel", "resort", "beach_resort"}),
-    "school": (0.50, {"high_school", "elementary_school", "middle_school", "school"}),
+    "hotel": (0.55, {"hotel", "resort", "beach_resort", "lodging", "private_lodging"}),
+    "school": (0.50, {"high_school", "elementary_school", "middle_school", "school", "place_of_learning", "education",
+                      "specialty_school", "preschool", "educational_service"}),
     "worship": (0.50, {"christian_place_of_worship", "muslim_place_of_worship", "place_of_worship",
-                       "hindu_place_of_worship"}),
+                       "hindu_place_of_worship", "religious_organization"}),
     "pharmacy": (0.45, {"pharmacy_and_drug_store"}),
     "nightlife": (0.40, {"bar", "dance_club", "lounge", "music_venue"}),
-    "food": (0.35, {"restaurant", "fast_food_restaurant", "casual_eatery", "cafe"}),
+    "food": (0.35, {"restaurant", "fast_food_restaurant", "casual_eatery", "cafe", "coffee_shop", "food_and_drink", "food_service"}),
     # Every other kind of place OpenStreetMap maps (osm_category()), and Overture's garages: the maps show them all.
     "garage": (0.65, {"automotive_service", "automotive_repair", "auto_body_shop", "vehicle_service",
                       "tire_dealer_and_repair", "vehicle_parts_store"}),
-    "service": (0.40, set()),
-    "leisure": (0.35, set()),
-    "shop": (0.30, set()),
-    "office": (0.25, set()),
+    # Overture's broad kinds (its basic categories since 2025), so its shops and services in Accra show too.
+    "service": (0.40, {"professional_service", "real_estate_service", "personal_or_beauty_service", "event_or_party_service",
+                       "home_service", "wellness_service", "technical_service", "media_service", "travel_service",
+                       "printing_service", "design_service", "shipping_or_delivery_service", "rental_service",
+                       "laundry_service", "animal_or_pet_service", "building_or_construction_service", "attorney_or_law_firm",
+                       "government_office", "civic_organization", "social_or_community_service", "community_and_government",
+                       "agricultural_service", "travel_and_transportation", "post_office"}),
+    "leisure": (0.35, {"gym", "sport_or_fitness_facility", "arts_and_entertainment", "recreational_facility"}),
+    "shop": (0.30, {"fashion_and_apparel_store", "shopping", "hardware_home_and_garden_store", "electronics_store",
+                    "food_and_beverage_store", "personal_care_and_beauty_store", "warehouse_club_store", "convenience_store",
+                    "flowers_and_gifts_store", "arts_crafts_and_hobby_store", "specialty_store", "books_music_and_video_store",
+                    "auto_dealer", "grocery_store", "supermarket"}),
+    "office": (0.25, {"corporate_or_business_office", "b2b_service", "b2b_transportation_and_storage_service",
+                      "b2b_energy_and_utility_service", "b2b_office_and_professional_service", "b2b_industrial_and_machine_service",
+                      "manufacturer", "supplier_or_distributor", "research_institute"}),
 }
 CATEGORY_OF = {c: name for name, (_, cats) in CATEGORIES.items() for c in cats}
 # Stations and airports come from OpenStreetMap only: Overture places of those kinds in Accra are mostly offices and
@@ -49,8 +63,11 @@ BASE_ONLY = {"bus_station", "railway_station", "international_airport", "airport
 
 # Overture places below this confidence are left out (its own score that the place exists as named), and below
 # MIN_CONFIDENCE_SAFETY for the kinds a driver may look for in an emergency, which are fewer.
-MIN_CONFIDENCE, MIN_CONFIDENCE_SAFETY = 0.65, 0.55
+# MIN_CONFIDENCE_BROAD is for the everyday kinds (shops, services, offices, food, bars, leisure): Overture's Meta-only
+# pins in Accra mostly score 0.5 to 0.65, and a stale one there costs a small icon at close zoom, not a wrong turn.
+MIN_CONFIDENCE, MIN_CONFIDENCE_SAFETY, MIN_CONFIDENCE_BROAD = 0.65, 0.55, 0.50
 SAFETY = {"hospital", "police", "fuel"}
+BROAD = {"shop", "service", "office", "food", "nightlife", "leisure"}
 # Two places of the same category closer than this (m) whose names share most of their words are one place; a land
 # use area and a place of the same name merge within MERGE_AREA_M.
 MERGE_M, MERGE_AREA_M = 80.0, 300.0
@@ -204,11 +221,13 @@ def select_places(rows, inside, to_local):
         if r["source"] == "places" and r.get("category") in BASE_ONLY:
             continue
         if r["source"] == "places":
-            floor = MIN_CONFIDENCE_SAFETY if cat in SAFETY else MIN_CONFIDENCE
+            floor = MIN_CONFIDENCE_SAFETY if cat in SAFETY else MIN_CONFIDENCE_BROAD if cat in BROAD else MIN_CONFIDENCE
             if float(r.get("confidence") or 0) < floor:
                 continue
         name = clean_name(r.get("name"))
-        if not name:
+        # A shop named after its owner ("Kofi's Tailoring") is a private person's: left out, unless it is a brand
+        # (Domino's Pizza), cleared before a release.
+        if not name or (POSSESSIVE.match(name) and not r.get("brand")):
             continue
         if r["source"] == "places" and ((cat == "hospital" and not CARE.search(name))
                                         or (cat in ("landmark", "hotel", "market") and BUSINESS.search(name))):
