@@ -18,6 +18,7 @@ Pre-production. The area files, the Overture counting and extraction script, the
 | [ATTRIBUTION.md](ATTRIBUTION.md) | The attribution block that ships in the game's credits and splash screen |
 | [aoi/slices.geojson](aoi/slices.geojson) | The vertical slice (milestone 1) and its milestone 2 extension to Circle |
 | [aoi/landmarks.geojson](aoi/landmarks.geojson) | Hero landmarks, with how each one is built |
+| [aoi/osm-lanes.geojson](aoi/osm-lanes.geojson), [scripts/osm_lanes.py](scripts/osm_lanes.py) | OpenStreetMap's lane counts on the main roads (ODbL), checked in so a build needs no network; `build_district.py` draws each carriageway with its lanes (3.5 m each), the lane lines between them and a laterite verge outside, and passes the count to the game's traffic |
 | [scripts/overture_slice.py](scripts/overture_slice.py) | Counts or extracts Overture buildings and roads inside an area |
 | [scripts/build_lookdev.py](scripts/build_lookdev.py) | Dresses the first 220 m of Oxford Street at target quality: facades with windows, bars, AC units and shopfronts, the shop signs and billboards transcribed on Oxford Street and the lap, rooms and shop interiors behind lit glass, sidewalks, gutters, power lines, kiosks, umbrellas |
 | [scripts/build_district.py](scripts/build_district.py) | Turns an export into a drivable district for the engines: OBJ meshes, streetlights, a benchmark lap ([requirements-district.txt](requirements-district.txt)) |

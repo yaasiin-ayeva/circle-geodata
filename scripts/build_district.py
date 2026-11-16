@@ -180,6 +180,9 @@ ROAD_WIDTH = {"motorway": 22.0, "trunk": 18.0, "primary": 13.0, "secondary": 10.
 # ramps are not surveyed; they take Ring Road East's 7 m.
 DUAL_CARRIAGEWAYS = ("Ring Road Central", "Ring Road East", "Ako Adjei Interchange")
 CARRIAGEWAY_M = 7.0
+# The one the survey measured keeps its 7 m whatever OSM says (OSM agrees: 2 lanes); the others take OSM's lane count
+# where it has one (Ring Road Central: 3 on some pieces).
+SURVEYED_CARRIAGEWAY = "Ring Road East"
 NAMED_WIDTH = {"Danquah Circle": 9.5}
 
 
@@ -189,7 +192,93 @@ NAMED_WIDTH = {"Danquah Circle": 9.5}
 # Road, the Spintex and Airport roads) are mapped in OpenStreetMap as one one-way road per carriageway, each drawn the
 # way its traffic runs; drawn at their class's width (18 m for a trunk) two of them covered the median.
 CARRIAGEWAY_W = {}
+# road id -> the median distance (m) centre to centre to its opposite carriageway, from find_carriageways(): a width
+# from the lane count is capped so that a median of at least MEDIAN_MIN_M stays between the two.
+CARRIAGEWAY_GAP = {}
+MEDIAN_MIN_M = 1.5
 DUAL_CLASSES = ("motorway", "trunk", "primary", "secondary")
+
+# Lane counts from OpenStreetMap (aoi/osm-lanes.geojson, scripts/osm_lanes.py): road id -> lanes on the road as drawn
+# (each way's own count on a carriageway, the total on a two-way road). Filled by build() with match_lanes(); read by
+# road_width(), the lane markings and the traffic network. Overture's segments carry no lane count; OSM tags most of
+# Accra's main roads (16 Nov 2026: Liberation Road 3 each way, the Ring Road and Independence Avenue 2). The user's
+# night drive on the Madina-Adenta road, 16 Nov 2026: the boulevards read too narrow.
+LANES = {}
+OSM_LANES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "aoi", "osm-lanes.geojson")
+# A lane on a main road (m): Ghana's trunk roads are built with 3.65 m lanes, the city's boulevards a little less;
+# plus 0.25 m of edge strip on each side.
+LANE_M = {"motorway": 3.65, "trunk": 3.5, "primary": 3.5, "secondary": 3.3, "tertiary": 3.1}
+EDGE_M = 0.5
+# The sandy, laterite verge outside a main road's asphalt (the night drive; circle-reference street-survey.md,
+# Danquah Circle: "sandy and laterite verges"), m, on the kerbside only of a carriageway. Oxford Street has its
+# pavements in the look-dev block, so none there.
+VERGE_M = {"motorway": 3.0, "trunk": 3.0, "primary": 2.5, "secondary": 1.5}
+
+
+def match_lanes(roads, feats, local, max_d=7.0, sample_m=10.0, share=0.5):
+    """Lane counts for the area's main roads from OSM ways (osm_lanes.py's features, in lon/lat): for each road of
+    LANE_M's classes, points every `sample_m` vote for the lanes of the nearest OSM way within `max_d` m that runs
+    parallel (within about 25 degrees), the same way when either is one-way, under the same name or one of them
+    unnamed; the count most voted wins when at least `share` of the points found one. roads: (id, class, name, line
+    in metres). local: lon/lat geometry -> metres. Returns {road id: lanes}."""
+    ways = []
+    for f in feats:
+        p = f["properties"]
+        try:
+            n = int(str(p.get("lanes", "")).split(";")[0])
+        except ValueError:
+            continue
+        if not 1 <= n <= 8:
+            continue
+        g = local(LineString(f["geometry"]["coordinates"]))
+        if g.length >= 2:
+            ways.append((g, n, p.get("name", ""), p.get("oneway") in ("yes", "1", "true", "-1")))
+    if not ways:
+        return {}
+    tree = shapely.STRtree([w[0] for w in ways])
+    out = {}
+    for rid, cls, name, g in roads:
+        if cls not in LANE_M or not isinstance(g, LineString) or g.length < 5:
+            continue
+        one = rid in CARRIAGEWAY_W or name in DUAL_CARRIAGEWAYS
+        votes, n_pts = Counter(), 0
+        for d in np.arange(min(sample_m / 2, g.length / 2), g.length, sample_m):
+            p = g.interpolate(d)
+            t = np.array(g.interpolate(min(d + 1, g.length)).coords[0]) - np.array(g.interpolate(max(d - 1, 0)).coords[0])
+            if np.linalg.norm(t) < 1e-6:
+                continue
+            t /= np.linalg.norm(t)
+            n_pts += 1
+            best = None
+            for j in tree.query(p.buffer(max_d)):
+                wg, n, wname, wone = ways[j]
+                if name and wname and wname != name:
+                    continue
+                dist = wg.distance(p)
+                if dist > max_d:
+                    continue
+                at = wg.project(p)
+                u = np.array(wg.interpolate(min(at + 1, wg.length)).coords[0]) - np.array(wg.interpolate(max(at - 1, 0)).coords[0])
+                if np.linalg.norm(u) < 1e-6:
+                    continue
+                c = float(u @ t) / np.linalg.norm(u)
+                if abs(c) < 0.9 or ((one or wone) and c < 0.9):
+                    continue
+                if best is None or dist < best[0]:
+                    best = (dist, n)
+            if best is not None:
+                votes[best[1]] += 1
+        if n_pts and sum(votes.values()) / n_pts >= share:
+            out[rid] = votes.most_common(1)[0][0]
+    return out
+
+
+def load_osm_lanes(path=OSM_LANES):
+    """osm_lanes.py's features, or none when the file is missing (the build then draws the widths as before)."""
+    if not os.path.exists(path):
+        return []
+    with open(path) as f:
+        return json.load(f).get("features", [])
 
 
 def find_carriageways(roads, sample_m=20.0, min_gap=5.0, max_gap=45.0, share=0.6):
@@ -237,6 +326,7 @@ def find_carriageways(roads, sample_m=20.0, min_gap=5.0, max_gap=45.0, share=0.6
                 gaps.append(best)
         if n and hits / n >= share:
             out[rid] = round(float(np.clip(0.55 * np.median(gaps), 6.5, 10.5)), 1)
+            CARRIAGEWAY_GAP[rid] = float(np.median(gaps))
     return out
 
 
@@ -338,10 +428,36 @@ def find_medians(roads, clip, step=4.0, min_gap=5.0, max_gap=45.0, margin=2.0, m
     return out
 
 
+def is_carriageway(rid, cls, name):
+    """One carriageway of a dual carriageway: found in the geometry, or one of the Ring Road's named ones."""
+    return rid in CARRIAGEWAY_W or (cls in MAJOR_CLASSES and name in DUAL_CARRIAGEWAYS)
+
+
+def lanes_of(rid, cls, name, default=2):
+    """The lanes the road is drawn with: OSM's count, at least two on a carriageway (a count of one there is a slip
+    road's, matched where it runs alongside before it joins), else `default`."""
+    n = LANES.get(rid)
+    if n is None:
+        return default
+    return max(2, n) if is_carriageway(rid, cls, name) else n
+
+
 def road_width(cls, name="", widths=None, rid=None):
     """The carriageway's width (m): by class, except the Ring Road's surveyed main carriageways and Danquah Circle,
     and the carriageways find_carriageways() found (by road id)."""
     widths = widths or ROAD_WIDTH
+    if cls in MAJOR_CLASSES and name == SURVEYED_CARRIAGEWAY:
+        return CARRIAGEWAY_M
+    if rid is not None and rid in LANES and cls in LANE_M:
+        w = lanes_of(rid, cls, name) * LANE_M[cls] + EDGE_M
+        if is_carriageway(rid, cls, name):
+            # A carriageway: as many lanes as OSM counts, but a median left between it and its opposite one.
+            gap = CARRIAGEWAY_GAP.get(rid)
+            if gap:
+                w = min(w, max(6.0, gap - MEDIAN_MIN_M))
+            return round(w, 1)
+        # A two-way road: never narrower than its class draws it (the class widths include the parking edges).
+        return max(round(w, 1), widths[cls])
     if cls in MAJOR_CLASSES and name in DUAL_CARRIAGEWAYS:
         return CARRIAGEWAY_M
     if rid is not None and rid in CARRIAGEWAY_W:
@@ -367,6 +483,7 @@ MATERIALS = {
     "M_Asphalt": (0.11, 0.115, 0.125),
     "M_AsphaltMajor": (0.13, 0.135, 0.145),
     "M_RoadPaint": (0.85, 0.82, 0.74),
+    "M_GroundVerge": (0.27, 0.21, 0.15),
     "M_Roof": (0.36, 0.37, 0.38),
     "M_Wall_Concrete": (0.85, 0.83, 0.78),
     "M_Wall_Ochre": (0.79, 0.64, 0.42),
@@ -613,7 +730,13 @@ def build(args):
         roads.append((rid, cls, name, local(g)))
     oxford = shapely.union_all([g for _, _, n, g in roads if n == "Oxford Street"]) if roads else None
     CARRIAGEWAY_W.clear()
+    CARRIAGEWAY_GAP.clear()
     CARRIAGEWAY_W.update(find_carriageways(roads))
+    LANES.clear()
+    LANES.update(match_lanes(roads, load_osm_lanes(), local))
+    if LANES:
+        by_n = Counter(LANES.values())
+        print(f"OSM lane counts: {len(LANES)} road segments ({', '.join(f'{v} with {k}' for k, v in sorted(by_n.items()))})")
     if CARRIAGEWAY_W:
         named = sorted({n for rid, _, n, _ in roads if rid in CARRIAGEWAY_W and n})
         print(f"dual carriageways: {len(CARRIAGEWAY_W)} carriageway segments, median between them"
@@ -728,15 +851,31 @@ def build(args):
             w, lift = road_width(cls, name, rid=rid), ROAD_LIFT[cls]
             mat = "M_AsphaltMajor" if cls in MAJOR else "M_Asphalt"
             ribbon(mesh, line, w, lift, mat, "Roads")
-            # Oxford Street has no lane markings (street survey; OSM lane_markings=no).
+            one = is_carriageway(rid, cls, name)
+            # The verge: packed sand and laterite outside the asphalt, on the kerbside of a carriageway (its left is
+            # the median: Ghana drives on the right), on both sides of a two-way road.
+            if cls in VERGE_M and name != "Oxford Street":
+                vw = VERGE_M[cls]
+                for side in ((-1,) if one else (-1, 1)):
+                    edge = line.offset_curve(side * (w / 2 + vw / 2), join_style="mitre", mitre_limit=2.0)
+                    for piece in ([edge] if isinstance(edge, LineString) else list(getattr(edge, "geoms", []))):
+                        if isinstance(piece, LineString) and piece.length > 1:
+                            ribbon(mesh, piece, vw, lift * 0.5, "M_GroundVerge", "Roads")
+            # Lane lines between the lanes (OSM's count, else two: the centre line). Oxford Street has no lane
+            # markings (street survey; OSM lane_markings=no).
             if cls in ("primary", "secondary", "trunk") and name != "Oxford Street":
-                for d0 in np.arange(2.0, line.length - 3.0, 6.0):
-                    # Centre lines in Accra are worn: about a third of the dashes are gone.
-                    if unit_hash(rid, "dash", int(d0)) < 0.35:
-                        continue
-                    seg = substring(line, d0, d0 + 3.0)
-                    if isinstance(seg, LineString) and seg.length > 0.5:
-                        ribbon(mesh, seg, 0.15, lift + 0.01, "M_RoadPaint", "Roads")
+                for off in lane_lines(w, lanes_of(rid, cls, name)):
+                    guide = line if abs(off) < 0.05 else line.offset_curve(off, join_style="mitre", mitre_limit=2.0)
+                    for gl in ([guide] if isinstance(guide, LineString) else list(getattr(guide, "geoms", []))):
+                        if not isinstance(gl, LineString) or gl.length < 4:
+                            continue
+                        for d0 in np.arange(2.0, gl.length - 3.0, 6.0):
+                            # Lines in Accra are worn: about a third of the dashes are gone.
+                            if unit_hash(rid, "dash", round(off, 1), int(d0)) < 0.35:
+                                continue
+                            seg = substring(gl, d0, d0 + 3.0)
+                            if isinstance(seg, LineString) and seg.length > 0.5:
+                                ribbon(mesh, seg, 0.15, lift + 0.01, "M_RoadPaint", "Roads")
             if cls in MAJOR:
                 lights += place_lights(rid, cls, name, line, w, carriageways)
 
@@ -853,6 +992,13 @@ def build(args):
     if rules.get("parking"):
         mix = Counter(c["colour"] for c in parked)
         print(f"parked: {len(parked)} places, " + ", ".join(f"{n} {k}" for k, n in mix.most_common()))
+
+
+def lane_lines(w, n):
+    """Offsets (m, left of the line positive) of the dashed lines between `n` lanes on asphalt `w` wide."""
+    n = max(1, int(n))
+    inner = w - EDGE_M
+    return [round(-inner / 2 + k * inner / n, 3) for k in range(1, n)]
 
 
 def ribbon(mesh, line, w, lift, mat, prefix):
@@ -1241,6 +1387,8 @@ def traffic_network(roads, clip, one_way=()):
         cls, name, line, rid = src[int(tree.nearest(mid))]
         pts = list(piece.simplify(0.5).coords)
         entry = {"cls": cls, "w": road_width(cls, name, rid=rid), "name": name}
+        if rid in LANES:
+            entry["lanes"] = lanes_of(rid, cls, name)
         if name in one_way or rid in CARRIAGEWAY_W:
             if line.project(Point(pts[0])) > line.project(Point(pts[-1])):
                 pts = pts[::-1]
