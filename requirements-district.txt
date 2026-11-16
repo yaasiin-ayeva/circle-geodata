@@ -5,3 +5,7 @@ networkx>=3.0
 Pillow>=10.0
 numpy>=1.26
 osmium>=4.0
+# The relief (scripts/relief.py): ndimage for the DEM's opening, tifffile and imagecodecs for the GeoTIFF tiles
+scipy>=1.11
+tifffile>=2024.1
+imagecodecs>=2024.1
