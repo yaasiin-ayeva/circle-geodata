@@ -56,6 +56,51 @@ def street_lights(lamps):
     return out
 
 
+CHUNKED = ("streetLights", "parked", "solid", "hiding")
+
+
+def write_chunks(scene, folder):
+    """Moves the scene's heavy lists into one <tile>.data.json per tile (next to the tile's GLB), each item to the tile
+    whose ground box holds its anchor (a lamp's foot, a car's or a hiding place's position, an outline's first point;
+    the nearest tile when none does), and names the file in the tile's entry ("data"). Leaves empty lists in the
+    scene, so a game that knows nothing of chunks still reads it."""
+    tiles = scene["files"]["tiles"]
+    boxes = [t["bounds"] for t in tiles]
+
+    def tile_of(x, z):
+        best, bd = 0, float("inf")
+        for i, (x0, z0, x1, z1) in enumerate(boxes):
+            dx = max(x0 - x, 0.0, x - x1)
+            dz = max(z0 - z, 0.0, z - z1)
+            d = dx * dx + dz * dz
+            if d == 0.0:
+                return i
+            if d < bd:
+                best, bd = i, d
+        return best
+
+    chunks = [{"streetLights": [], "parked": [], "solid": {"buildings": [], "walls": []}, "hiding": []} for _ in tiles]
+    for l in scene.get("streetLights", []):
+        chunks[tile_of(l["foot"][0], l["foot"][2])]["streetLights"].append(l)
+    for c in scene.get("parked", []):
+        chunks[tile_of(c["position"][0], c["position"][2])]["parked"].append(c)
+    for h in scene.get("hiding", []):
+        chunks[tile_of(h["position"][0], h["position"][2])]["hiding"].append(h)
+    for k in ("buildings", "walls"):
+        for flat in scene.get("solid", {}).get(k, []):
+            chunks[tile_of(flat[0], flat[1])]["solid"][k].append(flat)
+    for t, c in zip(tiles, chunks):
+        t["data"] = os.path.splitext(t["file"])[0] + ".data.json"
+        with open(os.path.join(folder, t["data"]), "w") as f:
+            json.dump(c, f, separators=(",", ":"))
+    scene["streetLights"] = []
+    for k in ("parked", "solid", "hiding"):
+        scene.pop(k, None)
+    scene["chunked"] = list(CHUNKED)
+    total = sum(os.path.getsize(os.path.join(folder, t["data"])) for t in tiles)
+    print(f"chunks: {len(tiles)} tile data files, {total / 1048576:.2f} MB")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--district", required=True)
@@ -65,6 +110,10 @@ def main():
                                   "osu-poc.json -> osu-poc.glb)")
     ap.add_argument("--tiles", help="the tiles.json export_glb.py --tile-m wrote: the district is streamed in those "
                                     "tiles rather than loaded as one GLB")
+    ap.add_argument("--chunk", action="store_true",
+                    help="with --tiles: the heavy lists (street lights, parked cars, solid outlines, hiding places) go "
+                         "to one <tile>.data.json per tile, which the game fetches with the tile; the scene keeps what "
+                         "the whole world needs from the start (roads, places, garages, medians, the lap)")
     args = ap.parse_args()
     glb = args.glb or os.path.splitext(os.path.basename(args.district))[0] + ".glb"
 
@@ -107,6 +156,17 @@ def main():
     if d.get("places"):
         scene["places"] = [{"name": p["name"], "cat": p["cat"], "at": [p["x"], round(-p["z"], 1) + 0.0], "rank": p["rank"],
                             **({"brand": True} if p.get("brand") else {})} for p in d["places"]]
+    # Real garages for the game's fitters (build_district find_garages): the garage's point and the door on the road's
+    # edge in glTF axes, "facing" the yaw (atan2(x, z), three.js rotation.y) from the garage to the door, the road
+    # there (name, width, direction along it), the outline when OpenStreetMap maps the building.
+    if d.get("garages"):
+        flip2 = lambda v: [v[0], round(-v[1], 4) + 0.0]
+        scene["garages"] = [{"name": gg["name"], "kind": gg["kind"], "at": [gg["x"], round(-gg["z"], 1) + 0.0],
+                             "door": flip2(gg["door"]), "facing": round(math.atan2(gg["toward"][0], -gg["toward"][1]), 4),
+                             "road": {"name": gg["road"]["name"], "w": gg["road"]["w"], "dir": flip2(gg["road"]["dir"])},
+                             **({"outline": [[x, round(-z, 1) + 0.0] for x, z in gg["outline"]]} if gg.get("outline") else {}),
+                             **({"osm": gg["osm"]} if gg.get("osm") else {"source": gg.get("source", "overture")}),
+                             **({"brand": True} if gg.get("brand") else {})} for gg in d["garages"]]
     # The central reservations of the dual carriageways: the median's middle line (glTF axes), its width between
     # the two carriageways' asphalt, its kerb height, already cut where roads cross it (build_district find_medians).
     if d.get("medians"):
@@ -138,9 +198,13 @@ def main():
         # No dressed block (Jamestown): the cars build_district.py parked along the streets.
         scene["parked"] = parked_cars(d["parked"])
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+    if args.chunk:
+        if not args.tiles:
+            ap.error("--chunk needs --tiles")
+        write_chunks(scene, os.path.dirname(args.out))
     # The road network, the solid outlines and the places are long lists for the game, not for reading: one line
     # each, the rest of the scene indented.
-    compact = {k: scene.pop(k) for k in ("roads", "solid", "places", "medians") if k in scene}
+    compact = {k: scene.pop(k) for k in ("roads", "solid", "places", "garages", "medians") if k in scene}
     text = json.dumps(scene, indent=1)
     for k, v in compact.items():
         text = text[:text.rstrip().rfind("}")].rstrip() + f',\n "{k}": {json.dumps(v, separators=(",", ":"))}\n}}'

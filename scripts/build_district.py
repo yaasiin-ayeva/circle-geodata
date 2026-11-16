@@ -88,6 +88,30 @@ LIBERATION_LAP = {"route": [(5.5739635, -0.1892662),  # Independence Avenue, its
                             (5.6045120, -0.1778479),     # Liberation Road northbound, before the crossover
                             (5.6006832, -0.1788379)]}    # Liberation Road southbound, back towards 37
 
+# East of 37 (aoi/slices.geojson "east-accra"; slice in data/work/slice-east). Two corridors that meet Liberation Road's
+# and each other where their buffers meet ("minus"), both in Osu's frame so the game streams them with the rest:
+#   legon: Liberation Road on to the Tetteh Quarshie Interchange, J.J. Rawlings Avenue (the N4) past Legon, Atomic
+#   Junction and Madina to Adenta Barrier and the first stretch of the Aburi Road, Boundary Road and La Bawaleshi Road
+#   through East Legon, and the road from Madina to Ashaley Botwe; with East Legon's grid (American House, Lagos
+#   Avenue, A&C) and Adenta's SSNIT flats as whole districts ("boxes"). The N4's unnamed carriageway pieces come with
+#   its class ("classes").
+#   tema: the Kwame Nkrumah (Tema) Motorway from the interchange to its roundabout at Tema, every motorway piece and
+#   slip road in the box (the exits to Spintex, Ashaiman and the Aflao Road), Harbour Road down to Community 1 and the
+#   start of the Aflao Road, with Community 1's centre as a whole district.
+LEGON = {"south": 5.6000, "north": 5.7160, "west": -0.1920, "east": -0.1250}
+LEGON_ROADS = ("Liberation Road", "Tetteh Quarshie Interchange", "J.J. Rawlings Avenue", "Aburi Road", "Atomic Junction",
+               "Boundary Road", "La Bawaleshi Road", "Ashale Botwe Nmai Dzorn Road", "Adenta Dodowa Road")
+EAST_LEGON = {"south": 5.6290, "north": 5.6540, "west": -0.1720, "east": -0.1460}
+ADENTA_FLATS = {"south": 5.6980, "north": 5.7140, "west": -0.1700, "east": -0.1500}
+# Its lap: up the N4 from the interchange to Adenta and back down (lat, lon on the carriageway driven: the east one
+# northbound, the west one southbound).
+LEGON_LAP = {"route": [(5.6320, -0.17682), (5.6680, -0.17667), (5.7030, -0.17145), (5.6680, -0.17709), (5.6320, -0.17702)]}
+TEMA = {"south": 5.6120, "north": 5.7000, "west": -0.1850, "east": 0.0120}
+TEMA_ROADS = ("Kwame Nkrumah Motorway", "Tetteh Quarshie Interchange", "Harbour Road", "Valco Roundabout", "Aflao Road")
+TEMA_C1 = {"south": 5.6380, "north": 5.6560, "west": -0.0080, "east": 0.0080}
+# Its lap: the motorway from the interchange to Tema and back (the south carriageway eastbound, the north one back).
+TEMA_LAP = {"route": [(5.6300, -0.15467), (5.6650, -0.06476), (5.6800, -0.03115), (5.6650, -0.06530), (5.6300, -0.15528)]}
+
 AREAS = {
     # About 1.3 km2 of Osu: Danquah Circle, the north half of Oxford Street, Ring Road East.
     "osu-poc": {"south": 5.5575, "north": 5.5695, "west": -0.1870, "east": -0.1780,
@@ -105,6 +129,12 @@ AREAS = {
     # one frame with the other two.
     "liberation": {"corridor": {"roads": LIBERATION_ROADS, "half_width_m": 300.0, "within": LIBERATION},
                    "minus": ["ring-road"], "origin": OSU_ORIGIN, "lap": LIBERATION_LAP, "district": "ring-road"},
+    "legon": {"corridor": {"roads": LEGON_ROADS, "classes": ("trunk",), "half_width_m": 300.0, "within": LEGON,
+                           "boxes": (EAST_LEGON, ADENTA_FLATS)},
+              "minus": ["liberation"], "origin": OSU_ORIGIN, "lap": LEGON_LAP, "district": "ring-road"},
+    "tema": {"corridor": {"roads": TEMA_ROADS, "classes": ("motorway",), "half_width_m": 220.0, "within": TEMA,
+                          "boxes": (TEMA_C1,)},
+             "minus": ["liberation", "legon"], "origin": OSU_ORIGIN, "lap": TEMA_LAP, "district": "ring-road"},
 }
 
 # What changes from one district to the next (circle-reference district cards, catalogue/*-identity-survey.md).
@@ -505,11 +535,18 @@ def area_box(area):
 
 
 def corridor_region(spec, road_rows, local):
-    """A corridor's region in metres: its named roads buffered by its half width, inside its box."""
-    lines = [local(g) for _, _, name, g in road_rows if name in spec["roads"]]
+    """A corridor's region in metres: its named roads, and every road of its "classes" (a motorway's unnamed pieces
+    and its slip roads), buffered by its half width, with its "boxes" (whole districts, WGS84), inside its box."""
+    within = area_box(spec["within"])
+    classes = set(spec.get("classes", ()))
+    lines = [local(g) for _, cls, name, g in road_rows
+             if name in spec["roads"] or (cls in classes and g.intersects(within))]
     if not lines:
         return None
-    region = shapely.union_all(lines).buffer(spec["half_width_m"], quad_segs=4).intersection(local(area_box(spec["within"])))
+    region = shapely.union_all(lines).buffer(spec["half_width_m"], quad_segs=4)
+    for b in spec.get("boxes", ()):
+        region = region.union(local(area_box(b)))
+    region = region.intersection(local(within))
     return shapely.make_valid(region.simplify(1.0))
 
 
@@ -787,13 +824,23 @@ def build(args):
     # The named places of the area, where the slice has them (an older slice has no places.parquet: none then).
     spots = []
     places_path = os.path.join(args.slice, "places.parquet")
-    if os.path.exists(places_path):
-        shapely.prepare(clip)
-        spots = named_places.select_places(named_places.load_places(con, places_path),
-                                           lambda x, z: bool(shapely.contains_xy(clip, x, z)),
-                                           lambda lon, lat: tuple(np.array(to_utm.transform(lon, lat)) - (oe, on)))
+    # Every place OpenStreetMap maps there joins them, where the slice has its extract (scripts/osm_extract.py).
+    osm_path = os.path.join(args.slice, "osm.parquet")
+    osm_rows = named_places.load_osm(osm_path) if os.path.exists(osm_path) else []
+    place_rows = named_places.load_places(con, places_path) if os.path.exists(places_path) else []
+    to_local_ll = lambda lon, lat: tuple(np.array(to_utm.transform(lon, lat)) - (oe, on))
+    shapely.prepare(clip)
+    inside_clip = lambda x, z: bool(shapely.contains_xy(clip, x, z))
+    if place_rows or osm_rows:
+        spots = named_places.select_places(place_rows + osm_rows, inside_clip, to_local_ll)
     else:
         print(f"no {places_path}: no named places (scripts/overture_slice.py export --layers places)")
+    if not osm_rows:
+        print(f"no {osm_path}: no OpenStreetMap places or garages (scripts/osm_extract.py)")
+    garages = find_garages(osm_rows, place_rows, roads, clip, inside_clip, to_local_ll, local)
+    if garages:
+        print(f"garages: {len(garages)} ({sum(1 for g in garages if g['name'])} named, "
+              f"{sum(1 for g in garages if g.get('osm'))} from OpenStreetMap)")
     medians = find_medians(roads, clip)
     if medians:
         print(f"medians: {len(medians)} pieces, {sum(LineString(m['pts']).length for m in medians) / 1000:.2f} km")
@@ -841,8 +888,11 @@ def build(args):
         "places": spots,
         # The central reservations of the dual carriageways, cut at the crossings (find_medians()).
         "medians": medians,
+        # Real garages, for the game's fitters (find_garages(); circle-game reads SceneData.garages).
+        "garages": garages,
         "credits": "Buildings and roads: Overture Maps Foundation (ODbL), from OpenStreetMap contributors, "
                    "Google Open Buildings and Microsoft. Heights from typology rules."
+                   + (" Places and garages: OpenStreetMap contributors (ODbL)." if osm_rows else "")
                    + (" Places: Overture Maps Foundation (CDLA Permissive 2.0 and ODbL), from Meta, Microsoft, "
                       "Foursquare, AllThePlaces and OpenStreetMap contributors." if spots else ""),
     }
@@ -853,6 +903,81 @@ def build(args):
     if rules.get("parking"):
         mix = Counter(c["colour"] for c in parked)
         print(f"parked: {len(parked)} places, " + ", ".join(f"{n} {k}" for k, n in mix.most_common()))
+
+
+def find_garages(osm_rows, place_rows, roads, clip, inside, to_local, local, merge_m=80.0, twin_m=15.0):
+    """The real garages of the area, for the game's fitters: OpenStreetMap's car repair shops, mechanics, tyre and
+    parts shops (places.GARAGE_KIND), named or not, and Overture's of the same kinds above its confidence floor; one
+    garage where both map the same one (the same name within merge_m, or any two within twin_m, OpenStreetMap's kept).
+    Each: name (places.garage_name(): "" when it has none fit to show), kind (repair, tyres, parts), x and z (its
+    outline's centre or its pin, local metres, z north), door (the edge of the nearest drivable road's asphalt, on the
+    garage's side), toward (unit vector from the garage to the door), road (name, width, unit direction along it),
+    outline (local metres) when OpenStreetMap maps the building, osm id or "source": "overture", brand when a brand is
+    named (cleared before a public release, circle-bible DECISIONS.md)."""
+    cands = []
+    for r in osm_rows:
+        if r.get("garage"):
+            g = shapely.from_wkb(r["outline"]) if r.get("outline") else None
+            cands.append({"kind": r["garage"], "name": named_places.garage_name(r["name"]), "raw": r["name"] or "",
+                          "lonlat": (r["lon"], r["lat"]), "outline": g, "osm": r["id"], "brand": bool(r.get("brand"))})
+    for r in place_rows:
+        kind = named_places.GARAGE_KIND_OVERTURE.get(r.get("category") or "")
+        if kind and r["source"] == "places" and float(r.get("confidence") or 0) >= named_places.MIN_CONFIDENCE \
+                and (r.get("status") or "").lower() not in named_places.CLOSED:
+            cands.append({"kind": kind, "name": named_places.garage_name(r.get("name")), "raw": r.get("name") or "",
+                          "lonlat": (r["lon"], r["lat"]), "outline": None, "osm": None, "brand": bool(r.get("brand"))})
+    lines = []
+    for rid, cls, name, g in roads:
+        if cls not in TRAFFIC_CLASSES:
+            continue
+        g = g.intersection(clip)
+        for l in ([g] if isinstance(g, LineString) else list(getattr(g, "geoms", []))):
+            if isinstance(l, LineString) and l.length >= 2:
+                lines.append((name, road_width(cls, name, rid=rid), l))
+    if not lines:
+        return []
+    tree = shapely.STRtree([l for _, _, l in lines])
+    kept = []
+    for c in cands:
+        if c["outline"] is not None:
+            poly = local(c["outline"])
+            x, z = poly.centroid.x, poly.centroid.y
+        else:
+            poly = None
+            x, z = to_local(*c["lonlat"])
+        if not inside(x, z):
+            continue
+        twin = next((k for k in kept if math.hypot(k["x"] - x, k["z"] - z) <= twin_m or
+                     (c["raw"] and k["raw"] and math.hypot(k["x"] - x, k["z"] - z) <= merge_m
+                      and named_places.same_name(k["raw"], c["raw"]))), None)
+        if twin:
+            twin["name"] = twin["name"] or c["name"]
+            twin["brand"] = twin["brand"] or c["brand"]
+            continue
+        p = Point(x, z)
+        name, w, line = lines[int(tree.nearest(p))]
+        at = line.project(p)
+        q = line.interpolate(at)
+        a, b = line.interpolate(max(0.0, at - 2.0)), line.interpolate(min(line.length, at + 2.0))
+        d = np.array([b.x - a.x, b.y - a.y]); d /= max(1e-6, np.hypot(*d))
+        to = np.array([x - q.x, z - q.y]); dist = np.hypot(*to)
+        side = to / dist if dist > 1e-6 else np.array([-d[1], d[0]])
+        door = np.array([q.x, q.y]) + side * min(w / 2, dist)
+        toward = door - (x, z); toward = toward / max(1e-6, np.hypot(*toward))
+        kept.append({"kind": c["kind"], "name": c["name"], "raw": c["raw"], "x": x, "z": z, "door": door, "toward": toward,
+                     "road": {"name": name, "w": w, "dir": d}, "poly": poly, "osm": c["osm"], "brand": c["brand"]})
+    out = []
+    for k in kept:
+        e = {"name": k["name"], "kind": k["kind"], "x": round(float(k["x"]), 1), "z": round(float(k["z"]), 1),
+             "door": [round(float(v), 1) for v in k["door"]], "toward": [round(float(v), 4) for v in k["toward"]],
+             "road": {"name": k["road"]["name"], "w": k["road"]["w"], "dir": [round(float(v), 4) for v in k["road"]["dir"]]}}
+        if k["poly"] is not None and isinstance(k["poly"], Polygon):
+            e["outline"] = [[round(px, 1), round(pz, 1)] for px, pz in k["poly"].simplify(0.3).exterior.coords[:-1]]
+        e.update({"osm": k["osm"]} if k["osm"] else {"source": "overture"})
+        if k["brand"]:
+            e["brand"] = True
+        out.append(e)
+    return out
 
 
 def ribbon(mesh, line, w, lift, mat, prefix):
@@ -1428,7 +1553,10 @@ def route_lap(roads, region, spec, to_utm, origin):
             add(b, a, list(piece.coords)[::-1], piece.length, name)
     if G.number_of_nodes() == 0:
         return None
-    nodes = np.array(list(G.nodes))
+    # Route points snap to the largest strongly connected part of the network: a corridor cut out of the city leaves
+    # stubs (a slip road's end, a one-way piece at the edge) from which the rest cannot be reached.
+    main = max(nx.strongly_connected_components(G), key=len)
+    nodes = np.array([n for n in G.nodes if n in main])
     stops, snapped = [], []
     for lat, lon in spec["route"]:
         e, n = to_utm.transform(lon, lat)

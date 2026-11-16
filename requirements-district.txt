@@ -4,3 +4,4 @@ mapbox_earcut>=1.0
 networkx>=3.0
 Pillow>=10.0
 numpy>=1.26
+osmium>=4.0

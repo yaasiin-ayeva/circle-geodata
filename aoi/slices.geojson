@@ -156,6 +156,45 @@
           ]
         ]
       }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "east-accra",
+        "milestone": 5,
+        "description": "East of 37 to Tema: Liberation Road to the Tetteh Quarshie Interchange, the Legon campus edge, East Legon, J.J. Rawlings Avenue through Madina to Adenta (Adenta Barrier, the SSNIT flats) and the road to Ashaley Botwe, and the Kwame Nkrumah (Tema) Motorway with its exits to Tema Community 1, Harbour Road and the start of the Aflao Road (the legon and tema corridors, build_district.py AREAS). Overlaps north-37 by 650 m so the corridors' roads join Liberation Road's.",
+        "south": 5.6,
+        "north": 5.716,
+        "west": -0.2,
+        "east": 0.012
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -0.2,
+              5.6
+            ],
+            [
+              0.012,
+              5.6
+            ],
+            [
+              0.012,
+              5.716
+            ],
+            [
+              -0.2,
+              5.716
+            ],
+            [
+              -0.2,
+              5.6
+            ]
+          ]
+        ]
+      }
     }
   ]
 }
