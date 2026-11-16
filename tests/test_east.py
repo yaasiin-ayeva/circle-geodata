@@ -63,11 +63,17 @@ check("a lighthouse is a place, a pipeline is not",
       osm_extract.first_key({"man_made": "lighthouse"}) == ("man_made", "lighthouse")
       and osm_extract.first_key({"man_made": "pipeline"}) is None)
 
-# Garage names: no real private people (circle-bible DECISIONS.md, 14 Nov 2026).
-for n in ("Paa Joe", "Master Kofi shop", "Mr K Automobile", "Kofi's Fitting Shop", "Auntie Ama Spraying", "Bra Nii Vulcanizer"):
-    check(f"'{n}' loses its name", pl.garage_name(n) == "", repr(pl.garage_name(n)))
+# Garage names that name a private person: kept, marked, in the proof of concept; dropped by a public build
+# (CHALE_PUBLIC=1), where the game names the garage generically (circle-bible DECISIONS.md, 16 Nov 2026).
+PEOPLE = ("Paa Joe", "Master Kofi shop", "Mr K Automobile", "Kofi's Fitting Shop", "Auntie Ama Spraying", "Bra Nii Vulcanizer")
+for n in PEOPLE:
+    check(f"'{n}' keeps its name, marked a person's", pl.garage_name(n) == n and pl.is_person(n), repr(pl.garage_name(n)))
+pl.PUBLIC = True
+for n in PEOPLE:
+    check(f"'{n}' loses it in a public build", pl.garage_name(n) == "", repr(pl.garage_name(n)))
+pl.PUBLIC = False
 for n in ("Kaya Auto", "Pixxles Auto", "DrivePrime Auto Parts"):
-    check(f"'{n}' keeps it", pl.garage_name(n) == n, repr(pl.garage_name(n)))
+    check(f"'{n}' keeps it", pl.garage_name(n) == n and not pl.is_person(n), repr(pl.garage_name(n)))
 
 # Garages: OpenStreetMap's and Overture's, one where both map the same, the door on the road's edge.
 osm_rows = [{"source": "osm", "cat": "garage", "garage": "repair", "id": "node/1", "name": "Kaya Auto", "brand": False,
@@ -91,7 +97,15 @@ check("three garages: OpenStreetMap's two and Overture's parts shop", len(garage
 check("one Kaya Auto, OpenStreetMap's", names.count("Kaya Auto") == 1 and garages[0].get("osm") == "node/1")
 check("an unsure Overture garage is left out", "Ghost Garage" not in names)
 check("a garage with no name is kept, named \"\"", any(g["name"] == "" and g.get("osm") == "way/2" for g in garages))
-check("a person's garage keeps its place, not its name", any(g.get("source") == "overture" and g["name"] == "" for g in garages))
+check("a person's garage keeps its name, marked a person's",
+      any(g.get("source") == "overture" and g["name"] == "Paa Kwesi Parts" and g.get("person") is True for g in garages))
+check("no other garage is marked a person's", sum(bool(g.get("person")) for g in garages) == 1)
+pl.PUBLIC = True
+public = bd.find_garages(osm_rows, place_rows, roads, clip, lambda x, z: clip.contains(Point(x, z)),
+                         lambda lon, lat: (lon, lat), ident)
+pl.PUBLIC = False
+check("a public build keeps its place, not its name",
+      any(g.get("source") == "overture" and g["name"] == "" and not g.get("person") for g in public))
 w = bd.road_width("primary", "Main Road")
 g0 = garages[0]
 check("the door is on the asphalt's edge, on the garage's side", abs(g0["door"][0] - 100) < 0.2 and abs(g0["door"][1] - w / 2) < 0.2,

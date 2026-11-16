@@ -34,8 +34,8 @@ rows = [
     place("Ecobank Osu", "bank_or_credit_union", 600, 0, 0.9, brand="Ecobank"),
     place("Ecobank", "bank_or_credit_union", 630, 0, 0.7),
     place("Access Bank Osu", "bank_or_credit_union", 600, 30, 0.9),
-    # Left out: unsure, closed, outside the area, a kind the maps do not show, a doctor by name, an Overture
-    # "airport" that is an agent's office.
+    # Left out: unsure, closed, outside the area, a kind the maps do not show, a "hospital" with no word of care, an
+    # Overture "airport" that is an agent's office. A shop named after its owner stays, marked "person".
     place("Maybe Chop Bar", "restaurant", 800, 0, 0.3),
     place("Old Fuel", "gas_station", 820, 0, 0.9, status="permanently_closed"),
     place("Far Hotel", "hotel", 5000, 0, 0.99),
@@ -62,10 +62,21 @@ check("the hospital outranks a bank, the bank a hotel",
       by["Rabito Clinic"]["rank"] > by["Ecobank Osu"]["rank"] > by["G.C Royal Hotel"]["rank"])
 check("a bank pinned twice shows once; another bank beside it stays",
       names.count("Ecobank Osu") == 1 and "Ecobank" not in names and "Access Bank Osu" in names, str(names))
-check("unsure, closed, outside, unshown kinds, people, false airports and contradicted categories are left out",
-      not {"Maybe Chop Bar", "Old Fuel", "Far Hotel", "Kofi's Tailoring", "Dr. Mensah", "Tamale Airport", "KFC 37 Liberation",
+check("unsure, closed, outside, unshown kinds, false airports and contradicted categories are left out",
+      not {"Maybe Chop Bar", "Old Fuel", "Far Hotel", "Dr. Mensah", "Tamale Airport", "KFC 37 Liberation",
        "Akofena Travel Consult"} & set(names),
       str(names))
+# Real names of private people (circle-bible DECISIONS.md, 16 Nov 2026): kept and marked in the proof of concept, left
+# out of a public build (CHALE_PUBLIC=1, places.PUBLIC).
+check("a shop named after its owner shows, marked as a person's",
+      by.get("Kofi's Tailoring", {}).get("person") is True and "person" not in by["Ecobank Osu"], str(names))
+pl.PUBLIC = True
+public = [p["name"] for p in pl.select_places(rows, lambda x, z: abs(x) < 2000 and abs(z) < 2000, lambda lon, lat: (lon, lat))]
+pl.PUBLIC = False
+check("a public build leaves it out, and only it", "Kofi's Tailoring" not in public
+      and set(public) == set(names) - {"Kofi's Tailoring"}, str(sorted(set(names) ^ set(public))))
+check("a title before a name is a person's", pl.is_person("Dr. Mensah") and pl.is_person("Auntie Ama Spraying")
+      and not pl.is_person("Kaya Auto"))
 check("a fuel station passes at the safety floor", "TotalEnergies Station" in names)
 check("stations come from OpenStreetMap", by.get("La Main Lorry Station", {}).get("cat") == "transit")
 check("brands are flagged for clearance", by["Ecobank Osu"].get("brand") is True and "brand" not in by["Rabito Clinic"])

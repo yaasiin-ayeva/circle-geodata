@@ -11,6 +11,7 @@ for places while it runs, so no player's position leaves the machine.
     python3 tests/test_places.py
 """
 import math
+import os
 import re
 
 # The game's icon categories (circle-game src/ui/minimap-places.ts draws one icon each), in the order of their weight:
@@ -77,11 +78,14 @@ MAX_NAME = 34
 # picks what fits at each zoom. MAX_PLACES stays for a test or a build that wants one.
 MAX_PLACES = None
 CLOSED = {"closed", "permanently_closed", "temporarily_closed"}
-# Names that are no place a driver would look for: a person's practice (no real private people in the game), or an
-# address.
+# The launch switch (circle-bible DECISIONS.md, 16 Nov 2026): the proof of concept shows every real name, those that
+# name a private person included, each marked "person"; a public build (CHALE_PUBLIC=1) leaves those out, as the game
+# did before, so the fallback before launch is one variable.
+PUBLIC = os.environ.get("CHALE_PUBLIC") == "1"
+# Names that name a private person: a title before a name ("Dr Mensah", "Auntie Ama Spraying"), or an address.
 PERSONAL = re.compile(r"^(dr|doctor|prof|rev|pastor|apostle|bishop|mr|mrs|ms|madam|hon|master|auntie|aunty|uncle|papa|"
                       r"paa|maame|sister|brother|bro|bra|nii|naa|nana|opanin|egya|alhaji|hajia|osofo|agya|togbe|lady|oga|daddy|mummy|mama)\.?\s", re.I)
-# A shop named after its owner ("Kofi's Fitting Shop"): for the garages, which the game names generically instead.
+# A shop named after its owner ("Kofi's Fitting Shop").
 POSSESSIVE = re.compile(r"^[A-Z][a-z]+(?:\s[A-Z][a-z]+)?['’]s\s")
 # An Overture place whose category its name contradicts is left out: a "hospital" with no word of care in its name (a
 # "KFC 37 Liberation" filed as a hospital), a "landmark" named like a business (a "travel consult").
@@ -153,8 +157,6 @@ def clean_name(name):
     # A name in two scripts keeps its Latin one (the in-game text is English, and the HUD's type may lack the other).
     if re.search(r"[A-Za-z]", n) and NON_LATIN.search(n):
         n = " ".join(w for w in n.split() if not NON_LATIN.search(w)).strip(" ,.;:-")
-    if PERSONAL.match(n):
-        return None
     if len(n) > MAX_NAME:
         n = CUT.sub("", n).strip(" ,.;:-")
     if "," in n and len(n) > MAX_NAME:
@@ -165,6 +167,12 @@ def clean_name(name):
         n = " ".join(w if len(w) <= 3 and w.isalpha() and w not in {"THE", "AND", "OF"} else w.capitalize()
                      for w in n.split())
     return n
+
+
+def is_person(name):
+    """Whether a name (as clean_name() gives it) names a private person: a title before a name, or a first name's
+    possessive ("Kofi's Tailoring"). Shown in the proof of concept, marked "person"; left out of a public build."""
+    return bool(name) and bool(PERSONAL.match(name) or POSSESSIVE.match(name))
 
 
 def words(name):
@@ -225,9 +233,12 @@ def select_places(rows, inside, to_local):
             if float(r.get("confidence") or 0) < floor:
                 continue
         name = clean_name(r.get("name"))
-        # A shop named after its owner ("Kofi's Tailoring") is a private person's: left out, unless it is a brand
-        # (Domino's Pizza), cleared before a release.
-        if not name or (POSSESSIVE.match(name) and not r.get("brand")):
+        if not name:
+            continue
+        # A name that names a private person ("Kofi's Tailoring", "Dr Mensah"), unless it is a brand (Domino's Pizza,
+        # cleared before a release): shown and marked in the proof of concept, left out of a public build.
+        person = is_person(name) and not r.get("brand")
+        if person and PUBLIC:
             continue
         if r["source"] == "places" and ((cat == "hospital" and not CARE.search(name))
                                         or (cat in ("landmark", "hotel", "market") and BUSINESS.search(name))):
@@ -235,7 +246,7 @@ def select_places(rows, inside, to_local):
         x, z = to_local(r["lon"], r["lat"])
         if not inside(x, z):
             continue
-        cands.append({"name": name, "cat": cat, "x": x, "z": z, "score": score(r, cat), "brand": bool(r.get("brand")),
+        cands.append({"name": name, "cat": cat, "x": x, "z": z, "score": score(r, cat), "brand": bool(r.get("brand")), "person": person,
                       "area": r["source"] == "land_use" or (r["source"] == "osm" and float(r.get("area_m2") or 0) > 2000)})
     # Best first; a place merges into a better one of the same category nearby with the same name, or into a land
     # use area of the same name (the area's point wins: it stands inside the site, not at a pin on its gate).
@@ -258,7 +269,8 @@ def select_places(rows, inside, to_local):
         kept.append(c)
     kept.sort(key=lambda c: -c["score"])
     return [{"name": c["name"], "cat": c["cat"], "x": round(c["x"], 1), "z": round(c["z"], 1),
-             "rank": round(min(1.0, c["score"] / TOP_SCORE), 3), **({"brand": True} if c["brand"] else {})}
+             "rank": round(min(1.0, c["score"] / TOP_SCORE), 3), **({"brand": True} if c["brand"] else {}),
+             **({"person": True} if c["person"] else {})}
             for c in (kept if MAX_PLACES is None else kept[:MAX_PLACES])]
 
 
@@ -293,10 +305,10 @@ def load_osm(path):
 
 
 def garage_name(name):
-    """A garage's name as the game shows it, or "" when it has none fit to show: no real private people (circle-bible
-    DECISIONS.md, 14 Nov 2026), so a name that starts with a title or a first name's possessive is dropped and the game
-    names the garage generically."""
+    """A garage's name as the game shows it, or "" when it has none fit to show. A name that names a private person (a
+    title, a first name's possessive) is kept in the proof of concept and dropped in a public build (CHALE_PUBLIC=1),
+    where the game names the garage generically (circle-bible DECISIONS.md, 16 Nov 2026)."""
     n = clean_name(name)
-    if not n or POSSESSIVE.match(n):
+    if not n or (PUBLIC and is_person(n)):
         return ""
     return n
