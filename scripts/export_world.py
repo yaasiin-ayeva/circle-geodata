@@ -69,6 +69,10 @@ def main():
                 "bounds_m": s["bounds_m"], "lap_m": round(s["lap"]["length_m"], 1), "lap_via": s["lap"].get("via"),
                 "tiles": len(tiles) if tiles else 0,
                 "scene_bytes": os.path.getsize(path),
+                # Its heavy lists come with its tiles (export_scene.py --chunk), not with the scene.
+                **({"chunked": True, "data_bytes": sum(os.path.getsize(os.path.join(folder, t["data"])) for t in tiles
+                                                       if os.path.exists(os.path.join(folder, t["data"])))}
+                   if s.get("chunked") else {}),
                 "packed_bytes": sum(os.path.getsize(p) for p in packed if os.path.exists(p))}
         missing = [p for p in packed if not os.path.exists(p)]
         if missing:
