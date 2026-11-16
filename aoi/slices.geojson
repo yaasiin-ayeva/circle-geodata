@@ -195,6 +195,45 @@
           ]
         ]
       }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "aburi",
+        "milestone": 6,
+        "description": "North of Adenta up the Akuapem ridge: the Aburi Road (the N4) from Adenta Barrier through Oyarifa, Teiman, Ayi Mensah, Kweiman and the Peduase climb to Kitase and Aburi, with Aburi's centre and the Botanical Gardens (the aburi corridor, build_district.py AREAS). Overlaps east-accra by 1.6 km so the corridor's roads join the N4's at Adenta.",
+        "south": 5.7,
+        "north": 5.866,
+        "west": -0.205,
+        "east": -0.15
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -0.205,
+              5.7
+            ],
+            [
+              -0.15,
+              5.7
+            ],
+            [
+              -0.15,
+              5.866
+            ],
+            [
+              -0.205,
+              5.866
+            ],
+            [
+              -0.205,
+              5.7
+            ]
+          ]
+        ]
+      }
     }
   ]
 }
