@@ -98,9 +98,11 @@ def main():
                            "toward": [round(math.sin(math.radians(sg["bearing"])), 4), round(-math.cos(math.radians(sg["bearing"])), 4)]}
                           for sg in d["signs"]]
     # The drivable network, for traffic: polylines in glTF axes with their class, width and name, and "oneway" on the
-    # pieces driven one way only, which run the way the traffic goes.
+    # pieces driven one way only, which run the way the traffic goes; "lanes" where OSM counts them (build_district.py
+    # LANES: each way's count on a carriageway, the total on a two-way road).
     if d.get("roads"):
         scene["roads"] = [{"cls": r["cls"], "w": r["w"], "name": r["name"], **({"oneway": True} if r.get("oneway") else {}),
+                           **({"lanes": r["lanes"]} if r.get("lanes") else {}),
                            "pts": [[r["pts"][i], round(-r["pts"][i + 1], 1)] for i in range(0, len(r["pts"]), 2)]}
                           for r in d["roads"]]
     # The named places for the maps (scripts/places.py), best first: name, icon category, a point (glTF axes), rank.
