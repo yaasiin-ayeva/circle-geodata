@@ -1052,19 +1052,22 @@ def find_garages(osm_rows, place_rows, roads, clip, inside, to_local, local, mer
     outline's centre or its pin, local metres, z north), door (the edge of the nearest drivable road's asphalt, on the
     garage's side), toward (unit vector from the garage to the door), road (name, width, unit direction along it),
     outline (local metres) when OpenStreetMap maps the building, osm id or "source": "overture", brand when a brand is
-    named (cleared before a public release, circle-bible DECISIONS.md)."""
+    named (cleared before a public release, circle-bible DECISIONS.md), person when the name names a private person
+    (shown in the proof of concept, dropped by a public build: places.PUBLIC)."""
     cands = []
     for r in osm_rows:
         if r.get("garage"):
             g = shapely.from_wkb(r["outline"]) if r.get("outline") else None
             cands.append({"kind": r["garage"], "name": named_places.garage_name(r["name"]), "raw": r["name"] or "",
                           "lonlat": (r["lon"], r["lat"]), "outline": g, "osm": r["id"], "brand": bool(r.get("brand"))})
+            cands[-1]["person"] = named_places.is_person(cands[-1]["name"]) and not cands[-1]["brand"]
     for r in place_rows:
         kind = named_places.GARAGE_KIND_OVERTURE.get(r.get("category") or "")
         if kind and r["source"] == "places" and float(r.get("confidence") or 0) >= named_places.MIN_CONFIDENCE \
                 and (r.get("status") or "").lower() not in named_places.CLOSED:
             cands.append({"kind": kind, "name": named_places.garage_name(r.get("name")), "raw": r.get("name") or "",
                           "lonlat": (r["lon"], r["lat"]), "outline": None, "osm": None, "brand": bool(r.get("brand"))})
+            cands[-1]["person"] = named_places.is_person(cands[-1]["name"]) and not cands[-1]["brand"]
     lines = []
     for rid, cls, name, g in roads:
         if cls not in TRAFFIC_CLASSES:
@@ -1090,7 +1093,8 @@ def find_garages(osm_rows, place_rows, roads, clip, inside, to_local, local, mer
                      (c["raw"] and k["raw"] and math.hypot(k["x"] - x, k["z"] - z) <= merge_m
                       and named_places.same_name(k["raw"], c["raw"]))), None)
         if twin:
-            twin["name"] = twin["name"] or c["name"]
+            if not twin["name"] and c["name"]:
+                twin["name"], twin["person"] = c["name"], c["person"]
             twin["brand"] = twin["brand"] or c["brand"]
             continue
         p = Point(x, z)
@@ -1104,7 +1108,8 @@ def find_garages(osm_rows, place_rows, roads, clip, inside, to_local, local, mer
         door = np.array([q.x, q.y]) + side * min(w / 2, dist)
         toward = door - (x, z); toward = toward / max(1e-6, np.hypot(*toward))
         kept.append({"kind": c["kind"], "name": c["name"], "raw": c["raw"], "x": x, "z": z, "door": door, "toward": toward,
-                     "road": {"name": name, "w": w, "dir": d}, "poly": poly, "osm": c["osm"], "brand": c["brand"]})
+                     "road": {"name": name, "w": w, "dir": d}, "poly": poly, "osm": c["osm"], "brand": c["brand"],
+                     "person": c["person"]})
     out = []
     for k in kept:
         e = {"name": k["name"], "kind": k["kind"], "x": round(float(k["x"]), 1), "z": round(float(k["z"]), 1),
@@ -1115,6 +1120,8 @@ def find_garages(osm_rows, place_rows, roads, clip, inside, to_local, local, mer
         e.update({"osm": k["osm"]} if k["osm"] else {"source": "overture"})
         if k["brand"]:
             e["brand"] = True
+        if k["person"]:
+            e["person"] = True
         out.append(e)
     return out
 

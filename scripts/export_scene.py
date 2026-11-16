@@ -157,7 +157,8 @@ def main():
     # The named places for the maps (scripts/places.py), best first: name, icon category, a point (glTF axes), rank.
     if d.get("places"):
         scene["places"] = [{"name": p["name"], "cat": p["cat"], "at": [p["x"], round(-p["z"], 1) + 0.0], "rank": p["rank"],
-                            **({"brand": True} if p.get("brand") else {})} for p in d["places"]]
+                            **({"brand": True} if p.get("brand") else {}),
+                            **({"person": True} if p.get("person") else {})} for p in d["places"]]
     # Real garages for the game's fitters (build_district find_garages): the garage's point and the door on the road's
     # edge in glTF axes, "facing" the yaw (atan2(x, z), three.js rotation.y) from the garage to the door, the road
     # there (name, width, direction along it), the outline when OpenStreetMap maps the building.
@@ -168,7 +169,8 @@ def main():
                              "road": {"name": gg["road"]["name"], "w": gg["road"]["w"], "dir": flip2(gg["road"]["dir"])},
                              **({"outline": [[x, round(-z, 1) + 0.0] for x, z in gg["outline"]]} if gg.get("outline") else {}),
                              **({"osm": gg["osm"]} if gg.get("osm") else {"source": gg.get("source", "overture")}),
-                             **({"brand": True} if gg.get("brand") else {})} for gg in d["garages"]]
+                             **({"brand": True} if gg.get("brand") else {}),
+                             **({"person": True} if gg.get("person") else {})} for gg in d["garages"]]
     # The central reservations of the dual carriageways: the median's middle line (glTF axes), its width between
     # the two carriageways' asphalt, its kerb height, already cut where roads cross it (build_district find_medians).
     if d.get("medians"):
