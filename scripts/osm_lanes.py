@@ -9,6 +9,7 @@ The file is checked in, so a build needs no network and gives the same city each
 
     python3 scripts/osm_lanes.py                      # every area in aoi/slices.geojson
     python3 scripts/osm_lanes.py --out aoi/osm-lanes.geojson
+    python3 scripts/osm_lanes.py --pbf data/osm/ghana.osm.pbf   # from an extract instead of Overpass (pyosmium)
 
 OpenStreetMap data is ODbL 1.0 (../ATTRIBUTION.md already credits it).
 """
@@ -54,13 +55,39 @@ def fetch(box, tries=3):
     sys.exit(f"Overpass unreachable: {last}")
 
 
+def from_pbf(pbf, box):
+    """The same ways as fetch(), read from an OpenStreetMap extract: every way of HIGHWAYS with a `lanes` tag that has a
+    node inside the box, as Overpass's bbox filter keeps it."""
+    import osmium
+
+    s, w, n, e = box
+    hw = set(HIGHWAYS.split("|"))
+    els = []
+
+    class H(osmium.SimpleHandler):
+        def way(self, wy):
+            t = wy.tags
+            if t.get("highway") not in hw or "lanes" not in t:
+                return
+            try:
+                geom = [{"lon": nd.lon, "lat": nd.lat} for nd in wy.nodes]
+            except osmium.InvalidLocationError:
+                return
+            if any(w <= p["lon"] <= e and s <= p["lat"] <= n for p in geom):
+                els.append({"type": "way", "id": wy.id, "tags": dict(t), "geometry": geom})
+
+    H().apply_file(pbf, locations=True, idx="flex_mem")
+    return {"elements": els}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--aoi", default="aoi/slices.geojson")
     ap.add_argument("--out", default="aoi/osm-lanes.geojson")
+    ap.add_argument("--pbf", help="read an OpenStreetMap extract (.osm.pbf) instead of asking Overpass")
     args = ap.parse_args()
     box = union_box(args.aoi)
-    data = fetch(box)
+    data = from_pbf(args.pbf, box) if args.pbf else fetch(box)
     feats = []
     for el in sorted(data.get("elements", []), key=lambda x: x["id"]):
         geom = el.get("geometry") or []
@@ -70,7 +97,7 @@ def main():
         coords = [[round(p["lon"], 6), round(p["lat"], 6)] for p in geom]
         feats.append({"type": "Feature", "properties": props, "geometry": {"type": "LineString", "coordinates": coords}})
     out = {"type": "FeatureCollection", "name": "osm-lanes",
-           "source": "© OpenStreetMap contributors, ODbL 1.0, via the Overpass API",
+           "source": "© OpenStreetMap contributors, ODbL 1.0, " + ("from an extract" if args.pbf else "via the Overpass API"),
            "fetched": time.strftime("%Y-%m-%d"), "bbox": [box[1], box[0], box[3], box[2]], "features": feats}
     with open(args.out, "w") as f:
         json.dump(out, f, separators=(",", ":"))
