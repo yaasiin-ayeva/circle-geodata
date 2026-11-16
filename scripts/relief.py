@@ -25,10 +25,11 @@ GLO-30 is a surface model: it carries the roofs and the tree tops. The steps:
      not of the hillside. Where roads meet, the nearest one sets the height (a Euclidean distance transform), and a
      last 8 m smoothing takes the seam out;
   4. written as tiles of 1024 m (129 x 129 heights, 8 m apart, edges shared) wherever the world has a road within
-     1.5 km, and one coarse grid (128 m) over the whole world and 14 km beyond it, for the far view: from the Aburi
-     Road the plain and the city are seen 20 km away.
+     1.5 km, and two grids over the whole world and 14 km beyond it: coarse.bin (256 m, heights to 0.1 m, 37 KB),
+     loaded before the drive for the ground beyond the loaded tiles, and far.bin (128 m, to 0.05 m, about 130 KB),
+     loaded after the start for the far view: from the Aburi Road the plain and the city are seen 20 km away.
 
-The land cover (cover.bin, beside the coarse grid and on its nodes): what covers the ground round each coarse node, as
+The land cover (cover.bin, on the far grid's nodes): what covers the ground round each far node, as
 three shares 0-255 (built up, trees, water), from ESA WorldCover 2021 v200 (10 m, data/worldcover/, fetched from its
 AWS open-data bucket the first time; CC BY 4.0, attribution in relief.json "cover"). Each share is counted on 64
 samples 16 m apart across the node's 128 m cell. The game colours the far land with it (the city's grey where Greater
@@ -36,7 +37,8 @@ Accra is built over, the ridge's forest where the trees are) and scatters the ci
 beyond the world's roads: from the ridge at night, the whole conurbation is lit, not only the mapped areas. The three
 planes are zlib'd one after another, built then trees then water.
 
-Encoding (relief.json "enc"): each height as uint16 q = round((h + 20) / 0.01) (0.01 m from -20 to 635 m), row by row;
+Encoding (relief.json "enc"): each height as uint16 q = round((h + 20) / 0.01) (0.01 m from -20 to 635 m; the coarse
+and far grids' own step is their "q"), row by row;
 the residual of the planar predictor (left + up - up-left, mod 2^16) zigzagged, its low bytes then its high bytes,
 then zlib. The game inflates it with DecompressionStream("deflate").
 """
@@ -60,8 +62,10 @@ COVER_ATTRIBUTION = ("ESA WorldCover 2021 v200 (c) ESA WorldCover project 2021, 
                      "(2021) processed by the ESA WorldCover consortium; CC BY 4.0.")
 STEP = 8.0            # fine grid, m
 TILE = 1024.0         # fine tile, m (128 steps)
-COARSE = 128.0        # coarse grid, m
-FAR = 14000.0         # the coarse grid's reach beyond the world, m
+COARSE = 256.0        # coarse grid, m: in the first load, for the ground beyond the loaded tiles
+FAR = 128.0           # far grid, m: loaded after the start, for the far view, with the land cover on its nodes
+COARSE_Q, FAR_Q = 0.1, 0.05   # their height steps, m (the tiles' is Q)
+REACH = 14000.0       # the coarse and far grids' reach beyond the world, m
 NEAR = 1500.0         # fine tiles within this of a road, m
 H0, Q = -20.0, 0.01   # encoding
 # Per road class: profile smoothing sigma (m), bank width (m).
@@ -271,9 +275,9 @@ def carve(h, grid, roads):
     return n
 
 
-def encode(h):
+def encode(h, q_step=None):
     """See the module's docstring: quantised, predicted, zigzagged, byte planes, zlib."""
-    q = np.clip(np.rint((h - H0) / Q), 0, 65535).astype(np.int32)
+    q = np.clip(np.rint((h - H0) / (q_step or Q)), 0, 65535).astype(np.int32)
     pred = np.zeros_like(q)
     pred[0, 1:] = q[0, :-1]
     pred[1:, 0] = q[:-1, 0]
@@ -286,7 +290,7 @@ def encode(h):
     return zlib.compress(planes.tobytes(), 9)
 
 
-def decode(buf, nx, nz):
+def decode(buf, nx, nz, q_step=None):
     """The inverse of encode(), as the game does it (for the round-trip check)."""
     planes = np.frombuffer(zlib.decompress(buf), np.uint8)
     n = nx * nz
@@ -301,7 +305,7 @@ def decode(buf, nx, nz):
             c = q[j - 1, i - 1] if i and j else 0
             p = a if not j else (b if not i else a + b - c)
             q[j, i] = (r[j, i] + p) & 0xFFFF
-    return q * Q + H0
+    return q * (q_step or Q) + H0
 
 
 def main():
@@ -320,10 +324,10 @@ def main():
     origin = to_utm.transform(o["lon"], o["lat"])
     wx0, wz0, wx1, wz1 = world_bounds(world)
     # The coarse grid's box, on its own step; the DEM box around it.
-    cx0 = math.floor((wx0 - FAR) / TILE) * TILE
-    cz0 = math.floor((wz0 - FAR) / TILE) * TILE
-    cx1 = math.ceil((wx1 + FAR) / TILE) * TILE
-    cz1 = math.ceil((wz1 + FAR) / TILE) * TILE
+    cx0 = math.floor((wx0 - REACH) / TILE) * TILE
+    cz0 = math.floor((wz0 - REACH) / TILE) * TILE
+    cx1 = math.ceil((wx1 + REACH) / TILE) * TILE
+    cz1 = math.ceil((wz1 + REACH) / TILE) * TILE
     lons, lats = to_ll.transform([origin[0] + cx0, origin[0] + cx1, origin[0] + cx0, origin[0] + cx1],
                                  [origin[1] - cz0, origin[1] - cz0, origin[1] - cz1, origin[1] - cz1])
     dem, north, west, px = load_dem(args.dem, min(lats) - 0.01, max(lats) + 0.01, min(lons) - 0.01, max(lons) + 0.01)
@@ -376,22 +380,28 @@ def main():
             f.write(buf)
         total += len(buf)
 
-    # Coarse: the carved fine grid where it reaches, the bare DEM beyond.
-    coarse = Grid(cx0, cz0, int((cx1 - cx0) / COARSE) + 1, int((cz1 - cz0) / COARSE) + 1, COARSE)
-    x, z = coarse.xz()
-    hc = sample_dem(bare, north, west, px, origin, x, z)
-    fi = (x - fine.x0) / STEP
-    fj = (z - fine.z0) / STEP
-    inside = (fi >= 0) & (fi <= fine.nx - 1) & (fj >= 0) & (fj <= fine.nz - 1)
-    hc[inside] = ndimage.map_coordinates(h, [fj[inside], fi[inside]], order=1)
-    hc = np.maximum(hc, -5.0)    # the sea stays at sea level
-    cbuf = encode(hc)
+    # Coarse and far: the carved fine grid where it reaches, the bare DEM beyond.
+    def grid_heights(step):
+        g = Grid(cx0, cz0, int((cx1 - cx0) / step) + 1, int((cz1 - cz0) / step) + 1, step)
+        x, z = g.xz()
+        hg = sample_dem(bare, north, west, px, origin, x, z)
+        fi = (x - fine.x0) / STEP
+        fj = (z - fine.z0) / STEP
+        inside = (fi >= 0) & (fi <= fine.nx - 1) & (fj >= 0) & (fj <= fine.nz - 1)
+        hg[inside] = ndimage.map_coordinates(h, [fj[inside], fi[inside]], order=1)
+        return g, np.maximum(hg, -5.0)    # the sea stays at sea level
+    coarse, hc = grid_heights(COARSE)
+    cbuf = encode(hc, COARSE_Q)
     with open(os.path.join(args.out, "coarse.bin"), "wb") as f:
         f.write(cbuf)
+    far, hf = grid_heights(FAR)
+    fbuf = encode(hf, FAR_Q)
+    with open(os.path.join(args.out, "far.bin"), "wb") as f:
+        f.write(fbuf)
 
-    # The land cover on the coarse nodes.
+    # The land cover on the far grid's nodes.
     cov, cnorth, cwest, cpx = load_cover(args.cover, min(lats) - 0.01, max(lats) + 0.01, min(lons) - 0.01, max(lons) + 0.01)
-    shares = cover_shares(cov, cnorth, cwest, cpx, origin, coarse)
+    shares = cover_shares(cov, cnorth, cwest, cpx, origin, far)
     del cov
     parts = [zlib.compress(a.tobytes(), 9) for a in shares]
     vbuf = b"".join(parts)
@@ -401,7 +411,7 @@ def main():
     print(f"cover: built {shares[0].mean() / 2.55:.0f}%, trees {shares[1].mean() / 2.55:.0f}%, water "
           f"{shares[2].mean() / 2.55:.0f}% of the box; {len(vbuf) / 1024:.0f} KB")
 
-    # Round trip on one tile and the coarse grid's corner.
+    # Round trip on one tile.
     t0 = tiles[len(tiles) // 2]
     back = decode(open(os.path.join(args.out, "t", f"{t0[0]}_{t0[1]}.bin"), "rb").read(), per + 1, per + 1)
     a = pad + (t0[0] - i0) * per
@@ -419,25 +429,28 @@ def main():
         "tile": {"m": TILE, "step": STEP, "n": per + 1, "x0": cx0, "z0": cz0, "folder": "t"},
         "tiles": [[i, j] for i, j in tiles],
         "coarse": {"file": "coarse.bin", "x0": cx0, "z0": cz0, "nx": coarse.nx, "nz": coarse.nz, "step": COARSE,
-                   "bytes": len(cbuf)},
+                   "q": COARSE_Q, "bytes": len(cbuf)},
+        "far": {"file": "far.bin", "x0": cx0, "z0": cz0, "nx": far.nx, "nz": far.nz, "step": FAR, "q": FAR_Q,
+                "bytes": len(fbuf)},
         "cover": {"file": "cover.bin", "planes": ["built", "trees", "water"], "bytes": vlens,
-                  "source": "ESA WorldCover 2021 v200, shares of 64 samples per coarse node", "attribution": COVER_ATTRIBUTION},
-        "range_m": [round(float(hc.min()), 1), round(float(hc.max()), 1)],
+                  "source": "ESA WorldCover 2021 v200, shares of 64 samples per far node", "attribution": COVER_ATTRIBUTION},
+        "range_m": [round(float(hf.min()), 1), round(float(hf.max()), 1)],
         "tile_bytes": total,
     }
     with open(os.path.join(args.out, "relief.json"), "w") as f:
         json.dump(meta, f, separators=(",", ":"))
     print(f"relief: {len(tiles)} tiles, {total / 1048576:.2f} MB ({total / len(tiles) / 1024:.1f} KB each); coarse "
-          f"{coarse.nx} x {coarse.nz} at {COARSE:.0f} m, {len(cbuf) / 1024:.0f} KB; {hc.min():.0f} to {hc.max():.0f} m")
+          f"{coarse.nx} x {coarse.nz} at {COARSE:.0f} m, {len(cbuf) / 1024:.0f} KB; far {far.nx} x {far.nz} at {FAR:.0f} m, "
+          f"{len(fbuf) / 1024:.0f} KB; {hf.min():.0f} to {hf.max():.0f} m")
 
     if args.preview:
         from PIL import Image
-        v = np.clip((hc - hc.min()) / max(1, hc.max() - hc.min()), 0, 1)
-        gy, gx = np.gradient(hc, COARSE)
+        v = np.clip((hf - hf.min()) / max(1, hf.max() - hf.min()), 0, 1)
+        gy, gx = np.gradient(hf, FAR)
         shade = np.clip(0.75 - (gx - gy) * 1.5, 0.2, 1)
         rgb = np.stack([v * 0.6 + 0.3, v * 0.5 + 0.35, 0.4 - v * 0.2], -1) * shade[..., None]
         img = (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
-        k = int(TILE / COARSE)
+        k = int(TILE / FAR)
         for (i, j) in tiles:
             img[j * k, i * k:(i + 1) * k] = (255, 255, 255)
             img[j * k:(j + 1) * k, i * k] = (255, 255, 255)
