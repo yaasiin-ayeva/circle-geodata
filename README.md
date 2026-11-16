@@ -226,6 +226,12 @@ Two areas from the slice `east-accra` (`aoi/slices.geojson`, 5.600–5.716 N, �
 - **Limits:** roads are noded in 2D, so the motorway's flyovers may join the roads under them in the graph; the OpenStreetMap extract is frozen with the slice cache in CI.
 - **Tests:** `python3 tests/test_east.py` (corridors, OpenStreetMap categories, garage names, garages, tile data files).
 
+### Aburi, up the Akuapem ridge, and the relief
+
+- **`aburi`:** a corridor 250 m either side of `ABURI_ROADS` (the N4 Aburi Road from Adenta through Ayi Mensah and Peduase, and Aburi town's own streets), plus every `trunk` road in `ABURI` (5.710–5.866 N), plus Aburi town whole (`ABURI_TOWN`), minus Legon's area. Built from the slice `aburi` (`aoi/slices.geojson`), chunked like Legon. Lap (`ABURI_LAP`) 33.7 km: Adenta up to Aburi and back down; `route_lap()` takes the lap's `"penalty"` (1.0 here, 25 by default) so the descent may retrace the climb. The 16 November build: 14,959 buildings, 1,097 street lights, 3,972 parked places, 98 places, 2 garages; 86 tiles, 9.6 MB packed, 1.9 MB of tile data; scene 353 KB.
+- **The relief (`scripts/relief.py`):** the ground's real heights under the whole world, from the Copernicus DEM GLO-30 (fetched into `data/dem/`): bare earth by a 150 m grey opening, resampled to 8 m, the roads laid into the slopes (profile smoothed along each road, banks cut and filled). Written as 1 km tiles (129 × 129, 4.6 KB each, 475 tiles, 2.1 MB) within 1.5 km of a road, a 256 m coarse grid 14 km round the world for the first load (37 KB), and a 128 m far grid over the same box for the far view, loaded after the start (133 KB). On the far grid, `cover.bin` (101 KB): the built, tree and water shares from ESA WorldCover 2021 (10 m, fetched into `data/worldcover/`), for the far land's colours and the city's lights at night. Run after `export_world.py`: `python3 scripts/relief.py --world data/work/web/osu-world.json --out data/work/web/relief` (34 s; the method and the encoding are in its docstring).
+- **Licences:** Copernicus DEM, free for any use with its attribution; ESA WorldCover, CC BY 4.0. Both attributions are written into `relief.json` and the game's `licenses/`.
+
 ### Dual carriageways, found in the geometry
 
 OpenStreetMap maps a boulevard with a central reservation as one one-way road per carriageway, drawn the way its traffic runs. Before, only the Ring Road's surveyed carriageways (`DUAL_CARRIAGEWAYS`) were treated as such; the others were drawn at their class's width (18 m for a trunk), two-way, and covered their median.

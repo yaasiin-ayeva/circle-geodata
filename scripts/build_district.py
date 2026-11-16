@@ -112,6 +112,18 @@ TEMA_C1 = {"south": 5.6380, "north": 5.6560, "west": -0.0080, "east": 0.0080}
 # Its lap: the motorway from the interchange to Tema and back (the south carriageway eastbound, the north one back).
 TEMA_LAP = {"route": [(5.6300, -0.15467), (5.6650, -0.06476), (5.6800, -0.03115), (5.6650, -0.06530), (5.6300, -0.15528)]}
 
+# North of Adenta (aoi/slices.geojson "aburi"; slice in data/work/slice-aburi): the Aburi Road (the N4, a single
+# carriageway past Adenta) through Oyarifa, Teiman, Ayi Mensah and Kweiman, up the Peduase climb of the Akuapem ridge
+# to Kitase and Aburi, its unnamed trunk pieces with it ("classes"); Aburi's centre and the Botanical Gardens as a whole
+# district ("boxes"). It meets the legon corridor at Adenta ("minus"). The game lays it on the real relief (relief.py).
+ABURI = {"south": 5.7100, "north": 5.8660, "west": -0.2050, "east": -0.1500}
+ABURI_ROADS = ("Aburi Road", "J.J. Rawlings Avenue", "Nana A. Kodua I Avenue", "Nana Kwam Affum Street", "Nana K. Bampoe Street")
+ABURI_TOWN = {"south": 5.8380, "north": 5.8560, "west": -0.1860, "east": -0.1680}
+# Its lap: from Adenta up the ridge to Aburi and back down the same road ("penalty" 1: a single carriageway has no other
+# way back), past Ayi Mensah and the Peduase climb (lat, lon, each near a vertex of the N4).
+ABURI_LAP = {"route": [(5.722266, -0.172756), (5.782797, -0.181725), (5.807419, -0.183105), (5.844452, -0.174003),
+                       (5.807419, -0.183105), (5.782797, -0.181725)], "penalty": 1.0}
+
 AREAS = {
     # About 1.3 km2 of Osu: Danquah Circle, the north half of Oxford Street, Ring Road East.
     "osu-poc": {"south": 5.5575, "north": 5.5695, "west": -0.1870, "east": -0.1780,
@@ -135,6 +147,9 @@ AREAS = {
     "tema": {"corridor": {"roads": TEMA_ROADS, "classes": ("motorway",), "half_width_m": 220.0, "within": TEMA,
                           "boxes": (TEMA_C1,)},
              "minus": ["liberation", "legon"], "origin": OSU_ORIGIN, "lap": TEMA_LAP, "district": "ring-road"},
+    "aburi": {"corridor": {"roads": ABURI_ROADS, "classes": ("trunk",), "half_width_m": 250.0, "within": ABURI,
+                           "boxes": (ABURI_TOWN,)},
+              "minus": ["legon"], "origin": OSU_ORIGIN, "lap": ABURI_LAP, "district": "ring-road"},
 }
 
 # What changes from one district to the next (circle-reference district cards, catalogue/*-identity-survey.md).
@@ -1678,9 +1693,11 @@ def route_lap(roads, region, spec, to_utm, origin):
     vertices; the roads named in spec["one_way"] are driven along their geometry only (dual carriageways and
     roundabouts, mapped one way per carriageway; Ghana drives on the right), the others both ways. Each leg is the
     shortest way to the next point, at 25 times the cost on stretches already driven, so the turns at the ends go
-    round a block rather than back along the same street. Service roads are left out. Returns benchmark_lap()'s
+    round a block rather than back along the same street (spec["penalty"], 25 by default; 1 drives back the same
+    way, for a road with no other). Service roads are left out. Returns benchmark_lap()'s
     dict, with the distance each route point was moved to reach the network ("snapped_m")."""
     one_way = set(spec.get("one_way", ()))
+    penalty = spec.get("penalty", 25.0)
     G = nx.DiGraph()
     key = lambda p: (round(p[0], 2), round(p[1], 2))
     src = []
@@ -1722,7 +1739,7 @@ def route_lap(roads, region, spec, to_utm, origin):
     used = set()
     edges = []
     for s, t in zip(stops, stops[1:] + stops[:1]):
-        leg = nx.shortest_path(G, s, t, weight=lambda u, v, d: d["length"] * (25 if frozenset((u, v)) in used else 1))
+        leg = nx.shortest_path(G, s, t, weight=lambda u, v, d: d["length"] * (penalty if frozenset((u, v)) in used else 1))
         for u, v in zip(leg, leg[1:]):
             used.add(frozenset((u, v)))
             edges.append((u, v))
