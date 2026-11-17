@@ -28,6 +28,7 @@ import hashlib
 from collections import Counter
 import json
 import math
+from collections import defaultdict
 import os
 import sys
 
@@ -825,6 +826,32 @@ def load_elevated(path, oe, on):
             [{**f, "pts": move(f["pts"])} for f in d["footbridges"]])
 
 
+def whole_structures(pieces, near):
+    """The structures in the area: the pieces joined end to end (an interchange, a flyover and its ramps), kept only
+    when every piece of the group meets the area. A group cut by the area's edge would leave a deck ending in the air
+    and its roads cut off from the ground's; its roads then stay on the ground, as before."""
+    ends = defaultdict(list)
+    for i, p in enumerate(pieces):
+        for e in (p["pts"][0], p["pts"][-1]):
+            ends[(round(e[0]), round(e[1]))].append(i)
+    group = list(range(len(pieces)))
+
+    def find(i):
+        while group[i] != i:
+            group[i] = group[group[i]]
+            i = group[i]
+        return i
+    for (x, y), ids in ends.items():
+        near_ids = [j for dx in (-1, 0, 1) for dy in (-1, 0, 1) for j in ends.get((x + dx, y + dy), ())]
+        for j in near_ids:
+            group[find(j)] = find(ids[0])
+    inside = [LineString(p["pts"]).intersects(near) for p in pieces]
+    whole = defaultdict(lambda: True)
+    for i in range(len(pieces)):
+        whole[find(i)] &= inside[i]
+    return [p for i, p in enumerate(pieces) if inside[i] and whole[find(i)]]
+
+
 def cut_structures(roads, pieces, step=1.0):
     """The roads with what runs along a structure taken out: a road within OFF_STRUCTURE_M of a piece's centreline
     and within OFF_STRUCTURE_DEG of its direction is that piece (Overture's roads are OpenStreetMap's ways), which the
@@ -929,7 +956,7 @@ def build(args):
     elev, feet = load_elevated(args.elevated, oe, on)
     if elev or feet:
         near = clip.buffer(50)
-        elev = [p for p in elev if LineString(p["pts"]).intersects(near)]
+        elev = whole_structures(elev, near)
         feet = [f for f in feet if LineString(f["pts"]).intersects(near)]
         roads, gone = cut_structures(roads, elev)
         print(f"structures: {len(elev)} pieces ({sum(LineString(p['pts']).length for p in elev) / 1000:.2f} km) "

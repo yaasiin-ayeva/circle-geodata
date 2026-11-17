@@ -52,7 +52,7 @@ FOOT_M = 6.2        # a footbridge's deck over a main road: 5.5 m of clearance a
 GRADE = 0.05        # the approaches' grade
 MAX_GRADE = 0.09    # steepest before a junction is lifted onto the deck
 STEP_M = 5.0        # vertices along the structures
-HOLD_M = 14.0       # a road under a base-level bridge is held down this far either side of the bridge's edge
+HOLD_M = 8.0        # a road under a base-level bridge is held down this far either side of the bridge's edge
 EPS = 0.05
 BOX = (5.50, 5.90, -0.27, 0.03)   # south, north, west, east: the whole world with a margin
 
@@ -240,9 +240,29 @@ def build(ways, to_utm):
             for v in vs:
                 hold(v, (layer_of(t) - base) * LEVEL_M)
         elif wid in tunnels:
+            # Held down only where it passes under a deck (the portals' ramps run on at the approaches' grade).
+            over = [wby[b]["line"] for b in flyover if b in wby and wby[b]["line"].distance(wby[wid]["line"]) < 1.0]
+            over_u = shapely.union_all(over) if over else None
+            reach = width(t) / 2 + HOLD_M
             for v in vs:
-                hold(v, (min(layer_of(t), -1) - base) * LEVEL_M if base <= 0 else (layer_of(t) - base) * LEVEL_M)
-    # Roads under a base-level bridge at a site whose base is above 0: held in their cut.
+                if over_u is None or over_u.distance(shapely.Point(pos[v])) < reach + width(t):
+                    hold(v, (min(layer_of(t), -1) - base) * LEVEL_M if base <= 0 else (layer_of(t) - base) * LEVEL_M)
+    # Roads under a base-level bridge at a site whose base is above 0: held in their cut. The nodes of the ways the
+    # bridge joins, per bridge: a road ending on those is an approach at the ground, not a road under it.
+    way_of_node = defaultdict(list)
+    for wid in wverts:
+        for nd in wby[wid]["nodes"]:
+            way_of_node[nd].append(wid)
+    near_bridge = {}
+    for bid in flyover:
+        if bid not in wby:
+            continue
+        nds = set()
+        for nd in wby[bid]["nodes"]:
+            for o in way_of_node.get(nd, ()):
+                if o != bid:
+                    nds |= set(wby[o]["nodes"])
+        near_bridge[bid] = nds
     for wid, vs in wverts.items():
         t = wby[wid]["tags"]
         if wid in flyover or wid in tunnels:
@@ -250,12 +270,16 @@ def build(ways, to_utm):
         line = wby[wid]["line"]
         for bid in flyover:
             b = wby.get(bid)
-            if b is None:
+            if b is None or bid not in near_bridge:
                 continue
             s = site_of(*b["line"].interpolate(0.5, normalized=True).coords[0], sites)
-            if not s or s["base"] <= 0 or layer_of(b["tags"]) < s["base"] or not line.crosses(b["line"]):
+            if not s or s["base"] <= 0 or layer_of(b["tags"]) != s["base"] or not line.crosses(b["line"]):
                 continue
             if set(b["nodes"]) & set(wby[wid]["nodes"]):
+                continue
+            # A road that enters the bridge's own ring or carriageway (Independence Avenue onto the Ako Adjei
+            # roundabout) meets it at the ground: it only seems to cross where it joins.
+            if near_bridge[bid] & set(wby[wid]["nodes"]):
                 continue
             x = line.intersection(b["line"])
             reach = width(b["tags"]) / 2 + HOLD_M
@@ -297,7 +321,9 @@ def build(ways, to_utm):
                 o1 = off[start]
                 end = chain[-1][0]
                 o2 = off.get(end, lifted.get(end, 0.0))
-                if end not in off and degree(end) >= 3 and abs(o1) > EPS:
+                # Only a deck lifts a junction; a cut steepens its ramp instead, so the roads that leave it at the
+                # ground (the Ring Road's slip roads up to Ako Adjei's roundabout) stay there.
+                if end not in off and degree(end) >= 3 and o1 > EPS:
                     need = abs(o1) - MAX_GRADE * length
                     if need > EPS and abs(o2) < need:
                         lifted[end] = math.copysign(need, o1)
@@ -325,11 +351,11 @@ def build(ways, to_utm):
         if not changed:
             break
 
-    # 3b. No step steeper than MAX_GRADE anywhere: where two levels still meet within a few metres (a slip road off
+    # 3b. No step down from a deck steeper than MAX_GRADE: where two levels still meet within a few metres (a slip road off
     # Circle's top tier tagged a layer lower over its whole length, a short way between Ako Adjei's cut and the
     # ground), the higher level runs on down along the roads at MAX_GRADE, the held ones included (a slip road ramps
     # down from the tier it leaves). Levels of opposite signs (a cut meeting a ramp) are left to step 3's line.
-    heap = [(-abs(h), k, v) for k, (v, h) in enumerate(off.items()) if abs(h) > EPS]
+    heap = [(-abs(h), k, v) for k, (v, h) in enumerate(off.items()) if h > EPS]
     tick = len(heap)
     heapq.heapify(heap)
     while heap:
@@ -341,34 +367,42 @@ def build(ways, to_utm):
         for u, d, _ in cadj.get(v, ()):
             want = m - MAX_GRADE * d
             o = off.get(u, 0.0)
+            # A vertex held at the ground (a base-level bridge: Ako Adjei's roundabout) stays there.
+            if u in held and abs(held[u]) < EPS:
+                continue
             if want > EPS and want > abs(o) + 0.01 and (abs(o) < EPS or (o > 0) == (sg > 0)):
                 off[u] = sg * want
                 heapq.heappush(heap, (-want, tick, u))
                 tick += 1
 
-    # 3c. A cut and a ramp of opposite signs that still meet in a step (a short connector at Circle between the
-    # underpass and a flyover): one even grade along the way between the held vertices on either side.
-    for wid, vs in wverts.items():
-        if wid not in carry:
-            continue
-        for i in range(len(vs) - 1):
-            o1, o2 = off.get(vs[i], 0.0), off.get(vs[i + 1], 0.0)
-            if (o1 > EPS and o2 < -EPS) or (o1 < -EPS and o2 > EPS):
-                if abs(o2 - o1) <= MAX_GRADE * math.dist(pos[vs[i]], pos[vs[i + 1]]) + 0.01:
-                    continue
-                a = i
-                while a > 0 and vs[a] not in held:
-                    a -= 1
-                b = i + 1
-                while b < len(vs) - 1 and vs[b] not in held:
-                    b += 1
-                cum = [0.0]
-                for k in range(a, b):
-                    cum.append(cum[-1] + math.dist(pos[vs[k]], pos[vs[k + 1]]))
-                oa, ob = off.get(vs[a], 0.0), off.get(vs[b], 0.0)
-                for k in range(a + 1, b):
-                    if vs[k] not in held:
-                        off[vs[k]] = oa + (ob - oa) * cum[k - a] / (cum[-1] or 1)
+    # 3c. A cut and a ramp of opposite signs that still meet in a step (Nsawam Road out of Circle's underpass into the
+    # connector up to a flyover): one even grade along the road between the held vertices on either side, through
+    # the vertices between them, through a junction along the structure.
+    def walk(v, came):
+        path = [v]
+        while v not in held:
+            nxt = [u for u, _, _ in cadj.get(v, ()) if u != came and u not in path and off.get(u, 0.0) * off[v] > 0]
+            if not nxt:
+                break
+            # Through a junction, along the structure (the level that runs on furthest from the ground).
+            came, v = v, max(nxt, key=lambda u: abs(off[u]))
+            path.append(v)
+        return path
+
+    for _ in range(3):
+        steps = [(a, b) for a in list(off) for b, d, _ in cadj.get(a, ())
+                 if off.get(a, 0.0) > EPS and off.get(b, 0.0) < -EPS and off[a] - off[b] > MAX_GRADE * d + 0.01]
+        if not steps:
+            break
+        for a, b in steps:
+            path = walk(a, b)[::-1] + walk(b, a)
+            cum = [0.0]
+            for k in range(len(path) - 1):
+                cum.append(cum[-1] + math.dist(pos[path[k]], pos[path[k + 1]]))
+            oa, ob = off.get(path[0], 0.0), off.get(path[-1], 0.0)
+            for k in range(1, len(path) - 1):
+                if path[k] not in held:
+                    off[path[k]] = oa + (ob - oa) * cum[k] / (cum[-1] or 1)
 
     # 4. Pieces: runs along each way of structure vertices, ending on the ground.
     pieces = []
