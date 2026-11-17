@@ -101,8 +101,21 @@ def check_road_summary():
     assert res["road_km_by_class"][0] == {"class": "primary", "segments": 2, "km": 2.0}, res
 
 
+def check_s3_patience():
+    """The bucket is read with long timeouts: the SDK's defaults failed city builds on a slow line."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("overture_slice", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    opts = mod.s3_filesystem().__reduce__()[1][0]
+    assert opts["anonymous"] and opts["region"] == "us-west-2", opts
+    assert opts["connect_timeout"] >= 30 and opts["request_timeout"] >= 300, opts
+
+
 def main():
     check_latest_release_parsing()
+    check_s3_patience()
     check_road_summary()
     with tempfile.TemporaryDirectory() as root:
         build_fixture(root)
