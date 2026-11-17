@@ -56,6 +56,9 @@ ROOF_PALETTES = {
     # roof, at "shed_pitch" degrees; hipped roofs alone left half the roof area flat where the count saw 3%.
     "jamestown": {"mix": [("M_Roof", 0.95), ("M_RoofSheet_Rust", 0.03), ("M_RoofTile_Red", 0.02)], "pitched": 0.97, "pitch": 12,
                   "shed": 0.95, "shed_pitch": 5, "shed_storeys": 3},
+    # The old centre around Jamestown, Ussher Town and Makola (build_district.py AREAS "central"): the same sheet roofs.
+    "central": {"mix": [("M_Roof", 0.95), ("M_RoofSheet_Rust", 0.03), ("M_RoofTile_Red", 0.02)], "pitched": 0.97, "pitch": 12,
+                "shed": 0.95, "shed_pitch": 5, "shed_storeys": 3},
     # North Ridge, about 156 roofs: of the 125 pitched, grey 48, brown 29, red 37, painted purple, blue or green 11.
     "cantonments-ridge": {"mix": [("M_Roof", 0.38), ("M_RoofSheet_Rust", 0.23), ("M_RoofTile_Red", 0.30),
                                   ("M_RoofSheet_Painted", 0.09)], "pitched": 0.85, "pitch": 18},
