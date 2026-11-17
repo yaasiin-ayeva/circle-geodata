@@ -107,9 +107,13 @@ def source_dataset(args, layer):
         print(f"Using Overture release {args.release}", file=sys.stderr)
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}\.\d+", args.release or ""):
         sys.exit("--release must look like 2026-10-22.0, or 'latest' (see docs.overturemaps.org/release)")
-    from pyarrow.fs import S3FileSystem
+    from pyarrow.fs import AwsStandardS3RetryStrategy, S3FileSystem
 
-    fs = S3FileSystem(anonymous=True, region=S3_REGION)
+    # The SDK's defaults give up within seconds (a name that takes 3 s to resolve, a read that stalls 3 s on macOS) and
+    # after three tries: on a slow or unsteady line one file in hundreds then fails and the whole city is built again.
+    # Patient timeouts and ten tries per request let that file wait and try again on its own.
+    fs = S3FileSystem(anonymous=True, region=S3_REGION, connect_timeout=30, request_timeout=300,
+                      retry_strategy=AwsStandardS3RetryStrategy(max_attempts=10))
     return ds.dataset(f"{S3_BUCKET}/{args.release}/{LAYERS[layer]}", filesystem=fs, format="parquet")
 
 
