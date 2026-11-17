@@ -809,6 +809,90 @@ def lay_ground(mesh, region):
                              uv=((a[0] / 8, a[1] / 8), (b[0] / 8, b[1] / 8), (c[0] / 8, c[1] / 8)))
 
 
+# The interchanges, flyovers and footbridges (scripts/elevated.py): what the game builds above or below the ground.
+ELEVATED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "work", "elevated.json")
+OFF_STRUCTURE_M = 3.0     # a road this close to a structure's centreline, and along it, is that structure
+OFF_STRUCTURE_DEG = 25.0
+
+
+def load_elevated(path, oe, on):
+    """The structures of scripts/elevated.py in the area's frame (x east, y north), or ([], []) without the file."""
+    if not path or not os.path.exists(path):
+        return [], []
+    d = json.load(open(path))
+    move = lambda pts: [[round(x - oe, 2), round(y - on, 2)] for x, y in pts]
+    return ([{**p, "pts": move(p["pts"])} for p in d["pieces"]],
+            [{**f, "pts": move(f["pts"])} for f in d["footbridges"]])
+
+
+def cut_structures(roads, pieces, step=1.0):
+    """The roads with what runs along a structure taken out: a road within OFF_STRUCTURE_M of a piece's centreline
+    and within OFF_STRUCTURE_DEG of its direction is that piece (Overture's roads are OpenStreetMap's ways), which the
+    game builds on its deck, its fill or in its cut; a road that crosses a piece keeps its crossing. Returns the roads
+    (rid, cls, name, line) and the metres taken out."""
+    if not pieces:
+        return roads, 0.0
+    segs, dirs = [], []
+    for p in pieces:
+        pts = p["pts"]
+        for a, b in zip(pts, pts[1:]):
+            d = math.dist(a, b)
+            if d > 1e-6:
+                segs.append(LineString([a, b]))
+                dirs.append(((b[0] - a[0]) / d, (b[1] - a[1]) / d))
+    tree = shapely.STRtree(segs)
+    cos_max = math.cos(math.radians(OFF_STRUCTURE_DEG))
+    out, gone = [], 0.0
+    for rid, cls, name, g in roads:
+        lines = [g] if isinstance(g, LineString) else [l for l in getattr(g, "geoms", []) if isinstance(l, LineString)]
+        for line in lines:
+            if not tree.query(line.buffer(OFF_STRUCTURE_M)).size:
+                out.append((rid, cls, name, line))
+                continue
+            n = max(2, int(math.ceil(line.length / step)) + 1)
+            ds = np.linspace(0, line.length, n)
+            keep = np.ones(n, bool)
+            for k, dd in enumerate(ds):
+                p = line.interpolate(dd)
+                a = line.interpolate(max(0.0, dd - 0.5))
+                b = line.interpolate(min(line.length, dd + 0.5))
+                vx, vy = b.x - a.x, b.y - a.y
+                vn = math.hypot(vx, vy) or 1.0
+                for j in tree.query(p.buffer(OFF_STRUCTURE_M)):
+                    # Square ends: the piece stops at its last point, where the road on the ground goes on.
+                    (ax, ay), (bx, by) = segs[j].coords
+                    ln = math.hypot(bx - ax, by - ay)
+                    t = ((p.x - ax) * dirs[j][0] + (p.y - ay) * dirs[j][1])
+                    if t < -0.01 or t > ln + 0.01:
+                        continue
+                    if segs[j].distance(p) < OFF_STRUCTURE_M and abs((vx * dirs[j][0] + vy * dirs[j][1]) / vn) > cos_max:
+                        keep[k] = False
+                        break
+            if keep.all():
+                out.append((rid, cls, name, line))
+                continue
+            kept = 0.0
+            k = 0
+            while k < n:
+                if not keep[k]:
+                    k += 1
+                    continue
+                m = k
+                while m + 1 < n and keep[m + 1]:
+                    m += 1
+                # The cut falls half a step into the structure: the piece's own end meets it there.
+                d0 = ds[k] if k == 0 else (ds[k] + ds[k - 1]) / 2
+                d1 = ds[m] if m == n - 1 else (ds[m] + ds[m + 1]) / 2
+                if d1 - d0 >= 2.0:
+                    seg = substring(line, d0, d1)
+                    if isinstance(seg, LineString):
+                        out.append((rid, cls, name, seg))
+                        kept += seg.length
+                k = m + 1
+            gone += float(line.length) - kept
+    return out, gone
+
+
 def build(args):
     area = AREAS[args.name]
     rules = DISTRICT_RULES.get(area.get("district", "osu"), DISTRICT_RULES["osu"])
@@ -841,6 +925,15 @@ def build(args):
         if not g.intersects(lonlat_box):
             continue
         roads.append((rid, cls, name, local(g)))
+    # The interchanges and flyovers: their pieces leave the ground's roads (the game builds them at their levels).
+    elev, feet = load_elevated(args.elevated, oe, on)
+    if elev or feet:
+        near = clip.buffer(50)
+        elev = [p for p in elev if LineString(p["pts"]).intersects(near)]
+        feet = [f for f in feet if LineString(f["pts"]).intersects(near)]
+        roads, gone = cut_structures(roads, elev)
+        print(f"structures: {len(elev)} pieces ({sum(LineString(p['pts']).length for p in elev) / 1000:.2f} km) "
+              f"and {len(feet)} footbridges in the area; {gone / 1000:.2f} km of road taken off the ground")
     oxford = shapely.union_all([g for _, _, n, g in roads if n == "Oxford Street"]) if roads else None
     CARRIAGEWAY_W.clear()
     CARRIAGEWAY_GAP.clear()
@@ -1105,6 +1198,9 @@ def build(args):
         "medians": medians,
         # Real garages, for the game's fitters (find_garages(); circle-game reads SceneData.garages).
         "garages": garages,
+        # The interchanges', flyovers' and footbridges' pieces in the area (scripts/elevated.py ids): relief.py gives
+        # them their heights and the game builds them (circle-game src/world/interchanges.ts).
+        **({"structures": [p["id"] for p in elev] + [f["id"] for f in feet]} if elev or feet else {}),
         "credits": "Buildings and roads: Overture Maps Foundation (ODbL), from OpenStreetMap contributors, "
                    "Google Open Buildings and Microsoft. Heights from typology rules."
                    + (" Places and garages: OpenStreetMap contributors (ODbL)." if osm_rows else "")
@@ -1855,6 +1951,8 @@ def main():
     ap.add_argument("--name", default="osu-poc", choices=sorted(AREAS))
     ap.add_argument("--out", default="data/work/osu-poc")
     ap.add_argument("--exclude", help="file of building ids to leave out (from build_lookdev.py)")
+    ap.add_argument("--elevated", default=ELEVATED,
+                    help="the interchanges and flyovers (scripts/elevated.py); without the file every road is on the ground")
     ap.add_argument("--no-massing", action="store_true",
                     help="plain extruded footprints, no roofs, bulkheads, frames or compound walls (the old district)")
     build(ap.parse_args())

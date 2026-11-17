@@ -185,6 +185,53 @@ def world_roads(world_path):
     return world, out
 
 
+# The structures (scripts/elevated.py): the natural ground under them is the bare earth smoothed over NATURAL_SIGMA_M,
+# one field for all of them, so two pieces that meet share their height there. A cut is laid into the ground like a
+# road at its own level, with banks by its site's style: grassed slopes at Tetteh Quarshie, walls elsewhere.
+NATURAL_SIGMA_M = 40.0
+CUT_BANK_M = {"tetteh-quarshie": 16.0}
+CUT_BANK_DEFAULT = 2.0
+CUT_UNDER_M = 0.15    # a cut's floor under its road
+UNDER_M = 0.3         # the ground under a deck or a ramp, under the natural ground
+
+
+def world_structures(world, folder, elevated_path):
+    """The structures the world's areas name (scenes' "structures"), from elevated.json, in the world frame:
+    (pieces, footbridges), each with "pts" as x east, z south from the world's origin."""
+    ids = set()
+    for a in world["areas"]:
+        s = json.load(open(os.path.join(folder, a["scene"])))
+        ids.update(s.get("structures") or [])
+    if not ids or not elevated_path or not os.path.exists(elevated_path):
+        return [], []
+    d = json.load(open(elevated_path))
+    to_utm = Transformer.from_crs("EPSG:4326", "EPSG:32630", always_xy=True)
+    o = world["origin_wgs84"]
+    oe, on = to_utm.transform(o["lon"], o["lat"])
+    move = lambda pts: [[round(x - oe, 2), round(on - y, 2)] for x, y in pts]
+    return ([{**p, "pts": move(p["pts"])} for p in d["pieces"] if p["id"] in ids],
+            [{**f, "pts": move(f["pts"])} for f in d["footbridges"] if f["id"] in ids])
+
+
+def structure_heights(pieces, natural, carved, grid):
+    """Each piece's absolute heights: the natural ground plus its offset, and, at an end on the ground (kind G), the
+    laid road's height there, the difference spread linearly along the piece."""
+    def at(field, pts):
+        fi = (pts[:, 0] - grid.x0) / grid.step
+        fj = (pts[:, 1] - grid.z0) / grid.step
+        return ndimage.map_coordinates(field, [fj.clip(0, grid.nz - 1), fi.clip(0, grid.nx - 1)], order=1, mode="nearest")
+    for p in pieces:
+        pts = np.array(p["pts"], dtype=np.float64)
+        y = at(natural, pts) + np.array(p["off"])
+        seg = np.hypot(*np.diff(pts, axis=0).T)
+        s = np.concatenate([[0], np.cumsum(seg)])
+        d0 = float(at(carved, pts[:1])[0] - y[0]) if p["kind"][0] == "G" else 0.0
+        d1 = float(at(carved, pts[-1:])[0] - y[-1]) if p["kind"][-1] == "G" else 0.0
+        t = s / max(s[-1], 1e-6)
+        y = y + d0 * (1 - t) + d1 * t
+        p["y"] = [round(float(v), 2) for v in y]
+
+
 def world_bounds(world):
     b = None
     for a in world["areas"]:
@@ -241,19 +288,25 @@ def carve(h, grid, roads):
     target = np.full(h.shape, np.nan, np.float32)
     half = np.zeros(h.shape, np.float32)
     bank = np.zeros(h.shape, np.float32)
-    rank = {"motorway": 4, "trunk": 4, "primary": 3, "secondary": 2}
+    rank = {"under": -1, "motorway": 4, "trunk": 4, "primary": 3, "secondary": 2, "cut": 5}
     order = sorted(roads, key=lambda r: rank.get(r[0], 0))   # the big roads written last: they win their nodes
     n = 0
-    for cls, w, pts in order:
+    for cls, w, pts, *own in order:
         p, d = densify(pts, 2.0)
         fi = (p[:, 0] - grid.x0) / grid.step
         fj = (p[:, 1] - grid.z0) / grid.step
         inside = (fi >= 0) & (fi <= grid.nx - 1) & (fj >= 0) & (fj <= grid.nz - 1)
         if inside.sum() < 2:
             continue
-        hb = ndimage.map_coordinates(h, [fj.clip(0, grid.nz - 1), fi.clip(0, grid.nx - 1)], order=1, mode="nearest")
         sigma, b = PROFILE.get(cls, PROFILE_DEFAULT)
-        prof = smooth_profile(hb, d, sigma)
+        if own:
+            # A cut: its own heights along its own points, and its own banks.
+            seg = np.hypot(*np.diff(pts, axis=0).T)
+            prof = np.interp(d, np.concatenate([[0], np.cumsum(seg)]), own[0])
+            b = own[1]
+        else:
+            hb = ndimage.map_coordinates(h, [fj.clip(0, grid.nz - 1), fi.clip(0, grid.nx - 1)], order=1, mode="nearest")
+            prof = smooth_profile(hb, d, sigma)
         i = np.rint(fi[inside]).astype(int)
         j = np.rint(fj[inside]).astype(int)
         target[j, i] = prof[inside]
@@ -314,6 +367,8 @@ def main():
     ap.add_argument("--out", required=True, help="folder for relief.json, coarse.bin and the tiles")
     ap.add_argument("--dem", default="data/dem", help="folder of the Copernicus GLO-30 tiles (fetched when missing)")
     ap.add_argument("--cover", default="data/worldcover", help="folder of the ESA WorldCover tiles (fetched when missing)")
+    ap.add_argument("--elevated", default="data/work/elevated.json",
+                    help="the interchanges and flyovers (elevated.py): their heights in structures.json, their cuts laid in")
     ap.add_argument("--preview", help="a PNG of the relief and the tiles, for a look")
     args = ap.parse_args()
 
@@ -364,10 +419,42 @@ def main():
     h = sample_dem(bare, north, west, px, origin, x, z)
     del x, z
     raw = h.copy()
-    carved = carve(h, fine, roads)
+    pieces, feet = world_structures(world, os.path.dirname(args.world), args.elevated)
+    natural = ndimage.gaussian_filter(raw, NATURAL_SIGMA_M / STEP) if pieces else None
+    pieces = pieces or []
+    cuts = []
+    if pieces:
+        # First heights from the natural ground alone, for the cuts' floors.
+        structure_heights(pieces, natural, natural, fine)
+        for p in pieces:
+            pts = np.array(p["pts"], dtype=np.float64)
+            if "C" in p["kind"] or "T" in p["kind"]:
+                # The cut's floor a little under its road, which the game draws at the piece's own heights.
+                cuts.append(("cut", float(p["w"]) - 2.0, pts, np.array(p["y"]) - CUT_UNDER_M,
+                             CUT_BANK_M.get(p["style"], CUT_BANK_DEFAULT)))
+            else:
+                # Under a deck or a ramp the ground is the natural ground, levelled a little under it so no bump of the
+                # DEM shows through the ramp's foot; the roads that pass under are laid after, and win.
+                cuts.append(("under", float(p["w"]), pts, np.array(p["y"]) - np.array(p["off"]) - UNDER_M, 6.0))
+    carved = carve(h, fine, roads + cuts)
     moved = np.abs(h - raw)
     print(f"{carved} roads laid in; ground moved {np.percentile(moved, 99):.2f} m at the 99th percentile, {moved.max():.1f} m at most")
     del raw, moved
+    if pieces or feet:
+        structure_heights(pieces, natural, h, fine)
+        del natural
+        # A footbridge's ground at its points (its deck stands its height over the highest of them).
+        for f in feet:
+            pts = np.array(f["pts"], dtype=np.float64)
+            fi = (pts[:, 0] - fine.x0) / fine.step
+            fj = (pts[:, 1] - fine.z0) / fine.step
+            g = ndimage.map_coordinates(h, [fj.clip(0, fine.nz - 1), fi.clip(0, fine.nx - 1)], order=1, mode="nearest")
+            f["g"] = [round(float(v), 2) for v in g]
+        with open(os.path.join(args.out, "structures.json"), "w") as f:
+            json.dump({"axes": world["axes"], "level_m": 7.0, "pieces": pieces, "footbridges": feet,
+                       "credits": "Interchanges, flyovers and footbridges: OpenStreetMap contributors (ODbL)."},
+                      f, separators=(",", ":"))
+        print(f"structures: {len(pieces)} pieces, {sum(c[0] == 'cut' for c in cuts)} laid in as cuts, {len(feet)} footbridges")
 
     os.makedirs(os.path.join(args.out, "t"), exist_ok=True)
     total = 0
