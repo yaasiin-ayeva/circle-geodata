@@ -827,9 +827,9 @@ def load_elevated(path, oe, on):
 
 
 def whole_structures(pieces, near):
-    """The structures in the area: the pieces joined end to end (an interchange, a flyover and its ramps), kept only
-    when every piece of the group meets the area. A group cut by the area's edge would leave a deck ending in the air
-    and its roads cut off from the ground's; its roads then stay on the ground, as before."""
+    """The structures in the area: every piece of each group joined end to end (an interchange, a flyover and its
+    ramps) that meets the area, whole. A group cut by the area's edge would leave a deck ending in the air and its
+    roads cut off from the ground's (Circle lies across two areas: both name it, and it is built once)."""
     ends = defaultdict(list)
     for i, p in enumerate(pieces):
         for e in (p["pts"][0], p["pts"][-1]):
@@ -846,10 +846,10 @@ def whole_structures(pieces, near):
         for j in near_ids:
             group[find(j)] = find(ids[0])
     inside = [LineString(p["pts"]).intersects(near) for p in pieces]
-    whole = defaultdict(lambda: True)
+    meets = defaultdict(bool)
     for i in range(len(pieces)):
-        whole[find(i)] &= inside[i]
-    return [p for i, p in enumerate(pieces) if inside[i] and whole[find(i)]]
+        meets[find(i)] |= inside[i]
+    return [p for i, p in enumerate(pieces) if meets[find(i)]]
 
 
 def cut_structures(roads, pieces, step=1.0):
