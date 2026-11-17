@@ -234,6 +234,84 @@
           ]
         ]
       }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "accra-central",
+        "milestone": 7,
+        "description": "West of the vertical slice: Kwame Nkrumah Circle, the Makola and Kantamanto markets, Jamestown, Bukom and Ussher Town on the sea, Kaneshie and its market on the Winneba Road (the central and kaneshie corridors, build_district.py AREAS). Overlaps the vertical slice by 500 m so the corridors' roads join the Ring Road's.",
+        "south": 5.525,
+        "north": 5.592,
+        "west": -0.258,
+        "east": -0.19
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -0.258,
+              5.525
+            ],
+            [
+              -0.19,
+              5.525
+            ],
+            [
+              -0.19,
+              5.592
+            ],
+            [
+              -0.258,
+              5.592
+            ],
+            [
+              -0.258,
+              5.525
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "coast-east",
+        "milestone": 8,
+        "description": "The coast east of the Castle: La and Labadi Beach, the Beach Road on to Teshie (the labadi corridor, build_district.py AREAS). Overlaps the vertical slice so the corridor's roads join Osu's and the Ring Road's.",
+        "south": 5.535,
+        "north": 5.585,
+        "west": -0.195,
+        "east": -0.095
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -0.195,
+              5.535
+            ],
+            [
+              -0.095,
+              5.535
+            ],
+            [
+              -0.095,
+              5.585
+            ],
+            [
+              -0.195,
+              5.585
+            ],
+            [
+              -0.195,
+              5.535
+            ]
+          ]
+        ]
+      }
     }
   ]
 }

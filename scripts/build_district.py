@@ -124,6 +124,46 @@ ABURI_TOWN = {"south": 5.8380, "north": 5.8560, "west": -0.1860, "east": -0.1680
 ABURI_LAP = {"route": [(5.722266, -0.172756), (5.782797, -0.181725), (5.807419, -0.183105), (5.844452, -0.174003),
                        (5.807419, -0.183105), (5.782797, -0.181725)], "penalty": 1.0}
 
+# West of the vertical slice (aoi/slices.geojson "accra-central"; slice in data/work/slice-central), two corridors in
+# Osu's frame that meet the Ring Road's and each other where their buffers meet ("minus"):
+#   central: the Ring Road Central on to Kwame Nkrumah Circle, Kwame Nkrumah Avenue down past Tudu and Makola to
+#   Jamestown, Independence Avenue from the Ako Adjei Interchange down to Black Star Square, and the old town's
+#   avenues between them (Liberia, Kojo Thompson, Barnes, Castle Road, High Street to the lighthouse, 28th February
+#   Road towards Osu); with Circle, the Makola and Kantamanto markets and Jamestown as whole districts ("boxes"). The
+#   standalone Jamestown district (AREAS "jamestown") stays as it is, in its own frame.
+#   kaneshie: the Ring Road West from Circle to the Obetsebi Lamptey Interchange, the Winneba Road (Dr. Busia High
+#   Street) through Kaneshie First Light to Darkuman Junction, and Graphic Road; Kaneshie's market and station as a
+#   whole district.
+CENTRAL = {"south": 5.5280, "north": 5.5780, "west": -0.2220, "east": -0.1900}
+CENTRAL_ROADS = ("Ring Road Central", "Kwame Nkrumah Circle", "Kwame Nkrumah Avenue", "Independence Avenue", "Liberia Avenue",
+                 "Kojo Thompson Avenue", "Barnes Avenue", "Castle Road", "Prof. Atta Mills High Street", "High Street",
+                 "Asafoatse Nettey Road", "Nii Kojo Ababio Avenue", "28th February Road", "Starlets '91 Road")
+CIRCLE_BOX = {"south": 5.5640, "north": 5.5740, "west": -0.2220, "east": -0.2100}
+MAKOLA_BOX = {"south": 5.5430, "north": 5.5520, "west": -0.2150, "east": -0.2030}
+JAMESTOWN_BOX = {"south": 5.5300, "north": 5.5425, "west": -0.2175, "east": -0.2055}
+# Its lap: from Circle down Kwame Nkrumah Avenue past Makola to Jamestown's High Street, and back up Independence
+# Avenue towards the Ako Adjei Interchange (lat, lon, each a vertex of the road).
+CENTRAL_LAP = {"route": [(5.559966, -0.213014), (5.549972, -0.210487), (5.538571, -0.208737), (5.555185, -0.200433),
+                         (5.561478, -0.196064)]}
+KANESHIE = {"south": 5.5530, "north": 5.5850, "west": -0.2580, "east": -0.2120}
+KANESHIE_ROADS = ("Ring Road West High Street", "Obetsebi Lamptey Interchange", "Obetsebi Lamptey Circle",
+                  "Dr. Busia High Street", "Graphic Road")
+KANESHIE_MARKET = {"south": 5.5600, "north": 5.5720, "west": -0.2430, "east": -0.2280}
+# Its lap: from the Obetsebi Lamptey Circle up the Winneba Road through Kaneshie to Darkuman Junction and back down
+# the same road ("penalty" 1).
+KANESHIE_LAP = {"route": [(5.561672, -0.229382), (5.576038, -0.253541)],
+                "penalty": 1.0}
+
+# The coast east of Osu (aoi/slices.geojson "coast-east"; slice in data/work/slice-coast): La Road from Osu along the
+# sea past La and Labadi Beach, then Teshie Road on to Teshie, the Ring Road East's south end where it meets La Road;
+# La Pleasure Beach, La Palm and Labadi's old town as a whole district. A road for night runs by the sea.
+LABADI = {"south": 5.5400, "north": 5.5850, "west": -0.1900, "east": -0.0980}
+LABADI_ROADS = ("La Road", "Teshie Road", "Lakpanaa Street", "Ring Road East")
+LABADI_BEACH = {"south": 5.5540, "north": 5.5670, "west": -0.1500, "east": -0.1340}
+# Its lap: La Road from Osu east to Labadi, Teshie Road to Teshie and back (a single carriageway mostly: "penalty" 1).
+LABADI_LAP = {"route": [(5.553498, -0.174993), (5.559395, -0.150092), (5.564775, -0.137170), (5.578105, -0.109933),
+                        (5.564775, -0.137170), (5.559395, -0.150092)], "penalty": 1.0}
+
 AREAS = {
     # About 1.3 km2 of Osu: Danquah Circle, the north half of Oxford Street, Ring Road East.
     "osu-poc": {"south": 5.5575, "north": 5.5695, "west": -0.1870, "east": -0.1780,
@@ -150,6 +190,14 @@ AREAS = {
     "aburi": {"corridor": {"roads": ABURI_ROADS, "classes": ("trunk",), "half_width_m": 250.0, "within": ABURI,
                            "boxes": (ABURI_TOWN,)},
               "minus": ["legon"], "origin": OSU_ORIGIN, "lap": ABURI_LAP, "district": "ring-road"},
+    "central": {"corridor": {"roads": CENTRAL_ROADS, "half_width_m": 220.0, "within": CENTRAL,
+                             "boxes": (CIRCLE_BOX, MAKOLA_BOX, JAMESTOWN_BOX)},
+                "minus": ["osu-poc", "ring-road", "liberation"], "origin": OSU_ORIGIN, "lap": CENTRAL_LAP, "district": "central"},
+    "kaneshie": {"corridor": {"roads": KANESHIE_ROADS, "half_width_m": 220.0, "within": KANESHIE,
+                              "boxes": (KANESHIE_MARKET,)},
+                 "minus": ["central"], "origin": OSU_ORIGIN, "lap": KANESHIE_LAP, "district": "ring-road"},
+    "labadi": {"corridor": {"roads": LABADI_ROADS, "half_width_m": 220.0, "within": LABADI, "boxes": (LABADI_BEACH,)},
+               "minus": ["osu-poc", "ring-road", "central"], "origin": OSU_ORIGIN, "lap": LABADI_LAP, "district": "ring-road"},
 }
 
 # What changes from one district to the next (circle-reference district cards, catalogue/*-identity-survey.md).
@@ -200,6 +248,17 @@ DISTRICT_RULES = {
                               "junction_m": 12.0, "building_m": 1.5, "spawn_m": 6.0, "gap_m": 5.5,
                               "colours": [("grey", 0.20), ("black", 0.20), ("silver", 0.18), ("white", 0.16),
                                           ("red", 0.08), ("blue", 0.06), ("taxi", 0.12)]}},
+    # The old centre (AREAS "central"): Jamestown's streets, without its storey draw (Circle's and Makola's large
+    # footprints are market halls and offices of several storeys, which the typology rules give) and with cars parked
+    # along every side street rather than only near a lap: houses on the street line, Jamestown's paints, the
+    # lighthouse and its read shop signs.
+    "central": {"yards": False, "paints": None, "landmarks": [("lighthouse", 5.5331, -0.2122)], "signs": [],
+                "parking": {"classes": ["residential", "unclassified", "tertiary", "secondary"], "take": 0.25,
+                            "streets": {"High Street": 0.35}, "lap_m": None, "step_m": 6.5,
+                            "inset_m": 1.0, "wide_inset_m": 1.1, "narrow_m": 7.0,
+                            "junction_m": 12.0, "building_m": 1.5, "spawn_m": 6.0, "gap_m": 5.5,
+                            "colours": [("grey", 0.20), ("black", 0.20), ("silver", 0.18), ("white", 0.16),
+                                        ("red", 0.08), ("blue", 0.06), ("taxi", 0.12)]}},
     # The Ring Road corridor: Osu's building rules (walled yards off the main roads, Osu's roof mix and paints). The
     # street survey describes Ring Road East's frontage as 1-2 storeys behind walls with about 20% shopfronts, which
     # the yards already give; it counted no storeys there, so the typology rules stay. It has no dressed block, so
@@ -214,6 +273,8 @@ DISTRICT_RULES = {
                               "colours": [("grey", 0.20), ("black", 0.20), ("silver", 0.18), ("white", 0.16),
                                           ("red", 0.08), ("blue", 0.06), ("taxi", 0.12)]}},
 }
+# The old centre shares Jamestown's paints and its read shop signs (they stand in Jamestown, inside its box).
+DISTRICT_RULES["central"].update(paints=DISTRICT_RULES["jamestown"]["paints"], signs=DISTRICT_RULES["jamestown"]["signs"])
 
 ROAD_WIDTH = {"motorway": 22.0, "trunk": 18.0, "primary": 13.0, "secondary": 10.0, "tertiary": 8.5,
               "residential": 6.0, "unclassified": 6.0, "living_street": 5.0, "service": 4.5}
