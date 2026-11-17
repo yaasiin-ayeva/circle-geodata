@@ -275,6 +275,15 @@ OpenStreetMap maps a boulevard with a central reservation as one one-way road pe
 
 `latest` picks the newest release on Overture's public bucket; a fixed name from the [release list](https://docs.overturemaps.org/release/) works too. Downloads and working files go under `data/`, which is not committed.
 
+### The interchanges, at their real levels
+
+`scripts/elevated.py` maps Accra's interchanges, flyovers, underpasses and footbridges from OpenStreetMap's `bridge`,
+`tunnel` and `layer` tags into `data/work/elevated.json`: per piece of road, an offset above the natural ground every
+5 m and the support under it (deck, fill, cut, tunnel). `build_district.py --elevated` takes those pieces off the
+roads it lays on the ground, and `relief.py` gives them absolute heights (`relief/structures.json`) and lays the cuts
+under Ako Adjei and Tetteh Quarshie into the ground. The method is in the script's docstring; the game's side is
+circle-game `src/world/interchanges.ts`.
+
 ## Publishing under ODbL
 
 The game itself (meshes, textures, code) is a "produced work" and stays proprietary, with the attribution block in its credits. The merged roads, footprints and heights are a "derivative database": once the game is public, that database must be offered free online under ODbL 1.0. The plan is to publish it on day one, as a release of this repository made public, or of a public mirror, with a README that lists sources and processing.
