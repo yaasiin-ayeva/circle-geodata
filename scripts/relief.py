@@ -23,7 +23,9 @@ GLO-30 is a surface model: it carries the roofs and the tree tops. The steps:
      ground returns to the terrain over a bank (25 m on the big roads, 12 m on the rest), a cut uphill and a fill
      downhill. So a road climbs and falls with the land and never leans across: the crossfall is that of the road,
      not of the hillside. Where roads meet, the nearest one sets the height (a Euclidean distance transform), and a
-     last 8 m smoothing takes the seam out;
+     last 8 m smoothing takes the seam out. The interchanges' cuts (and a tunnel with no road over it) are laid in at
+     their own heights, their floors then held under their roads to 12 m beyond the asphalt, which the smoothing
+     would otherwise lift over a narrow cut; a tunnel under the ground's roads is left under the ground;
   4. written as tiles of 1024 m (129 x 129 heights, 8 m apart, edges shared) wherever the world has a road within
      1.5 km, and two grids over the whole world and 14 km beyond it: coarse.bin (256 m, heights to 0.1 m, 37 KB),
      loaded before the drive for the ground beyond the loaded tiles, and far.bin (128 m, to 0.05 m, about 130 KB),
@@ -192,6 +194,7 @@ NATURAL_SIGMA_M = 40.0
 CUT_BANK_M = {"tetteh-quarshie": 16.0}
 CUT_BANK_DEFAULT = 2.0
 CUT_UNDER_M = 0.15    # a cut's floor under its road
+CUT_FLOOR_M = 12.0    # its floor held flat this far beyond the road's half-width: over a cell's diagonal (8 m grid)
 UNDER_M = 0.3         # the ground under a deck or a ramp, under the natural ground
 
 
@@ -288,6 +291,7 @@ def carve(h, grid, roads):
     target = np.full(h.shape, np.nan, np.float32)
     half = np.zeros(h.shape, np.float32)
     bank = np.zeros(h.shape, np.float32)
+    other = np.zeros(h.shape, bool)                # the ground's roads, which keep their own heights beside a cut
     rank = {"under": -1, "motorway": 4, "trunk": 4, "primary": 3, "secondary": 2, "cut": 5}
     order = sorted(roads, key=lambda r: rank.get(r[0], 0))   # the big roads written last: they win their nodes
     n = 0
@@ -310,8 +314,10 @@ def carve(h, grid, roads):
         i = np.rint(fi[inside]).astype(int)
         j = np.rint(fj[inside]).astype(int)
         target[j, i] = prof[inside]
-        half[j, i] = w / 2 + 2.0
+        half[j, i] = w / 2 + (CUT_FLOOR_M if cls == "cut" else 2.0)
         bank[j, i] = b
+        if cls not in ("cut", "under"):
+            other[j, i] = True
         n += 1
     road = ~np.isnan(target)
     dist, (jj, ii) = ndimage.distance_transform_edt(~road, sampling=grid.step, return_indices=True)
@@ -325,7 +331,57 @@ def carve(h, grid, roads):
     near = np.isfinite(t)
     h[near] = h[near] + (t[near] - h[near]) * wgt[near]
     h[:] = ndimage.gaussian_filter(h, 1.0)
-    return n
+    hold_cut_floors(h, grid, roads, other)
+    return n, other
+
+
+def under_roads(pts, roads):
+    """Whether a ground road crosses over this line."""
+    lo, hi = pts.min(axis=0), pts.max(axis=0)
+    def cross(a, b, c, d):
+        o = lambda p, q, r: np.sign((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]))
+        return o(a, b, c) != o(a, b, d) and o(c, d, a) != o(c, d, b)
+    for cls, w, rp, *own in roads:
+        if cls in ("cut", "under") or (rp.max(axis=0) < lo).any() or (rp.min(axis=0) > hi).any():
+            continue
+        for i in range(len(rp) - 1):
+            for k in range(len(pts) - 1):
+                if cross(rp[i], rp[i + 1], pts[k], pts[k + 1]):
+                    return True
+    return False
+
+
+def hold_cut_floors(h, grid, roads, other):
+    """A cut is narrower than the carving's smoothing: without this its floor came out 1 to 4 m over its road, and the
+    ground covered the road. The floor is held at the road's height to over a step beyond its edge, so that the ground
+    drawn between two nodes never rises over the asphalt; but not nearer a road on the ground than the cut (the Ring
+    Road's side roads along Ako Adjei's walls), which keeps its own height. In place."""
+    floor = np.full(h.shape, np.nan, np.float32)
+    fhalf = np.zeros(h.shape, np.float32)
+    rhalf = np.zeros(h.shape, np.float32)    # the road itself and its shoulders: held even beside another road
+    for cls, w, pts, *own in roads:
+        if cls != "cut":
+            continue
+        p, d = densify(pts, 2.0)
+        fi = (p[:, 0] - grid.x0) / grid.step
+        fj = (p[:, 1] - grid.z0) / grid.step
+        inside = (fi >= 0) & (fi <= grid.nx - 1) & (fj >= 0) & (fj <= grid.nz - 1)
+        seg = np.hypot(*np.diff(pts, axis=0).T)
+        prof = np.interp(d, np.concatenate([[0], np.cumsum(seg)]), own[0])
+        i = np.rint(fi[inside]).astype(int)
+        j = np.rint(fj[inside]).astype(int)
+        floor[j, i] = np.fmin(floor[j, i], prof[inside])
+        fhalf[j, i] = w / 2 + CUT_FLOOR_M
+        rhalf[j, i] = w / 2 + 2.0
+    cut = ~np.isnan(floor)
+    if not cut.any():
+        return
+    dc, (jc, ic) = ndimage.distance_transform_edt(~cut, sampling=grid.step, return_indices=True)
+    do = ndimage.distance_transform_edt(~other, sampling=grid.step) if other.any() else np.full(h.shape, np.inf)
+    d = np.maximum(dc - grid.step * 0.5, 0)
+    inside = ((d <= fhalf[jc, ic]) & (dc < do)) | (d <= rhalf[jc, ic])
+    f = floor[jc, ic]
+    h[inside] = np.minimum(h[inside], f[inside])
 
 
 def encode(h, q_step=None):
@@ -428,21 +484,28 @@ def main():
         structure_heights(pieces, natural, natural, fine)
         for p in pieces:
             pts = np.array(p["pts"], dtype=np.float64)
+            if "T" in p["kind"] and "C" not in p["kind"] and under_roads(pts, roads):
+                # A tunnel under the ground's roads (the Tema Motorway roundabout): the ground stays over it; the game
+                # lowers only its physics' ground there, under a roof. One under nothing is laid in like a cut.
+                continue
             if "C" in p["kind"] or "T" in p["kind"]:
                 # The cut's floor a little under its road, which the game draws at the piece's own heights.
-                cuts.append(("cut", float(p["w"]) - 2.0, pts, np.array(p["y"]) - CUT_UNDER_M,
+                cuts.append(("cut", float(p["w"]), pts, np.array(p["y"]) - CUT_UNDER_M,
                              CUT_BANK_M.get(p["style"], CUT_BANK_DEFAULT)))
             else:
                 # Under a deck or a ramp the ground is the natural ground, levelled a little under it so no bump of the
                 # DEM shows through the ramp's foot; the roads that pass under are laid after, and win.
                 cuts.append(("under", float(p["w"]), pts, np.array(p["y"]) - np.array(p["off"]) - UNDER_M, 6.0))
-    carved = carve(h, fine, roads + cuts)
+    carved, other = carve(h, fine, roads + cuts)
     moved = np.abs(h - raw)
     print(f"{carved} roads laid in; ground moved {np.percentile(moved, 99):.2f} m at the 99th percentile, {moved.max():.1f} m at most")
     del raw, moved
     if pieces or feet:
         structure_heights(pieces, natural, h, fine)
         del natural
+        # The cuts' floors again, under their roads' final heights (their ends meet the carved ground).
+        hold_cut_floors(h, fine, [("cut", float(p["w"]), np.array(p["pts"], dtype=np.float64), np.array(p["y"]) - CUT_UNDER_M)
+                                  for p in pieces if "C" in p["kind"] or ("T" in p["kind"] and not under_roads(np.array(p["pts"]), roads))], other)
         # A footbridge's ground at its points (its deck stands its height over the highest of them).
         for f in feet:
             pts = np.array(f["pts"], dtype=np.float64)
