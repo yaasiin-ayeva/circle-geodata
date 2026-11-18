@@ -98,10 +98,12 @@ check("a footprint mostly under it is too", fs.is_canopy(box(-6, 14, 6, 26), sha
 check("the shop beside it is not", not fs.is_canopy(box(10, 20, 20, 30), shapes))
 check("the market's shed roof is not", not fs.is_canopy(box(600, 30, 620, 50), shapes))
 
-# A detector's footprint drawn over a canopy and its shop as one building is the canopy too; OpenStreetMap's is not.
+# A footprint drawn over a canopy and its shop as one building (by a detector, or a mapper round the whole roof) is the
+# canopy too; a block much larger than a station is not.
 big = box(-12, 10, 14, 36)
-check("a machine-learned footprint over the canopy and the shop is taken for the canopy",
-      fs.is_canopy(big, shapes, "Google Open Buildings") and not fs.is_canopy(big, shapes, "OpenStreetMap"))
+check("a footprint over the canopy and the shop is taken for the canopy",
+      fs.is_canopy(big, shapes, "Google Open Buildings") and fs.is_canopy(big, shapes, "OpenStreetMap")
+      and not fs.is_canopy(box(-40, -10, 40, 40), shapes, "OpenStreetMap"))
 # On a point station's lot, a detector's footprint is the station's own; OpenStreetMap's buildings stay, and so does a
 # detector's footprint off the lot or too large to be a station's.
 lots = fs.lot_shapes(out)
@@ -110,6 +112,17 @@ check("an OpenStreetMap building there stays", not fs.on_lot(box(795, -20, 805, 
 check("a footprint off the lot, or a warehouse, stays", not fs.on_lot(box(795, -80, 805, -60), lots, "Google Open Buildings")
       and not fs.on_lot(box(760, -60, 840, -6), lots, "Google Open Buildings"))
 check("a station with its site mapped has no lot: its ground is the site", all(not p.intersects(box(185, 6, 215, 40)) for p in lots[0]))
+
+# A station pinned inside a footprint of a canopy's size (Oxford Street's Shell: the canopy drawn as a plain building)
+# is built under it; one pinned in a mall is not.
+pinned = [{"name": "Shell", "brand": "Shell", "x": 0.0, "z": 0.0}, {"name": "Mall Fuel", "brand": "", "x": 500.0, "z": 0.0},
+          {"name": "Site", "brand": "", "x": 900.0, "z": 0.0, "site": [[890, -10], [910, -10], [910, 10], [890, 10]]}]
+pinned.append({"name": "Edge", "brand": "", "x": 1300.0, "z": 0.0})
+n = fs.adopt_pin_footprints(pinned, [box(-12, -8, 12, 10), box(400, -100, 600, 100), box(895, -5, 905, 5), box(1304, -8, 1320, 8),
+                                     box(1310, 20, 1330, 40)])
+check("a pin in or beside a canopy-sized footprint takes it for its canopy and stands under it",
+      n == 2 and pinned[0].get("canopies") and abs(pinned[0]["z"] - 1.0) < 0.01 and abs(pinned[3]["x"] - 1312) < 0.01
+      and not pinned[1].get("canopies") and not pinned[2].get("canopies"))
 
 # The ground kept clear of compound walls and parked cars: a mapped site, or a lot in front of a point station.
 clear = fs.keep_clear(out)

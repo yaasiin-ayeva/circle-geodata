@@ -201,6 +201,33 @@ def find_fuel_stations(osm_rows, place_rows, lines, inside, to_local, local, roo
     return out
 
 
+# A footprint round a point station's pin, of this size (m2), is taken for its canopy: mappers often pin the station
+# inside the canopy they drew as a plain building (Oxford Street's Shell), and a detector draws the canopy too.
+PIN_CANOPY_M2 = (60.0, 900.0)
+# How far from its footprint a pin may stand (m): a pin dropped on the forecourt's edge (Oxford Street's Shell, 4 m out).
+PIN_M = 4.5
+
+
+def adopt_pin_footprints(stations, footprints):
+    """For each station mapped as a point, with no site nor canopy: the building footprint (local metres) its pin
+    stands in or beside (within PIN_M), when of a canopy's size (PIN_CANOPY_M2), becomes its canopy, and the station
+    stands under it. Changes the stations in place; returns how many took one. footprints: (local polygon) of the
+    buildings near a pin."""
+    n = 0
+    for st in stations:
+        if st.get("site") or st.get("canopies"):
+            continue
+        pin = Point(st["x"], st["z"])
+        near = [g for g in map(_poly, footprints) if g is not None and g.distance(pin) <= PIN_M and PIN_CANOPY_M2[0] <= g.area <= PIN_CANOPY_M2[1]]
+        if not near:
+            continue
+        g = min(near, key=lambda q: q.distance(pin))
+        st["canopies"] = [_ring(g)]
+        st["x"], st["z"] = round(float(g.centroid.x), 1), round(float(g.centroid.y), 1)
+        n += 1
+    return n
+
+
 def canopy_shapes(stations):
     """The stations' canopies as polygons (local metres), with an STRtree over them, for is_canopy()."""
     polys = [Polygon(r) for s in stations for r in s.get("canopies", []) if len(r) >= 3]
@@ -211,19 +238,19 @@ def canopy_shapes(stations):
 # The machine-learned footprints (Overture's sources other than OpenStreetMap): a detector draws a forecourt's canopy,
 # often merged with its shop, as one building.
 ML_SOURCES = {"Google Open Buildings", "Microsoft ML Buildings"}
-# The largest machine-learned footprint taken for a station's own (m2).
+# The largest footprint taken for a station's own (m2): over its canopy, or (machine-learned) on its lot.
 ML_STATION_M2 = 1500.0
 
 
 def is_canopy(footprint, shapes, source="OpenStreetMap"):
     """Whether a building's footprint (local metres) is one of the stations' canopies: CANOPY_SHARE of it lies under
-    one (the same OpenStreetMap way through Overture, or a footprint drawn over it); or, for a machine-learned
-    footprint (ML_SOURCES) up to ML_STATION_M2, it covers CANOPY_SHARE of a canopy (the detector drew the canopy and the
-    shop as one building)."""
+    one (the same OpenStreetMap way through Overture, or a footprint drawn over it); or, up to ML_STATION_M2, it covers
+    CANOPY_SHARE of a canopy: a detector drew the canopy and the shop as one building, or a mapper drew the station's
+    whole roof round its canopy (East Legon's Shell on Boundary Road). A building cannot stand round an open canopy."""
     polys, tree = shapes
     if tree is None or footprint.is_empty:
         return False
-    ml = source in ML_SOURCES and footprint.area <= ML_STATION_M2
+    ml = footprint.area <= ML_STATION_M2
     for i in tree.query(footprint, predicate="intersects"):
         inter = footprint.intersection(polys[i]).area
         if inter >= CANOPY_SHARE * footprint.area or (ml and inter >= CANOPY_SHARE * polys[i].area):

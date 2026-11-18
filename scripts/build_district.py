@@ -1002,6 +1002,19 @@ def build(args):
         roofs = [local(shapely.from_wkb(bytes(blob))) for (blob,) in
                  con.execute(f"SELECT geometry::BLOB FROM '{os.path.join(args.slice, 'buildings.parquet')}' WHERE class = 'roof'").fetchall()]
         fuel = fuel_stations.find_fuel_stations(osm_rows, place_rows, street_lines, inside_clip, to_local_ll, local, roofs)
+        # The footprints the point stations' pins stand in or beside (their canopies, drawn as plain buildings or by a
+        # detector).
+        pins = [s for s in fuel if not s.get("site") and not s.get("canopies")]
+        if pins:
+            pin_tree = shapely.STRtree([lonlat(Point(s["x"], s["z"]).buffer(fuel_stations.PIN_M)) for s in pins])
+            held = []
+            for (blob,) in con.execute(f"SELECT geometry::BLOB FROM '{os.path.join(args.slice, 'buildings.parquet')}'").fetchall():
+                g = shapely.from_wkb(bytes(blob))
+                if len(pin_tree.query(g, predicate="intersects")):
+                    held.append(local(g).buffer(0))
+            adopted = fuel_stations.adopt_pin_footprints(pins, held)
+            if adopted:
+                print(f"fuel stations: {adopted} pinned in or beside a footprint of a canopy's size, built under it")
     fuel_canopies = fuel_stations.canopy_shapes(fuel)
     fuel_lots = fuel_stations.lot_shapes(fuel)
     fuel_ground = fuel_stations.keep_clear(fuel)
