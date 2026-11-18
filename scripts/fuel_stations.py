@@ -174,22 +174,7 @@ def find_fuel_stations(osm_rows, place_rows, lines, inside, to_local, local, roo
         if k["operator"]:
             e["operator"] = k["operator"]
         if tree is not None:
-            ground = k["site"] if k["site"] is not None else Point(k["x"], k["z"])
-            name, w, line = lines[int(tree.nearest(ground))]
-            # The point of the street in front of the station's centre, and the asphalt's edge on its side.
-            at = line.project(Point(k["x"], k["z"]))
-            q = line.interpolate(at)
-            a, b = line.interpolate(max(0.0, at - 2.0)), line.interpolate(min(line.length, at + 2.0))
-            d = np.array([b.x - a.x, b.y - a.y]); d /= max(1e-6, np.hypot(*d))
-            to = np.array([k["x"] - q.x, k["z"] - q.y])
-            side = np.array([-d[1], d[0]])
-            off = float(np.dot(to, side))
-            if off < 0:
-                side, off = -side, -off
-            door = np.array([q.x, q.y]) + side * min(w / 2, off)
-            toward = door - (k["x"], k["z"]); toward = toward / max(1e-6, np.hypot(*toward))
-            e.update({"door": [round(float(v), 1) for v in door], "toward": [round(float(v), 4) for v in toward],
-                      "road": {"name": name, "w": w, "dir": [round(float(v), 4) for v in d]}})
+            e.update(street_front(k["x"], k["z"], k["site"] if k["site"] is not None else Point(k["x"], k["z"]), lines, tree))
         if k["site"] is not None:
             e["site"] = _ring(k["site"])
         if k["shop"] is not None:
@@ -201,6 +186,28 @@ def find_fuel_stations(osm_rows, place_rows, lines, inside, to_local, local, roo
             e["person"] = True
         out.append(e)
     return out
+
+
+def street_front(x, z, ground, lines, tree):
+    """The street in front of a place at (x, z) (local metres) whose ground is `ground` (a polygon or a point): the
+    nearest of `lines` (name, width, LineString) through `tree` (their STRtree), the point on its asphalt's edge on the
+    place's side ("door"), the unit vector from the place to it ("toward") and the street (name, width, unit direction
+    along it). The electric-vehicle chargers use it too (ev_chargers.py)."""
+    name, w, line = lines[int(tree.nearest(ground))]
+    # The point of the street in front of the place's centre, and the asphalt's edge on its side.
+    at = line.project(Point(x, z))
+    q = line.interpolate(at)
+    a, b = line.interpolate(max(0.0, at - 2.0)), line.interpolate(min(line.length, at + 2.0))
+    d = np.array([b.x - a.x, b.y - a.y]); d /= max(1e-6, np.hypot(*d))
+    to = np.array([x - q.x, z - q.y])
+    side = np.array([-d[1], d[0]])
+    off = float(np.dot(to, side))
+    if off < 0:
+        side, off = -side, -off
+    door = np.array([q.x, q.y]) + side * min(w / 2, off)
+    toward = door - (x, z); toward = toward / max(1e-6, np.hypot(*toward))
+    return {"door": [round(float(v), 1) for v in door], "toward": [round(float(v), 4) for v in toward],
+            "road": {"name": name, "w": w, "dir": [round(float(v), 4) for v in d]}}
 
 
 # A footprint round a point station's pin, of this size (m2), is taken for its canopy: mappers often pin the station
