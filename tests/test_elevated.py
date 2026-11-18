@@ -161,5 +161,36 @@ check("a cut's floor is held under its road inside it", node(64, 0) <= 10.0 - 0.
 check("the ground beyond its mouth stays at the road on the ground", all(abs(node(-8, z) - 10.0) < 1e-3 for z in (-8, 0, 8)),
       ", ".join(f"{node(-8, z):.2f}" for z in (-8, 0, 8)))
 
+# The same cut's floor at its mouth: at the road itself (a floor held under it there sank the mouth into a kerb).
+check("a cut's floor rises to its road at the mouth", abs(rl.cut_floor([10.0], [0.0])[0] - 10.0) < 1e-6 and
+      abs(rl.cut_floor([3.0], [-7.0])[0] - (3.0 - rl.CUT_UNDER_M)) < 1e-6)
+h2 = np.full((grid.nz, grid.nx), 10.0, np.float32)
+rl.hold_cut_floors(h2, grid, [("cut", 7.6, cutpts, rl.cut_floor(10.0 + off, off), None, off)], other)
+node2 = lambda x, z: h2[int(round((z - grid.z0) / grid.step)), int(round((x - grid.x0) / grid.step))]
+check("the ground at a cut's mouth is at its road, no kerb", abs(node2(0, 0) - 10.0) < 0.05, f"{node2(0, 0):.2f}")
+
+# A bridge at the ground's level (off 0) over a carved ground 0.7 m under it: its end brought to the ground, its
+# offset kept, so the game still joins it to the road there (Tetteh Quarshie's motorway).
+flat = np.full((grid.nz, grid.nx), 9.3, np.float32)
+br = {"pts": [[-40.0, 0.0], [-20.0, 0.0], [0.0, 0.0]], "y": [10.0, 10.0, 10.0], "off": [0.0, 0.0, 0.0], "kind": "DDD"}
+rl.mouths_to_ground([br], flat, grid)
+check("a bridge's end at the ground's level is brought to the ground", abs(br["y"][0] - 9.3) < 0.01 and br["off"] == [0.0, 0.0, 0.0],
+      f"{br['y']}, off {br['off']}")
+
+# Carried on over a hole beyond its end, along the road there, to where the ground is back; never past a junction.
+hole = np.full((grid.nz, grid.nx), 10.0, np.float32)
+hole[:, 9:11] = 3.0                                   # x -8 to 8: a pit 7 m deep beyond the bridge's end at x = -10
+for junction in (False, True):
+    b2 = {"pts": [[-60.0, 0.0], [-30.0, 0.0], [-10.0, 0.0]], "y": [10.0] * 3, "off": [0.0] * 3, "kind": "DDD"}
+    roads2 = [("primary", 7.0, np.array([[-10.0, 0.0], [10.0, 0.0], [40.0, 0.0]]))]
+    if junction:                                      # a side road leaves in the pit, at x = 0
+        roads2 = [("primary", 7.0, np.array(r)) for r in ([[-10.0, 0.0], [0.0, 0.0]], [[0.0, 0.0], [40.0, 0.0]], [[0.0, 0.0], [0.0, 30.0]])]
+    n = rl.bridges_over_holes([b2], hole, grid, roads2)
+    if junction:
+        check("a bridge is never carried past a junction", n == 0 and len(b2["pts"]) == 3)
+    else:
+        check("a bridge at the ground's level is carried on over a hole beyond its end", n == 1 and b2["pts"][-1][0] > 8.0 and
+              abs(b2["y"][-1] - 10.0) < 0.2, f"to x {b2['pts'][-1][0]:.1f}")
+
 print(f"{failures} failure(s)")
 sys.exit(1 if failures else 0)

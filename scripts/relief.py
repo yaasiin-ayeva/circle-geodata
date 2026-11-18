@@ -195,10 +195,17 @@ def world_roads(world_path):
 NATURAL_SIGMA_M = 40.0
 CUT_BANK_M = {"tetteh-quarshie": 16.0}
 CUT_BANK_DEFAULT = 2.0
-CUT_UNDER_M = 0.15    # a cut's floor under its road
+CUT_UNDER_M = 0.5     # a cut's floor under its road: under the 8 m grid's error on a sloping road, and the ground drawn over it
 CUT_FLOOR_M = 12.0    # its floor held flat this far beyond the road's half-width: over a cell's diagonal (8 m grid)
 UNDER_M = 0.3         # the ground under a deck or a ramp, under the natural ground
 MOUTH_DEPTH_M = 1.5   # a cut this deep under the natural ground is held its full CUT_FLOOR_M beyond its road
+
+
+def cut_floor(y, off):
+    """A cut's floor along its road: CUT_UNDER_M under it where the cut is MOUTH_DEPTH_M deep or more, rising to the
+    road itself at a mouth. Held under the road at the mouth too, the floor sank the mouth into the ground it was then
+    brought down to, a step of up to 1 m up onto the road on the ground beyond (Tetteh Quarshie's, Ako Adjei's)."""
+    return np.asarray(y, dtype=np.float64) - CUT_UNDER_M * np.clip(-np.asarray(off, dtype=np.float64) / MOUTH_DEPTH_M, 0, 1)
 
 
 def world_structures(world, folder, elevated_path):
@@ -239,32 +246,132 @@ def structure_heights(pieces, natural, carved, grid):
 
 
 MOUTH_SPAN_M = 30.0   # a cut's road comes to the ground at its mouth over this
+SEAT_MAX_M = 1.5      # an end further than this off the ground there stands over a hole (a bridge's end over a cut)
 
 
 def mouths_to_ground(pieces, h, grid):
-    """Each cut's end at the ground (a mouth) brought to the ground's final height there, the difference spread over
-    MOUTH_SPAN_M of the road (never further than its other end). Returns how many ends moved."""
+    """Each piece's end at the ground (a cut's mouth, a ramp's foot, a bridge at the ground's level) brought to the
+    ground's final height there, the difference spread over MOUTH_SPAN_M of the road (never further than its other
+    end). Only the cuts were, and a bridge at the ground's level kept the natural ground's height over the carved road
+    it meets: a kerb of up to 0.7 m across the motorway at Tetteh Quarshie, where the car stopped. Returns how many
+    ends moved."""
     moved = 0
     for p in pieces:
         pts = np.array(p["pts"], dtype=np.float64)
         s = np.concatenate([[0], np.cumsum(np.hypot(*np.diff(pts, axis=0).T))])
         y = np.array(p["y"], dtype=np.float64)
         for e in (0, len(pts) - 1):
-            if abs(p["off"][e]) > 0.3:
+            # An end on the ground (G: the ground's height there, which the carving may have moved since), or at its level.
+            if p["kind"][e] != "G" and abs(p["off"][e]) > 0.3:
                 continue
             fi, fj = (pts[e, 0] - grid.x0) / grid.step, (pts[e, 1] - grid.z0) / grid.step
             g = float(ndimage.map_coordinates(h, [[np.clip(fj, 0, grid.nz - 1)], [np.clip(fi, 0, grid.nx - 1)]], order=1, mode="nearest")[0])
             d = g - y[e]
-            if abs(d) < 0.05:
+            if abs(d) < 0.05 or abs(d) > SEAT_MAX_M:
                 continue
             span = min(MOUTH_SPAN_M, s[-1])
             k = d * np.clip(1 - np.abs(s - s[e]) / span, 0, 1)
             y += k
-            # Its offset over the natural ground with it: the game stands the cut's walls on the ground it gives.
-            p["off"] = [round(float(o + dk), 2) for o, dk in zip(p["off"], k)]
+            # A cut's offset over the natural ground with it: the game stands the cut's walls on the ground it gives.
+            # Not a bridge's or a ramp's: at the ground's level, its end is one the game joins to the road there.
+            if "C" in p["kind"] or "T" in p["kind"]:
+                p["off"] = [round(float(o + dk), 2) for o, dk in zip(p["off"], k)]
             moved += 1
         p["y"] = [round(float(v), 2) for v in y]
     return moved
+
+
+BRIDGE_REACH_M = 30.0   # how far a bridge at the ground's level is carried on over the hole beyond its end
+
+
+def bridges_over_holes(pieces, h, grid, roads):
+    """A bridge at the ground's level over a cut (the motorway's at Tetteh Quarshie) runs on from its end's height to
+    the ground's, along the road on the ground that goes on from its end (its own line where none does), until the
+    ground under its line is back at its road: OpenStreetMap's bridge stops at the cut's edge, but the cut's floor is
+    held CUT_FLOOR_M beyond its road (the ground drawn over an 8 m cell never rises over the asphalt) and its banks
+    beyond that, and the road beyond the bridge stood over a hole up to 3 m deep, where the car stopped at the deck's
+    edge. Never past a junction: Ako Adjei's roundabout, whose roads leave its bridges in that hole, stays as it was.
+    Returns how many ends were carried on."""
+    def at(x, z):
+        fi, fj = (x - grid.x0) / grid.step, (z - grid.z0) / grid.step
+        return float(ndimage.map_coordinates(h, [[np.clip(fj, 0, grid.nz - 1)], [np.clip(fi, 0, grid.nx - 1)]], order=1, mode="nearest")[0])
+    ground_roads = [np.asarray(rp, dtype=np.float64) for cls, w, rp, *own in roads if cls not in ("cut", "under") and len(rp) > 1]
+
+    def degree(cx, cz):
+        return sum(math.hypot(rp[k][0] - cx, rp[k][1] - cz) < 1.5 for rp in ground_roads for k in (0, -1))
+
+    def way_on(x, z, ux, uz):
+        """The roads' points on from (x, z), heading (ux, uz), chained end to end through the points where only two
+        meet: never past a junction, where the roads leaving it would stand under the bridge carried on."""
+        pts, cx, cz, hx, hz, used, length = [], x, z, ux, uz, set(), 0.0
+        while length < BRIDGE_REACH_M:
+            if pts and degree(cx, cz) > 2:
+                break
+            best, bd = None, 0.5         # on within 60 degrees: never back along the bridge
+            for n, rp in enumerate(ground_roads):
+                if n in used:
+                    continue
+                for seq in (rp, rp[::-1]):
+                    if math.hypot(seq[0][0] - cx, seq[0][1] - cz) < 1.5:
+                        d = seq[1] - seq[0]
+                        c = (d[0] * hx + d[1] * hz) / (math.hypot(*d) or 1.0)
+                        if c > bd:
+                            best, bd = (n, seq), c
+            if best is None:
+                break
+            used.add(best[0])
+            for q in best[1][1:]:
+                length += math.hypot(q[0] - cx, q[1] - cz)
+                hx, hz = (q[0] - cx), (q[1] - cz)
+                l = math.hypot(hx, hz) or 1.0
+                hx, hz, cx, cz = hx / l, hz / l, float(q[0]), float(q[1])
+                pts.append(np.array([cx, cz]))
+        return pts or [np.array([x + ux * BRIDGE_REACH_M, z + uz * BRIDGE_REACH_M])]
+
+    carried = 0
+    for p in pieces:
+        for first in (True, False):
+            e = 0 if first else len(p["pts"]) - 1     # after the start has grown
+            if p["kind"][e] != "D" or abs(p["off"][e]) > 0.3:
+                continue
+            x, z, y = p["pts"][e][0], p["pts"][e][1], p["y"][e]
+            o = p["pts"][1 if first else -2]
+            l = math.hypot(x - o[0], z - o[1]) or 1.0
+            ux, uz = (x - o[0]) / l, (z - o[1]) / l
+            # The ground back under its road's line.
+            back = lambda c, vx, vz: at(c[0], c[1]) > y - 0.15
+            if back((x, z), ux, uz):
+                continue
+            # Walked a metre at a time to the first point where the ground is back, a metre on.
+            way, prev, walked, found = [], np.array([x, z]), 0.0, False
+            for q in way_on(x, z, ux, uz):
+                seg = math.hypot(*(q - prev))
+                if seg < 0.05:
+                    continue
+                vx, vz = (q - prev) / seg
+                for s_ in np.arange(1.0, seg + 0.01, 1.0):
+                    c = prev + (q - prev) * (s_ / seg)
+                    if back(c, vx, vz):
+                        way.append([round(float(c[0] + vx), 2), round(float(c[1] + vz), 2)])
+                        found = True
+                        break
+                if found or walked + seg > BRIDGE_REACH_M:
+                    break
+                walked += seg
+                way.append([round(float(q[0]), 2), round(float(q[1]), 2)])
+                prev = q
+            if not found or math.hypot(way[-1][0] - x, way[-1][1] - z) < 1.0:
+                continue
+            # Its height from the end's to the ground's where it comes down, evenly along the way.
+            n, g = len(way), at(*way[-1])
+            d = np.concatenate([[0], np.cumsum([math.hypot(q[0] - r[0], q[1] - r[1]) for r, q in zip([[x, z]] + way[:-1], way)])])
+            ys = [round(float(y + (g - y) * t / d[-1]), 2) for t in d[1:]]
+            if first:
+                p["pts"][:0] = way[::-1]; p["y"][:0] = ys[::-1]; p["off"][:0] = [p["off"][0]] * n; p["kind"] = "D" * n + p["kind"]
+            else:
+                p["pts"] += way; p["y"] += ys; p["off"] += [p["off"][-1]] * n; p["kind"] += "D" * n
+            carried += 1
+    return carried
 
 
 def world_bounds(world):
@@ -410,12 +517,22 @@ def hold_cut_floors(h, grid, roads, other):
             reach = np.full(len(d), CUT_FLOOR_M)
         # Each sample holds the four nodes of the cell it is in, not only its nearest: the ground drawn over a cell is
         # mixed from its four corners, and a corner left at the bank's height lifted it over the road between them
-        # (6 to 20 cm over 43 of the cuts' points in the game's check). Each corner takes the lowest sample round it.
+        # (6 to 20 cm over 43 of the cuts' points in the game's check). Each corner takes the sample nearest it, the
+        # road's height there: the lowest sample round it, on a sloping road, sank a mouth's corners up to 0.7 m under
+        # the road meeting it on the ground (Tetteh Quarshie's, where the car stopped at the kerb).
+        px, pz, pv, pr = p[inside, 0], p[inside, 1], prof[inside], reach[inside]
+        ci, cj, cd, cv, cr = [], [], [], [], []
         for i in (np.floor(fi[inside]).astype(int), np.minimum(np.floor(fi[inside]).astype(int) + 1, grid.nx - 1)):
             for j in (np.floor(fj[inside]).astype(int), np.minimum(np.floor(fj[inside]).astype(int) + 1, grid.nz - 1)):
-                np.fmin.at(floor, (j, i), prof[inside])
-                np.fmax.at(fhalf, (j, i), w / 2 + reach[inside])
-                rhalf[j, i] = w / 2 + 2.0
+                ci.append(i); cj.append(j); cv.append(pv); cr.append(pr)
+                cd.append(np.hypot(grid.x0 + i * grid.step - px, grid.z0 + j * grid.step - pz))
+        ci, cj, cd, cv, cr = (np.concatenate(a) for a in (ci, cj, cd, cv, cr))
+        order = np.argsort(-cd)                  # the nearest written last, and kept
+        own_floor = np.full(h.shape, np.nan, np.float32)
+        own_floor[cj[order], ci[order]] = cv[order]
+        np.fmin(floor, own_floor, out=floor)
+        np.fmax.at(fhalf, (cj, ci), w / 2 + cr)
+        rhalf[cj, ci] = w / 2 + 2.0
     cut = ~np.isnan(floor)
     if not cut.any():
         return
@@ -554,7 +671,7 @@ def main():
                 continue
             if "C" in p["kind"] or "T" in p["kind"]:
                 # The cut's floor a little under its road, which the game draws at the piece's own heights.
-                cuts.append(("cut", float(p["w"]), pts, np.array(p["y"]) - CUT_UNDER_M,
+                cuts.append(("cut", float(p["w"]), pts, cut_floor(p["y"], p["off"]),
                              CUT_BANK_M.get(p["style"], CUT_BANK_DEFAULT), np.array(p["off"])))
             else:
                 # Under a deck or a ramp the ground is the natural ground, levelled a little under it so no bump of the
@@ -568,14 +685,17 @@ def main():
         structure_heights(pieces, natural, h, fine)
         # The cuts' floors again, under their roads' final heights (their ends meet the carved ground).
         held = [p for p in pieces if "C" in p["kind"] or ("T" in p["kind"] and not under_roads(np.array(p["pts"]), roads))]
-        hold = lambda: hold_cut_floors(h, fine, [("cut", float(p["w"]), np.array(p["pts"], dtype=np.float64), np.array(p["y"]) - CUT_UNDER_M,
+        hold = lambda: hold_cut_floors(h, fine, [("cut", float(p["w"]), np.array(p["pts"], dtype=np.float64), cut_floor(p["y"], p["off"]),
                                                   None, np.array(p["off"])) for p in held], other)
         hold()
         # A cut's mouth meets the ground where the roads on the ground were carved, which can lie half a metre off the
         # height its road was given before them (two roads meeting there, at Tetteh Quarshie): the road comes to the
-        # ground at its mouth, over MOUTH_SPAN_M, and its floor is held again under it.
-        if mouths_to_ground(held, h, fine):
+        # ground at its mouth, over MOUTH_SPAN_M, and its floor is held again under it; so do the other pieces' ends
+        # on the ground (a ramp's foot, a bridge at the ground's level).
+        if mouths_to_ground(pieces, h, fine):
             hold()
+        # Then the bridges at the ground's level carried on over what the cuts' floors and banks took.
+        print(f"bridges carried on over a cut's floor: {bridges_over_holes(pieces, h, fine, roads)} ends")
         # A footbridge's ground at its points (its deck stands its height over the highest of them). One at the
         # ground's level over a cut (Ako Adjei's, elevated.py FOOT_AT_GROUND_M) lies wholly over the cut's held floor:
         # its ground is the natural ground there, the cut's banks' top, at every point.
