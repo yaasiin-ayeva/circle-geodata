@@ -53,7 +53,9 @@ import urllib.request
 import zlib
 
 import numpy as np
+import shapely
 from pyproj import Transformer
+from shapely.geometry import LineString
 from scipy import ndimage
 
 DEM_URL = "https://copernicus-dem-30m.s3.amazonaws.com/{n}/{n}.tif"
@@ -196,6 +198,7 @@ CUT_BANK_DEFAULT = 2.0
 CUT_UNDER_M = 0.15    # a cut's floor under its road
 CUT_FLOOR_M = 12.0    # its floor held flat this far beyond the road's half-width: over a cell's diagonal (8 m grid)
 UNDER_M = 0.3         # the ground under a deck or a ramp, under the natural ground
+MOUTH_DEPTH_M = 1.5   # a cut this deep under the natural ground is held its full CUT_FLOOR_M beyond its road
 
 
 def world_structures(world, folder, elevated_path):
@@ -212,7 +215,7 @@ def world_structures(world, folder, elevated_path):
     o = world["origin_wgs84"]
     oe, on = to_utm.transform(o["lon"], o["lat"])
     move = lambda pts: [[round(x - oe, 2), round(on - y, 2)] for x, y in pts]
-    return ([{**p, "pts": move(p["pts"])} for p in d["pieces"] if p["id"] in ids],
+    return ([{**{k: v for k, v in p.items() if k != "drawn"}, "pts": move(p["pts"])} for p in d["pieces"] if p["id"] in ids],
             [{**f, "pts": move(f["pts"])} for f in d["footbridges"] if f["id"] in ids])
 
 
@@ -233,6 +236,35 @@ def structure_heights(pieces, natural, carved, grid):
         t = s / max(s[-1], 1e-6)
         y = y + d0 * (1 - t) + d1 * t
         p["y"] = [round(float(v), 2) for v in y]
+
+
+MOUTH_SPAN_M = 30.0   # a cut's road comes to the ground at its mouth over this
+
+
+def mouths_to_ground(pieces, h, grid):
+    """Each cut's end at the ground (a mouth) brought to the ground's final height there, the difference spread over
+    MOUTH_SPAN_M of the road (never further than its other end). Returns how many ends moved."""
+    moved = 0
+    for p in pieces:
+        pts = np.array(p["pts"], dtype=np.float64)
+        s = np.concatenate([[0], np.cumsum(np.hypot(*np.diff(pts, axis=0).T))])
+        y = np.array(p["y"], dtype=np.float64)
+        for e in (0, len(pts) - 1):
+            if abs(p["off"][e]) > 0.3:
+                continue
+            fi, fj = (pts[e, 0] - grid.x0) / grid.step, (pts[e, 1] - grid.z0) / grid.step
+            g = float(ndimage.map_coordinates(h, [[np.clip(fj, 0, grid.nz - 1)], [np.clip(fi, 0, grid.nx - 1)]], order=1, mode="nearest")[0])
+            d = g - y[e]
+            if abs(d) < 0.05:
+                continue
+            span = min(MOUTH_SPAN_M, s[-1])
+            k = d * np.clip(1 - np.abs(s - s[e]) / span, 0, 1)
+            y += k
+            # Its offset over the natural ground with it: the game stands the cut's walls on the ground it gives.
+            p["off"] = [round(float(o + dk), 2) for o, dk in zip(p["off"], k)]
+            moved += 1
+        p["y"] = [round(float(v), 2) for v in y]
+    return moved
 
 
 def world_bounds(world):
@@ -368,21 +400,50 @@ def hold_cut_floors(h, grid, roads, other):
         inside = (fi >= 0) & (fi <= grid.nx - 1) & (fj >= 0) & (fj <= grid.nz - 1)
         seg = np.hypot(*np.diff(pts, axis=0).T)
         prof = np.interp(d, np.concatenate([[0], np.cumsum(seg)]), own[0])
+        # Held as far beyond the road as the cut is deep, CUT_FLOOR_M where it is MOUTH_DEPTH_M deep or more: at a
+        # mouth, where the cut is at the ground, the roads on the ground merging into it (Tetteh Quarshie's slip road
+        # to J.J. Rawlings Avenue) were held half a metre under its road inside its footprint, a step across the lanes.
+        if len(own) > 2 and own[2] is not None:
+            depth = -np.interp(d, np.concatenate([[0], np.cumsum(seg)]), own[2])
+            reach = np.clip(CUT_FLOOR_M * depth / MOUTH_DEPTH_M, 2.0, CUT_FLOOR_M)
+        else:
+            reach = np.full(len(d), CUT_FLOOR_M)
         # Each sample holds the four nodes of the cell it is in, not only its nearest: the ground drawn over a cell is
         # mixed from its four corners, and a corner left at the bank's height lifted it over the road between them
         # (6 to 20 cm over 43 of the cuts' points in the game's check). Each corner takes the lowest sample round it.
         for i in (np.floor(fi[inside]).astype(int), np.minimum(np.floor(fi[inside]).astype(int) + 1, grid.nx - 1)):
             for j in (np.floor(fj[inside]).astype(int), np.minimum(np.floor(fj[inside]).astype(int) + 1, grid.nz - 1)):
                 np.fmin.at(floor, (j, i), prof[inside])
-                fhalf[j, i] = w / 2 + CUT_FLOOR_M
+                np.fmax.at(fhalf, (j, i), w / 2 + reach[inside])
                 rhalf[j, i] = w / 2 + 2.0
     cut = ~np.isnan(floor)
     if not cut.any():
         return
+    # Only inside the cuts' own footprints, square at their ends: held to its nearest cut node as far as
+    # CUT_FLOOR_M, the ground beyond a cut's mouth was a trough up to 0.7 m under the road on the ground that meets
+    # it there (Tetteh Quarshie's mouths, where the car stopped at the step onto the cut's road).
+    within = np.zeros(h.shape, bool)
+    for cls, w, pts, *own in roads:
+        if cls != "cut":
+            continue
+        poly = LineString(pts).buffer(w / 2 + CUT_FLOOR_M, cap_style="flat")
+        # Round where the cut runs on into a tunnel or another cut (an end under the ground): only a mouth is square.
+        offs = own[2] if len(own) > 2 and own[2] is not None else None
+        for e in (0, -1):
+            if offs is None or abs(offs[e]) > 0.3:
+                poly = poly.union(shapely.Point(pts[e]).buffer(w / 2 + CUT_FLOOR_M))
+        x0, z0, x1, z1 = poly.bounds
+        i0, i1 = max(0, int((x0 - grid.x0) // grid.step)), min(grid.nx - 1, int((x1 - grid.x0) // grid.step) + 1)
+        j0, j1 = max(0, int((z0 - grid.z0) // grid.step)), min(grid.nz - 1, int((z1 - grid.z0) // grid.step) + 1)
+        if i1 < i0 or j1 < j0:
+            continue
+        ii, jj = np.meshgrid(np.arange(i0, i1 + 1), np.arange(j0, j1 + 1))
+        inside_poly = shapely.contains_xy(poly, grid.x0 + ii * grid.step, grid.z0 + jj * grid.step)
+        within[jj[inside_poly], ii[inside_poly]] = True
     dc, (jc, ic) = ndimage.distance_transform_edt(~cut, sampling=grid.step, return_indices=True)
     do = ndimage.distance_transform_edt(~other, sampling=grid.step) if other.any() else np.full(h.shape, np.inf)
     d = np.maximum(dc - grid.step * 0.5, 0)
-    inside = ((d <= fhalf[jc, ic]) & (dc < do)) | (d <= rhalf[jc, ic])
+    inside = (((d <= fhalf[jc, ic]) & (dc < do)) | (d <= rhalf[jc, ic])) & within
     f = floor[jc, ic]
     h[inside] = np.minimum(h[inside], f[inside])
 
@@ -494,7 +555,7 @@ def main():
             if "C" in p["kind"] or "T" in p["kind"]:
                 # The cut's floor a little under its road, which the game draws at the piece's own heights.
                 cuts.append(("cut", float(p["w"]), pts, np.array(p["y"]) - CUT_UNDER_M,
-                             CUT_BANK_M.get(p["style"], CUT_BANK_DEFAULT)))
+                             CUT_BANK_M.get(p["style"], CUT_BANK_DEFAULT), np.array(p["off"])))
             else:
                 # Under a deck or a ramp the ground is the natural ground, levelled a little under it so no bump of the
                 # DEM shows through the ramp's foot; the roads that pass under are laid after, and win.
@@ -505,17 +566,27 @@ def main():
     del raw, moved
     if pieces or feet:
         structure_heights(pieces, natural, h, fine)
-        del natural
         # The cuts' floors again, under their roads' final heights (their ends meet the carved ground).
-        hold_cut_floors(h, fine, [("cut", float(p["w"]), np.array(p["pts"], dtype=np.float64), np.array(p["y"]) - CUT_UNDER_M)
-                                  for p in pieces if "C" in p["kind"] or ("T" in p["kind"] and not under_roads(np.array(p["pts"]), roads))], other)
-        # A footbridge's ground at its points (its deck stands its height over the highest of them).
+        held = [p for p in pieces if "C" in p["kind"] or ("T" in p["kind"] and not under_roads(np.array(p["pts"]), roads))]
+        hold = lambda: hold_cut_floors(h, fine, [("cut", float(p["w"]), np.array(p["pts"], dtype=np.float64), np.array(p["y"]) - CUT_UNDER_M,
+                                                  None, np.array(p["off"])) for p in held], other)
+        hold()
+        # A cut's mouth meets the ground where the roads on the ground were carved, which can lie half a metre off the
+        # height its road was given before them (two roads meeting there, at Tetteh Quarshie): the road comes to the
+        # ground at its mouth, over MOUTH_SPAN_M, and its floor is held again under it.
+        if mouths_to_ground(held, h, fine):
+            hold()
+        # A footbridge's ground at its points (its deck stands its height over the highest of them). One at the
+        # ground's level over a cut (Ako Adjei's, elevated.py FOOT_AT_GROUND_M) lies wholly over the cut's held floor:
+        # its ground is the natural ground there, the cut's banks' top, at every point.
         for f in feet:
             pts = np.array(f["pts"], dtype=np.float64)
             fi = (pts[:, 0] - fine.x0) / fine.step
             fj = (pts[:, 1] - fine.z0) / fine.step
-            g = ndimage.map_coordinates(h, [fj.clip(0, fine.nz - 1), fi.clip(0, fine.nx - 1)], order=1, mode="nearest")
-            f["g"] = [round(float(v), 2) for v in g]
+            field = natural if f["h"] < 2.0 and natural is not None else h
+            g = ndimage.map_coordinates(field, [fj.clip(0, fine.nz - 1), fi.clip(0, fine.nx - 1)], order=1, mode="nearest")
+            f["g"] = [round(float(g.max()), 2)] * len(f["pts"]) if f["h"] < 2.0 else [round(float(v), 2) for v in g]
+        del natural
         with open(os.path.join(args.out, "structures.json"), "w") as f:
             json.dump({"axes": world["axes"], "level_m": 7.0, "pieces": pieces, "footbridges": feet,
                        "credits": "Interchanges, flyovers and footbridges: OpenStreetMap contributors (ODbL)."},
