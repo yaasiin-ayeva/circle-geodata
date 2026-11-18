@@ -136,5 +136,23 @@ check("a building beside the ramp does not", not bd.under_structure(box(90, 10, 
 
 check("no car is parked by a ramp's foot", bd.FOOT_CLEAR_M >= 30)
 
+# relief.py's cut floors: a cut from its mouth at x = 0 (on the ground, where a road on the ground meets it) down at
+# 9 % to 7 m under the ground, on flat ground at 10 m. The floor is held under the cut's road inside the cut, and the
+# ground beyond its mouth stays where the road on the ground lies (no trough to step out of onto the cut's road).
+import numpy as np  # noqa: E402
+import relief as rl  # noqa: E402
+grid = rl.Grid(-80.0, -40.0, 31, 11, 8.0)
+h = np.full((grid.nz, grid.nx), 10.0, np.float32)
+xs = np.arange(0.0, 121.0, 5.0)
+off = -np.minimum(7.0, 0.09 * xs)
+cutpts = np.column_stack([xs, np.zeros_like(xs)])
+other = np.zeros(h.shape, bool)
+other[5, :10] = True                                   # the road on the ground, x -80 to -8, z 0
+rl.hold_cut_floors(h, grid, [("cut", 7.6, cutpts, 10.0 + off - rl.CUT_UNDER_M, None, off)], other)
+node = lambda x, z: h[int(round((z - grid.z0) / grid.step)), int(round((x - grid.x0) / grid.step))]
+check("a cut's floor is held under its road inside it", node(64, 0) <= 10.0 - 0.09 * 64 - rl.CUT_UNDER_M + 1e-3, f"{node(64, 0):.2f}")
+check("the ground beyond its mouth stays at the road on the ground", all(abs(node(-8, z) - 10.0) < 1e-3 for z in (-8, 0, 8)),
+      ", ".join(f"{node(-8, z):.2f}" for z in (-8, 0, 8)))
+
 print(f"{failures} failure(s)")
 sys.exit(1 if failures else 0)
