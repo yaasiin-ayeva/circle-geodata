@@ -459,6 +459,8 @@ def build(ways, to_utm):
         if s and s["base"] > 0:
             continue    # a sidewalk on a base-level deck (Ako Adjei's roundabout): the deck carries it
         h, line = over_decks(w["line"], pieces)
+        if line is None:
+            continue    # a sidewalk along a deck, drawn as its own bridge: the deck carries it
         feet.append({"id": f"fb{w['id']}", "osm": w["id"], "over": sorted(set(under)), "w": 2.6,
                      "pts": [[round(x, 2), round(y, 2)] for x, y in line.coords], "h": h})
     fit_twins(pieces)
@@ -467,7 +469,8 @@ def build(ways, to_utm):
 
 
 def over_decks(line, pieces):
-    """A footbridge by a structure: (its height over the ground, its line). Over a deck or a ramp it crosses, it stands
+    """A footbridge by a structure: (its height over the ground, its line), or (h, None) for a footway that runs along
+    a deck on it, its sidewalk drawn as a bridge of its own. Over a deck or a ramp it crosses, it stands
     FOOT_M over that deck; one that ends on a deck's edge (the Nii Tetteh Amui flyover's, which come down to its
     side over the motorway) stops at the deck's edge, at the deck's level, where at 6.2 m it stood across the
     flyover's lanes under their 7 m deck. Elsewhere FOOT_M over the road under it."""
@@ -485,6 +488,8 @@ def over_decks(line, pieces):
         if off <= 0.5:
             continue                        # a road at the ground or in a cut: passed over as any road
         rest = line.difference(band)
+        if rest.length < 0.3 * line.length:
+            return h, None                  # along the deck, on it: its sidewalk (the Nii Tetteh Amui flyover's)
         parts = [g for g in getattr(rest, "geoms", [rest]) if isinstance(g, LineString) and g.length > 1.0]
         if len(parts) >= 2:
             h = max(h, off + FOOT_M)        # across the deck: over it

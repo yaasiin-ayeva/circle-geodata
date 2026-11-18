@@ -55,6 +55,9 @@ reach = deck["w"] / 2 + 2.15
 check("a footbridge ending on a deck stops at its edge, at its level",
       h == 7.0 and abs(min(y for _, y in line.coords) - reach) < 0.05, f"{h}, ends at {min(y for _, y in line.coords):.2f} m")
 
+h, line = el.over_decks(LineString([(20, 3.0), (180, 3.0)]), [deck])
+check("a footway along a deck, on it, is its sidewalk: no footbridge", line is None)
+
 # Twin carriageways 7.2 m apart drawn 11.1 m wide (three lanes each): narrowed to the room between them.
 east = piece("e", [(x, 0) for x in range(0, 401, 20)], [7.0] * 21, w=11.1, lanes=3)
 west = piece("w", [(x, 7.2) for x in range(400, -1, -20)], [7.0] * 21, w=11.1, lanes=3)
