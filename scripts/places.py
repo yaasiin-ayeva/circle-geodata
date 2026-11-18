@@ -134,6 +134,8 @@ OSM_BY_KEY = {"amenity": "service", "shop": "shop", "craft": "shop", "office": "
 # The OpenStreetMap features that are garages for the game's fitters (build_district.py "garages"), by kind.
 GARAGE_KIND = {("shop", "car_repair"): "repair", ("craft", "mechanic"): "repair", ("shop", "tyres"): "tyres",
                ("shop", "car_parts"): "parts"}
+# The canopies osm_extract.py keeps for the fuel stations' forecourts (its CANOPY).
+CANOPY_TAGS = {("building", "roof"), ("building", "canopy"), ("man_made", "canopy")}
 # Overture's categories that are garages, by kind.
 GARAGE_KIND_OVERTURE = {"automotive_service": "repair", "automotive_repair": "repair", "auto_body_shop": "repair",
                         "vehicle_service": "repair", "tire_dealer_and_repair": "tyres", "vehicle_parts_store": "parts"}
@@ -290,17 +292,27 @@ def load_places(con, path):
 
 def load_osm(path):
     """osm.parquet's rows (osm_extract.py) as select_places() rows: source "osm", the icon category as "cat" (None
-    left out), and the garage kind as "garage" where the feature is one."""
+    left out), the garage kind as "garage" where the feature is one, "fuel" true on a fuel station (amenity=fuel) with
+    its tags of note ("tags": brand, operator, building), and the canopies (building=roof|canopy, man_made=canopy:
+    "canopy" true, "cat" None) for the fuel stations' forecourts (fuel_stations.py). select_places() leaves the
+    canopies out."""
+    import json
     import pyarrow.parquet as pq
 
     out = []
-    for r in pq.read_table(path, columns=["id", "name", "key", "value", "brand", "lon", "lat", "area_m2", "outline"]).to_pylist():
+    cols = ["id", "name", "key", "value", "brand", "lon", "lat", "area_m2", "outline"]
+    table = pq.read_table(path)
+    for r in table.select(cols + (["tags"] if "tags" in table.column_names else [])).to_pylist():
+        canopy = (r["key"], r["value"]) in CANOPY_TAGS and r["outline"] is not None
         cat = osm_category(r["key"], r["value"])
-        if cat is None:
+        if cat is None and not canopy:
             continue
-        out.append({"source": "osm", "cat": cat, "id": r["id"], "name": r["name"], "brand": r["brand"], "lon": r["lon"],
-                    "lat": r["lat"], "area_m2": r["area_m2"], "outline": r["outline"],
-                    "garage": GARAGE_KIND.get((r["key"], r["value"]))})
+        fuel = (r["key"], r["value"]) == ("amenity", "fuel")
+        tags = json.loads(r.get("tags") or "{}") if fuel or canopy else {}
+        out.append({"source": "osm", "cat": None if canopy else cat, "id": r["id"], "name": r["name"], "brand": r["brand"],
+                    "lon": r["lon"], "lat": r["lat"], "area_m2": r["area_m2"], "outline": r["outline"],
+                    "garage": GARAGE_KIND.get((r["key"], r["value"])),
+                    **({"fuel": True, "tags": tags} if fuel else {}), **({"canopy": True, "tags": tags} if canopy else {})})
     return out
 
 
