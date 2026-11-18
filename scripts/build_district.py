@@ -40,6 +40,7 @@ import shapely
 from PIL import Image, ImageDraw
 from pyproj import Transformer
 
+import ev_chargers
 import fuel_stations
 import places as named_places
 from shapely.geometry import LineString, MultiLineString, MultiPolygon, Point, Polygon, box
@@ -989,16 +990,17 @@ def build(args):
     # The fuel stations (scripts/fuel_stations.py): the game builds their forecourts, canopies on columns included, so
     # the canopies OpenStreetMap maps as building=roof (extruded to the ground as blocks until now) are left out of the
     # buildings below, and the compound walls and parked cars keep off their ground. --no-fuel builds as before.
+    # The streets a car drives, for the street in front of a fuel station or a charger.
+    street_lines = []
+    for rid, cls, name, g in roads:
+        if cls not in TRAFFIC_CLASSES:
+            continue
+        g = g.intersection(clip)
+        for l in ([g] if isinstance(g, LineString) else list(getattr(g, "geoms", []))):
+            if isinstance(l, LineString) and l.length >= 2:
+                street_lines.append((name, road_width(cls, name, rid=rid), l))
     fuel = []
     if not args.no_fuel:
-        street_lines = []
-        for rid, cls, name, g in roads:
-            if cls not in TRAFFIC_CLASSES:
-                continue
-            g = g.intersection(clip)
-            for l in ([g] if isinstance(g, LineString) else list(getattr(g, "geoms", []))):
-                if isinstance(l, LineString) and l.length >= 2:
-                    street_lines.append((name, road_width(cls, name, rid=rid), l))
         roofs = [local(shapely.from_wkb(bytes(blob))) for (blob,) in
                  con.execute(f"SELECT geometry::BLOB FROM '{os.path.join(args.slice, 'buildings.parquet')}' WHERE class = 'roof'").fetchall()]
         fuel = fuel_stations.find_fuel_stations(osm_rows, place_rows, street_lines, inside_clip, to_local_ll, local, roofs)
@@ -1019,6 +1021,15 @@ def build(args):
     fuel_lots = fuel_stations.lot_shapes(fuel)
     fuel_ground = fuel_stations.keep_clear(fuel)
     replaced = cleared = 0
+    # The electric-vehicle chargers (scripts/ev_chargers.py): OpenStreetMap's and Overture's, and those their operators
+    # document at a host OpenStreetMap maps (--ev-documented); each joined to the fuel station it stands in. Their
+    # ground off a forecourt is kept clear of compound walls and parked cars like a station's. --no-ev: none.
+    ev = []
+    if not args.no_ev:
+        documented = ev_chargers.load_documented(args.ev_documented) if args.ev_documented else []
+        hosts = ev_chargers.read_hosts(osm_path, local, [d.get("host") for d in documented]) if os.path.exists(osm_path) else {}
+        ev = ev_chargers.find_ev_chargers(osm_rows, place_rows, street_lines, inside_clip, to_local_ll, local, fuel, hosts, documented)
+        fuel_ground = fuel_ground + ev_chargers.keep_clear(ev)
 
     landmark_points = [shapely.geometry.Point(*np.array(to_utm.transform(lon, lat)) - (oe, on))
                        for _, lat, lon in rules["landmarks"]]
@@ -1223,6 +1234,10 @@ def build(args):
         print(f"fuel stations: {len(fuel)} ({sum(1 for f in fuel if f.get('osm'))} from OpenStreetMap, "
               f"{sum(1 for f in fuel if f.get('site'))} with their site, {sum(1 for f in fuel if f.get('canopies'))} with a canopy); "
               f"{replaced} canopy footprints left out of the buildings, {cleared} machine-learned footprints cleared off their ground")
+    if ev:
+        print(f"ev chargers: {len(ev)} ({sum(1 for c in ev if c.get('osm'))} from OpenStreetMap, "
+              f"{sum(1 for c in ev if c.get('source') == 'overture')} from Overture, {sum(1 for c in ev if c.get('source') == 'documented')} documented; "
+              f"{sum(1 for c in ev if c.get('fuel'))} at a fuel station, {sum(1 for c in ev if c.get('host'))} in a car park or mall)")
     medians = find_medians(roads, clip)
     if medians:
         print(f"medians: {len(medians)} pieces, {sum(LineString(m['pts']).length for m in medians) / 1000:.2f} km")
@@ -1249,7 +1264,7 @@ def build(args):
         "bounds_m": {"xmin": round(minx, 1), "xmax": round(maxx, 1), "zmin": round(miny, 1), "zmax": round(maxy, 1)},
         "axes": "x east, y up, z north, metres from origin",
         "stats": {"buildings": nb, "road_km": round(road_km, 2), "lights": len(lights),
-                  **({"parked": len(parked)} if rules.get("parking") else {}), "hiding": len(hiding), "places": len(spots), "fuel_stations": len(fuel), "canopies_replaced": replaced, "forecourts_cleared": cleared, "medians_m": round(sum(LineString(m["pts"]).length for m in medians)), "triangles": tris,
+                  **({"parked": len(parked)} if rules.get("parking") else {}), "hiding": len(hiding), "places": len(spots), "fuel_stations": len(fuel), "ev_chargers": len(ev), "canopies_replaced": replaced, "forecourts_cleared": cleared, "medians_m": round(sum(LineString(m["pts"]).length for m in medians)), "triangles": tris,
                   "vertices": verts, "objects": objs, "lap_m": round(lap["length_m"], 1) if lap else None,
                   "height_m_median": round(float(np.median(heights)), 1) if heights else None,
                   "massing": {k: (round(v) if isinstance(v, float) else v) for k, v in sorted(counts.items())}},
@@ -1274,12 +1289,14 @@ def build(args):
         "garages": garages,
         # The fuel stations (scripts/fuel_stations.py; circle-game src/world/fuel.ts builds their forecourts).
         **({"fuelStations": fuel} if fuel else {}),
+        # The electric-vehicle chargers (scripts/ev_chargers.py; circle-game src/world/ev.ts builds their bays).
+        **({"evChargers": ev} if ev else {}),
         # The interchanges', flyovers' and footbridges' pieces in the area (scripts/elevated.py ids): relief.py gives
         # them their heights and the game builds them (circle-game src/world/interchanges.ts).
         **({"structures": [p["id"] for p in elev] + [f["id"] for f in feet]} if elev or feet else {}),
         "credits": "Buildings and roads: Overture Maps Foundation (ODbL), from OpenStreetMap contributors, "
                    "Google Open Buildings and Microsoft. Heights from typology rules."
-                   + (" Places, garages and fuel stations: OpenStreetMap contributors (ODbL)." if osm_rows else "")
+                   + (" Places, garages, fuel stations and chargers: OpenStreetMap contributors (ODbL)." if osm_rows else "")
                    + (" Places: Overture Maps Foundation (CDLA Permissive 2.0 and ODbL), from Meta, Microsoft, "
                       "Foursquare, AllThePlaces and OpenStreetMap contributors." if spots else ""),
     }
@@ -2031,6 +2048,10 @@ def main():
                     help="the interchanges and flyovers (scripts/elevated.py); without the file every road is on the ground")
     ap.add_argument("--no-massing", action="store_true",
                     help="plain extruded footprints, no roofs, bulkheads, frames or compound walls (the old district)")
+    ap.add_argument("--no-ev", action="store_true", help="no electric-vehicle chargers (no evChargers), as before")
+    ap.add_argument("--ev-documented", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "aoi", "ev-chargers.json"),
+                    help="the chargers documented by their operators but not mapped, each at a host OpenStreetMap maps; "
+                         "'' for OpenStreetMap's and Overture's only")
     ap.add_argument("--no-fuel", action="store_true",
                     help="no fuel stations: their canopies extruded as buildings, walls and parked cars over their ground, as before")
     build(ap.parse_args())

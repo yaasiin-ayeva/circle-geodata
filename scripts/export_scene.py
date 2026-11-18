@@ -113,7 +113,7 @@ def main():
     ap.add_argument("--chunk", action="store_true",
                     help="with --tiles: the heavy lists (street lights, parked cars, solid outlines, hiding places) go "
                          "to one <tile>.data.json per tile, which the game fetches with the tile; the scene keeps what "
-                         "the whole world needs from the start (roads, places, garages, fuel stations, medians, the lap)")
+                         "the whole world needs from the start (roads, places, garages, fuel stations, chargers, medians, the lap)")
     args = ap.parse_args()
     glb = args.glb or os.path.splitext(os.path.basename(args.district))[0] + ".glb"
 
@@ -195,6 +195,31 @@ def main():
                 e["person"] = True
             out.append(e)
         scene["fuelStations"] = out
+    # The electric-vehicle chargers (scripts/ev_chargers.py) for the game's bays (circle-game src/world/ev.ts): the
+    # charger's point, the door on the nearest street's asphalt edge, "facing" the yaw from the charger to the door, the
+    # street, the operator and name as tagged, the plugs, the site when mapped (or its car park's), and the fuel station
+    # it stands in (its point, to find it among the scene's fuelStations), all in glTF axes.
+    if d.get("evChargers"):
+        flip2 = lambda v: [v[0], round(-v[1], 4) + 0.0]
+        out = []
+        for c in d["evChargers"]:
+            e = {"name": c["name"], "at": [c["x"], round(-c["z"], 1) + 0.0],
+                 **{k: c[k] for k in ("operator", "brand", "network", "capacity", "sockets", "kw", "kind", "fee", "host") if c.get(k)}}
+            if c.get("door"):
+                e.update({"door": flip2(c["door"]), "facing": round(math.atan2(c["toward"][0], -c["toward"][1]), 4),
+                          "road": {"name": c["road"]["name"], "w": c["road"]["w"], "dir": flip2(c["road"]["dir"])}})
+            if c.get("site"):
+                e["site"] = [[x, round(-z, 1) + 0.0] for x, z in c["site"]]
+            if c.get("fuel"):
+                f = c["fuel"]
+                e["fuel"] = {"at": [f["x"], round(-f["z"], 1) + 0.0], **{k: f[k] for k in ("osm", "source", "brand") if f.get(k)}}
+            e.update({"osm": c["osm"]} if c.get("osm") else {"source": c.get("source", "overture")})
+            if c.get("sources"):
+                e["sources"] = c["sources"]
+            if c.get("person"):
+                e["person"] = True
+            out.append(e)
+        scene["evChargers"] = out
     # The central reservations of the dual carriageways: the median's middle line (glTF axes), its width between
     # the two carriageways' asphalt, its kerb height, already cut where roads cross it (build_district find_medians).
     if d.get("medians"):
@@ -235,7 +260,7 @@ def main():
         write_chunks(scene, os.path.dirname(args.out))
     # The road network, the solid outlines and the places are long lists for the game, not for reading: one line
     # each, the rest of the scene indented.
-    compact = {k: scene.pop(k) for k in ("roads", "solid", "places", "garages", "fuelStations", "medians", "structures") if k in scene}
+    compact = {k: scene.pop(k) for k in ("roads", "solid", "places", "garages", "fuelStations", "evChargers", "medians", "structures") if k in scene}
     text = json.dumps(scene, indent=1)
     for k, v in compact.items():
         text = text[:text.rstrip().rfind("}")].rstrip() + f',\n "{k}": {json.dumps(v, separators=(",", ":"))}\n}}'

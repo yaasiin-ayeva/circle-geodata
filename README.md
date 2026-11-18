@@ -23,6 +23,7 @@ Pre-production. The area files, the Overture counting and extraction script, the
 | [scripts/build_lookdev.py](scripts/build_lookdev.py) | Dresses the first 220 m of Oxford Street at target quality: facades with windows, bars, AC units and shopfronts, the shop signs and billboards transcribed on Oxford Street and the lap, rooms and shop interiors behind lit glass, sidewalks, gutters, power lines, kiosks, umbrellas |
 | [scripts/build_district.py](scripts/build_district.py) | Turns an export into a drivable district for the engines: OBJ meshes, streetlights, a benchmark lap ([requirements-district.txt](requirements-district.txt)) |
 | [scripts/fuel_stations.py](scripts/fuel_stations.py) | Accra's fuel stations for the game's forecourts: OpenStreetMap's and Overture's merged, the brand as tagged, the site, shop and canopy outlines, the street in front; the canopies the district used to extrude left to the game. See [Fuel stations](#fuel-stations) |
+| [scripts/ev_chargers.py](scripts/ev_chargers.py) | Accra's electric-vehicle chargers for the game's bays: OpenStreetMap's and Overture's merged, and those their operators document at a host OpenStreetMap maps ([aoi/ev-chargers.json](aoi/ev-chargers.json)); the operator, plugs and power as tagged, the site or car park, the fuel station they stand in, the street in front. See [Electric-vehicle chargers](#electric-vehicle-chargers) |
 | [scripts/massing.py](scripts/massing.py) | The district's building modules: hipped roofs on houses, stair bulkheads, set-back top storeys, unfinished frame storeys, compound walls with gates along residential streets |
 | [scripts/export_glb.py](scripts/export_glb.py), [scripts/export_scene.py](scripts/export_scene.py) | What the game loads: indexed GLB per 250 m cell with glTF PBR materials (or, with `--tile-m`, one GLB per square of cells for streaming), and a scene JSON (lights, lap, parked cars, models, roads, solid outlines, hiding places, tiles) in glTF axes |
 | [scripts/export_world.py](scripts/export_world.py) | The world the game streams: areas that join along their edges, home first, with their offsets in one frame |
@@ -314,6 +315,43 @@ OpenStreetMap maps a boulevard with a central reservation as one one-way road pe
   footprints and 40 detector footprints on the stations' lots are left out of the buildings.
 - `--no-fuel` builds the district as before: canopies extruded, walls and parked cars over the stations' ground, no
   `fuelStations`.
+
+### Electric-vehicle chargers
+
+`scripts/ev_chargers.py` (checked by `tests/test_ev_chargers.py`) gives each area its chargers, which
+`build_district.py` writes as `evChargers` and `export_scene.py` passes to the game in glTF axes (circle-game
+`src/world/ev.ts` builds their bays, `docs/ev-charging.md` there).
+
+- **Sources:** OpenStreetMap's `amenity=charging_station` (a node, or a closed way round its site; a lone
+  `man_made=charge_point` joins the charger within 30 m of it, or is one of its own), and Overture's places of
+  category `ev_charging_station` (or `charging_station`) at the maps' safety floor (0.55), not closed. Those for
+  bicycles, scooters or motorcycles only, and the private ones, are left out. One charger where both map the same one:
+  any two within 30 m, the same name or operator within 80 m, or a point inside a site; OpenStreetMap's is kept.
+  `osm_extract.py` now keeps a charger's `network`, `capacity`, `access`, `fee`, vehicle tags and `socket:*`.
+- **The documented ones** ([aoi/ev-chargers.json](aoi/ev-chargers.json)): chargers their operators or the press
+  document but neither map has. Each is placed only at a host OpenStreetMap maps (the fuel station or the car park its
+  sources name, by its id), so no position is guessed; each cites its sources; one OpenStreetMap or Overture maps
+  within 60 m of the host replaces it. `--ev-documented ''` builds from the two maps only.
+- **What each carries:** the name (`places.garage_name()`), operator, brand and network as tagged; its point; the
+  capacity (tagged, or the charge points counted), the plugs (`sockets`: type and count) and the largest output (`kw`)
+  when tagged; `kind`: `dc` (a CCS, CHAdeMO, GB/T DC or Tesla plug, or 40 kW or more), `ac`, `mixed`, or none; the
+  street in front (`door`, `toward`, `road`); its `site` when mapped, else the car park or mall it stands in (`host`,
+  within 15 m); and `fuel`, the fuel station it stands in (inside its site or canopy, or within 40 m of its point),
+  whose forecourt the game puts its bays on. Its ground off a forecourt (its site, or a lot 16 m along the street by
+  10 m deep) is kept clear of compound walls and parked cars.
+- **The maps:** OpenStreetMap's `amenity=charging_station` and Overture's chargers are the maps' category `charging`
+  now (they were `fuel`).
+- **What the maps hold** (the Ghana extract of 17 Nov 2026, Overture 2026-10-21.0): OpenStreetMap maps one
+  `amenity=charging_station` in the whole of Ghana, in north-west Accra (node 14163525001, 5.6377 N 0.2414 W, west of Achimota), outside every
+  slice; no `man_made=charge_point`, no `socket:*` tag. Overture has no charger in the slices' boxes (19,956 places
+  read over them). So every slice has none from the maps: vertical-slice 0, jamestown 0, north-37 0, east-accra 0,
+  aburi 0, accra-central 0, coast-east 0.
+- **Counts per area** (the build of 18 Nov 2026): Liberation Road 1 (TotalEnergies' 22 kW AC unit at its Liberation
+  Road station, commissioned in September 2022: on that station's forecourt), East Legon, Madina, Adenta 1 (POBAD at
+  the A&C Mall, in its car park); every other area 0. Both documented. The others documented in Accra (Xcharge EV at
+  the Friendly Mall on Spintex Road, at 38A Lagos Avenue and at Dzorwulu; POBAD at Stanbic Heights) have no host the
+  maps hold, and are listed under `unplaced` in the file.
+- `--no-ev` builds the district without `evChargers`.
 
 ### The interchanges, at their real levels
 
