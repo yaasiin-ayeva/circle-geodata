@@ -198,6 +198,7 @@ CUT_BANK_DEFAULT = 2.0
 CUT_UNDER_M = 0.15    # a cut's floor under its road
 CUT_FLOOR_M = 12.0    # its floor held flat this far beyond the road's half-width: over a cell's diagonal (8 m grid)
 UNDER_M = 0.3         # the ground under a deck or a ramp, under the natural ground
+MOUTH_DEPTH_M = 1.5   # a cut this deep under the natural ground is held its full CUT_FLOOR_M beyond its road
 
 
 def world_structures(world, folder, elevated_path):
@@ -399,13 +400,21 @@ def hold_cut_floors(h, grid, roads, other):
         inside = (fi >= 0) & (fi <= grid.nx - 1) & (fj >= 0) & (fj <= grid.nz - 1)
         seg = np.hypot(*np.diff(pts, axis=0).T)
         prof = np.interp(d, np.concatenate([[0], np.cumsum(seg)]), own[0])
+        # Held as far beyond the road as the cut is deep, CUT_FLOOR_M where it is MOUTH_DEPTH_M deep or more: at a
+        # mouth, where the cut is at the ground, the roads on the ground merging into it (Tetteh Quarshie's slip road
+        # to J.J. Rawlings Avenue) were held half a metre under its road inside its footprint, a step across the lanes.
+        if len(own) > 2 and own[2] is not None:
+            depth = -np.interp(d, np.concatenate([[0], np.cumsum(seg)]), own[2])
+            reach = np.clip(CUT_FLOOR_M * depth / MOUTH_DEPTH_M, 2.0, CUT_FLOOR_M)
+        else:
+            reach = np.full(len(d), CUT_FLOOR_M)
         # Each sample holds the four nodes of the cell it is in, not only its nearest: the ground drawn over a cell is
         # mixed from its four corners, and a corner left at the bank's height lifted it over the road between them
         # (6 to 20 cm over 43 of the cuts' points in the game's check). Each corner takes the lowest sample round it.
         for i in (np.floor(fi[inside]).astype(int), np.minimum(np.floor(fi[inside]).astype(int) + 1, grid.nx - 1)):
             for j in (np.floor(fj[inside]).astype(int), np.minimum(np.floor(fj[inside]).astype(int) + 1, grid.nz - 1)):
                 np.fmin.at(floor, (j, i), prof[inside])
-                fhalf[j, i] = w / 2 + CUT_FLOOR_M
+                np.fmax.at(fhalf, (j, i), w / 2 + reach[inside])
                 rhalf[j, i] = w / 2 + 2.0
     cut = ~np.isnan(floor)
     if not cut.any():
