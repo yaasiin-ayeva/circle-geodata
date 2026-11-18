@@ -171,7 +171,10 @@ def main():
     for (name, folder), rows in zip(pairs, extract_many(args.pbf, [load_aoi(args.aoi, n) for n, _ in pairs])):
         rows.sort(key=lambda r: r["id"])
         os.makedirs(folder, exist_ok=True)
-        pq.write_table(pa.Table.from_pylist(rows, schema=SCHEMA), os.path.join(folder, "osm.parquet"), compression="zstd")
+        # Written whole or not at all (#16): a temporary name, renamed once complete.
+        out = os.path.join(folder, "osm.parquet")
+        pq.write_table(pa.Table.from_pylist(rows, schema=SCHEMA), out + ".tmp", compression="zstd")
+        os.replace(out + ".tmp", out)
         named = sum(1 for r in rows if r["name"])
         print(f"osm.parquet: {len(rows)} features ({named} named) in {name}, into {folder}")
 
