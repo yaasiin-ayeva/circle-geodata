@@ -123,5 +123,7 @@ check("a street light under a deck 14 m up does not", not bd.under_structure(Poi
 check("a 10 m street light under it does", bd.under_structure(Point(50, 200), ground, bd.LAMP_TOP_M + 3.0))
 check("a building beside the ramp does not", not bd.under_structure(box(90, 10, 100, 20), ground, 9.0))
 
+check("no car is parked by a ramp's foot", bd.FOOT_CLEAR_M >= 30)
+
 print(f"{failures} failure(s)")
 sys.exit(1 if failures else 0)

@@ -827,6 +827,7 @@ OFF_STRUCTURE_W = 1.0     # beyond the piece's half width
 STRUCTURE_CLEAR_M = 1.5
 LAMP_TOP_M = 10.0         # a street light's height
 CAR_TOP_M = 1.6           # a parked car's
+FOOT_CLEAR_M = 40.0       # no car parked this near a ramp's foot on the ground (m)
 
 
 
@@ -1259,7 +1260,10 @@ def build(args):
                        if isinstance(l, LineString) and l.length >= 1]
         parked = place_parked(rules["parking"], pieces, keep_out + [p for _, p in yards] + fuel_ground, lap)
         if on_structures:
-            kept = [c for c in parked if not under_structure(Point(c["x"], c["z"]).buffer(2.3), on_structures, CAR_TOP_M)]
+            # And none where a ramp comes down onto the road (FOOT_CLEAR_M round its foot): its lanes merge there.
+            ramp_feet = [Point(p["pts"][i]).buffer(FOOT_CLEAR_M) for p in elev for i in (0, -1) if abs(p["off"][i]) < 0.3]
+            kept = [c for c in parked if not under_structure(Point(c["x"], c["z"]).buffer(2.3), on_structures, CAR_TOP_M)
+                    and not any(f.contains(Point(c["x"], c["z"])) for f in ramp_feet)]
             under["parked cars"] += len(parked) - len(kept)
             parked = kept
 
