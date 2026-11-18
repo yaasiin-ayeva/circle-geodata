@@ -557,7 +557,6 @@ def main():
     del raw, moved
     if pieces or feet:
         structure_heights(pieces, natural, h, fine)
-        del natural
         # The cuts' floors again, under their roads' final heights (their ends meet the carved ground).
         held = [p for p in pieces if "C" in p["kind"] or ("T" in p["kind"] and not under_roads(np.array(p["pts"]), roads))]
         hold = lambda: hold_cut_floors(h, fine, [("cut", float(p["w"]), np.array(p["pts"], dtype=np.float64), np.array(p["y"]) - CUT_UNDER_M,
@@ -569,16 +568,16 @@ def main():
         if mouths_to_ground(held, h, fine):
             hold()
         # A footbridge's ground at its points (its deck stands its height over the highest of them). One at the
-        # ground's level over a cut (Ako Adjei's, elevated.py FOOT_AT_GROUND_M) has its points over the cut's held
-        # floor: the ground along it, its highest, is its banks' top, every point's.
+        # ground's level over a cut (Ako Adjei's, elevated.py FOOT_AT_GROUND_M) lies wholly over the cut's held floor:
+        # its ground is the natural ground there, the cut's banks' top, at every point.
         for f in feet:
             pts = np.array(f["pts"], dtype=np.float64)
-            if f["h"] < 2.0:
-                pts = densify(pts, 1.0)[0]
             fi = (pts[:, 0] - fine.x0) / fine.step
             fj = (pts[:, 1] - fine.z0) / fine.step
-            g = ndimage.map_coordinates(h, [fj.clip(0, fine.nz - 1), fi.clip(0, fine.nx - 1)], order=1, mode="nearest")
+            field = natural if f["h"] < 2.0 and natural is not None else h
+            g = ndimage.map_coordinates(field, [fj.clip(0, fine.nz - 1), fi.clip(0, fine.nx - 1)], order=1, mode="nearest")
             f["g"] = [round(float(g.max()), 2)] * len(f["pts"]) if f["h"] < 2.0 else [round(float(v), 2) for v in g]
+        del natural
         with open(os.path.join(args.out, "structures.json"), "w") as f:
             json.dump({"axes": world["axes"], "level_m": 7.0, "pieces": pieces, "footbridges": feet,
                        "credits": "Interchanges, flyovers and footbridges: OpenStreetMap contributors (ODbL)."},

@@ -688,25 +688,38 @@ def separate_twins(pieces):
     if not move:
         return 0
     moved = 0
-    # The pieces that end on a point moved come with it, less with distance from that end.
+    # The pieces that end on a point moved come with it, less with distance from that end; a point two pieces share
+    # moves the same in both (the most either gives it), and again from there, until no shared point parts.
     shift = {}
-    for idx, p in enumerate(pieces):
-        pts = np.array(p["pts"], dtype=np.float64)
-        n, s = len(pts), cum(p)
-        d = np.zeros((n, 2))
-        for k in range(n):
-            key = (round(pts[k][0], 2), round(pts[k][1], 2))
-            if key in move:
-                d[k] = move[key]
-        if not p.get("surveyed"):
-            for e in (0, n - 1):
-                if not d[e].any():
-                    continue
-                f = np.clip(1 - np.abs(s - s[e]) / TWIN_TAPER_M, 0, 1)
-                for k in range(n):
-                    if np.linalg.norm(d[e] * f[k]) > np.linalg.norm(d[k]):
-                        d[k] = d[e] * f[k]
-        shift[idx] = d
+    for _ in range(6):
+        for idx, p in enumerate(pieces):
+            pts = np.array(p["pts"], dtype=np.float64)
+            n, s = len(pts), cum(p)
+            d = np.zeros((n, 2))
+            for k in range(n):
+                key = (round(pts[k][0], 2), round(pts[k][1], 2))
+                if key in move:
+                    d[k] = move[key]
+            if not p.get("surveyed"):
+                # From every point of it that moved (an end on the pair, or a point of it a moved end lies on: a
+                # deck's end on a slip road's point at Circle's western roundabout), less with distance.
+                for e in [k for k in range(n) if d[k].any()]:
+                    f = np.clip(1 - np.abs(s - s[e]) / TWIN_TAPER_M, 0, 1)
+                    base = d[e].copy()
+                    for k in range(n):
+                        if np.linalg.norm(base * f[k]) > np.linalg.norm(d[k]):
+                            d[k] = base * f[k]
+            shift[idx] = d
+        grew = False
+        for idx, d in shift.items():
+            for k, q in enumerate(pieces[idx]["pts"]):
+                key = (round(q[0], 2), round(q[1], 2))
+                if d[k].any() and (key not in move or np.linalg.norm(d[k]) > np.linalg.norm(move[key]) + 1e-6):
+                    if any(o != idx and any((round(v[0], 2), round(v[1], 2)) == key for v in pieces[o]["pts"]) for o in shift):
+                        move[key] = d[k].copy()
+                        grew = True
+        if not grew:
+            break
     for idx, d in shift.items():
         p = pieces[idx]
         if d.any():
