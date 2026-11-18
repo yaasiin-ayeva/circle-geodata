@@ -1053,6 +1053,15 @@
    "map": "interiors-atlas.png",
    "emissionMap": "interiors-atlas.png"
   },
+  "M_Pool": {
+   "color": [
+    0.31,
+    0.67,
+    0.78
+   ],
+   "smoothness": 0.9,
+   "metallic": 0.0
+  },
   "M_RoofSheet_Painted": {
    "color": [
     0.36,

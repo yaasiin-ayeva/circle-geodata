@@ -42,6 +42,7 @@ from pyproj import Transformer
 
 import ev_chargers
 import fuel_stations
+import imagery
 import places as named_places
 from shapely.geometry import LineString, MultiLineString, MultiPolygon, Point, Polygon, box
 from shapely.geometry.polygon import orient
@@ -1071,6 +1072,10 @@ def build(args):
     exclude = set()
     if args.exclude and os.path.exists(args.exclude):
         exclude = {l.strip() for l in open(args.exclude) if l.strip()}
+    # What the satellite saw (imagery.py roofs): each roof's material, and the footprints that are swimming pools.
+    seen_roofs = imagery.load_roofs(getattr(args, "roofs", None))
+    if seen_roofs:
+        print(f"roofs seen from the Maxar 2019 mosaic: {len(seen_roofs)}")
     nb = 0
     heights = []
     # Building modules (massing.py): who stands in a walled compound, and what keeps the walls out.
@@ -1094,10 +1099,14 @@ def build(args):
         if bid in exclude:
             keep_out += [p for p in polys if isinstance(p, Polygon)]
             continue
+        seen = seen_roofs.get(bid)
         for poly in polys:
             if not isinstance(poly, Polygon) or poly.area < 8:
                 continue
             poly = orient(poly, 1.0)
+            if seen == imagery.POOL and not args.no_massing:
+                massing.pool(mesh, cell_name("Buildings", poly.centroid.x, poly.centroid.y), poly, counts)
+                continue                                # a pool, not a building: no walls, no collider
             rnd = unit_hash(bid)
             near = oxford is not None and poly.distance(oxford) < 35
             if height:
@@ -1126,7 +1135,7 @@ def build(args):
             if not args.no_massing and n is not None:
                 # Houses and small blocks off Oxford Street stand in walled yards.
                 yard = rules["yards"] and not near and n <= 3 and poly.area < 600
-                massing.building(mesh, obj, wall, bid, poly, n, parapet, near, yard, counts, area.get("district", "osu"))
+                massing.building(mesh, obj, wall, bid, poly, n, parapet, near, yard, counts, area.get("district", "osu"), seen)
                 if yard:
                     yards.append((bid, poly))
                 else:
@@ -2106,6 +2115,8 @@ def main():
     ap.add_argument("--ev-documented", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "aoi", "ev-chargers.json"),
                     help="the chargers documented by their operators but not mapped, each at a host OpenStreetMap maps; "
                          "'' for OpenStreetMap's and Overture's only")
+    ap.add_argument("--roofs", help="imagery.py roofs output: each roof's material as the Maxar 2019 mosaic shows it, "
+                    "and its swimming pools (CC BY-NC 4.0: leave it out for a commercial build); without it, the draw")
     ap.add_argument("--no-fuel", action="store_true",
                     help="no fuel stations: their canopies extruded as buildings, walls and parked cars over their ground, as before")
     build(ap.parse_args())

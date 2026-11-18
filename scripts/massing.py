@@ -15,8 +15,8 @@ boundary walls) and circle-bible's research/landscape-look.md (roof materials):
   blocks, 1.2 m back from the road edge, stop short of every building and of shopfronts, and open on a steel
   gate in front of each yard's house.
 
-Nothing here adds a material per building kind beyond five: M_RoofSheet_Rust, M_RoofTile_Red, M_RoofSheet_Painted
-(districts beyond Osu), M_Gate and M_Concrete_Raw. Compound walls, fascias, soffits and bulkheads reuse the wall paints (M_Wall_*), so a cell
+Nothing here adds a material per building kind beyond six: M_RoofSheet_Rust, M_RoofTile_Red, M_RoofSheet_Painted
+(districts beyond Osu), M_Gate, M_Concrete_Raw and M_Pool (the pools the satellite sees, imagery.py). Compound walls, fascias, soffits and bulkheads reuse the wall paints (M_Wall_*), so a cell
 draws them with the walls it already has. The game tells these surfaces apart by a flag in the integer
 thousands of the texture v coordinate (district meshes carry no textures): see NO_OPENINGS, NO_PARAPET, YARD.
 """
@@ -225,6 +225,18 @@ def shed_roof(mesh, obj, roof_mat, wall_mat, poly, z0, pitch_deg, flags=0, overh
     return z0 + 0.15 + grade * (Lv + 2 * overhang)
 
 
+def pool(mesh, obj, poly, counts):
+    """A swimming pool the satellite saw (imagery.py) where Overture had a building: the water just above the ground
+    in M_Pool and a 0.5 m concrete coping around it, flat (the game lays it on the relief with the yard)."""
+    poly = shapely.geometry.polygon.orient(poly.simplify(0.1), 1.0)
+    rim = poly.buffer(0.5, join_style="mitre", mitre_limit=2.0).difference(poly)
+    for part in (rim.geoms if hasattr(rim, "geoms") else [rim]):
+        if isinstance(part, Polygon) and not part.is_empty:
+            cap(mesh, obj, "M_Concrete_Raw", shapely.geometry.polygon.orient(part, 1.0), 0.06)
+    cap(mesh, obj, "M_Pool", poly, 0.03)
+    counts["pools"] += 1
+
+
 def bulkhead(mesh, obj, wall_mat, roof_mat, poly, z, seed, flags=0):
     """A stair bulkhead on a flat roof, 3.4 x 2.6 m and 2.6 m high, in a corner of the roof that holds it."""
     axes = frame_axes(poly)
@@ -266,10 +278,17 @@ def frame_storey(mesh, obj, poly, z, hgt=2.9):
     return n
 
 
-def building(mesh, obj, wall_mat, bid, poly, n_storeys, parapet, near_oxford, yard, counts, district="osu"):
+# The roofs the satellite sees as never flat (imagery.py): clay tile, rusted and painted sheet.
+PITCHED_ROOFS = ("M_RoofSheet_Rust", "M_RoofTile_Red", "M_RoofSheet_Painted")
+
+
+def building(mesh, obj, wall_mat, bid, poly, n_storeys, parapet, near_oxford, yard, counts, district="osu", seen=None):
     """One building's massing: a house, a frame or a block. yard: it stands in a walled compound. district picks the
-    roof palette (ROOF_PALETTES; Osu's mix when it has none)."""
+    roof palette (ROOF_PALETTES; Osu's mix when it has none). seen: the roof material the satellite saw (imagery.py),
+    or None: it replaces the draw from the palette, and a clay tile, rusted or painted sheet roof is always pitched
+    (hipped where the footprint allows, else a low single-slope sheet over the whole footprint)."""
     palette = ROOF_PALETTES.get(district)
+    pitched_seen = seen in PITCHED_ROOFS and n_storeys <= 3 and not near_oxford
     base = YARD if yard else 0
     area = poly.area
     eaves = n_storeys * STOREY_M
@@ -277,9 +296,13 @@ def building(mesh, obj, wall_mat, bid, poly, n_storeys, parapet, near_oxford, ya
     rect_fit = poly.area / axes[5].area if axes else 0.0
     # Houses: hipped roofs where the footprint is near a rectangle and narrow enough to span.
     if (n_storeys <= 2 and not near_oxford and 30 <= area <= 400 and axes and rect_fit >= 0.8
-            and 4.0 <= axes[4] <= 15.0 and axes[3] <= 40.0 and h01(bid, "hip") < (palette["pitched"] if palette else 0.85)):
+            and 4.0 <= axes[4] <= 15.0 and axes[3] <= 40.0
+            and (pitched_seen or h01(bid, "hip") < (palette["pitched"] if palette else 0.85))):
         r = h01(bid, "roof")
-        if palette:
+        if seen:
+            roof = seen
+            counts["roofs_seen"] += 1
+        elif palette:
             roof = pick(palette["mix"], r)
         elif n_storeys == 1:
             roof = pick([("M_Roof", 0.5), ("M_RoofSheet_Rust", 0.4), ("M_RoofTile_Red", 0.1)], r)
@@ -290,6 +313,14 @@ def building(mesh, obj, wall_mat, bid, poly, n_storeys, parapet, near_oxford, ya
         counts["hip_roofs"] += 1
         counts[f"roof {roof}"] += 1
         return "house"
+    # A pitched roof seen from above on a footprint no hip spans (an L-shaped villa): a low sheet over all of it.
+    if pitched_seen and area >= 12 and axes:
+        walls(mesh, obj, wall_mat, poly, 0.0, eaves, base | NO_PARAPET)
+        if shed_roof(mesh, obj, seen, wall_mat, poly, eaves, 12, base) is not None:
+            counts["shed_roofs"] += 1
+            counts["roofs_seen"] += 1
+            counts[f"roof {seen}"] += 1
+            return "house"
     # Districts of sheet roofs (Jamestown): the other low buildings, whatever their footprint, take a shed roof.
     if (palette and palette.get("shed") and n_storeys <= palette.get("shed_storeys", 2) and not near_oxford and area >= 12 and axes
             and h01(bid, "shed") < palette["shed"]):
