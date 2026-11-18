@@ -113,6 +113,11 @@ ids = [r[0] for r in kept]
 check("a road on a ramp's asphalt is taken off the ground", "on" not in ids and gone > 150, f"{ids}, {gone:.0f} m")
 check("a frontage road and a crossing road stay", "front" in ids and "across" in ids, f"{ids}")
 
+# Under a deck 7 m up, a road on the ground 4.5 m off its centreline runs on.
+high = piece("hd", [(0, 300), (200, 300)], [7.0, 7.0], kind="DD", w=7.6)
+kept, gone = bd.cut_structures([("under", "primary", "", LineString([(20, 304.5), (180, 304.5)]))], [high])
+check("a road on the ground under a deck runs on", [r[0] for r in kept] == ["under"] and gone < 1, f"{gone:.0f} m taken off")
+
 # What stands on the ground keeps off the structures' roads where they are low: on a ramp and in a cut, under a deck
 # lower than it; not under a deck high over it, nor beside the road.
 ground = bd.structure_ground([ramp, piece("c", [(0, 100), (200, 100)], [-6.0, -6.0], w=7.6),

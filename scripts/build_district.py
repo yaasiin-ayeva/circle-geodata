@@ -819,6 +819,7 @@ OFF_STRUCTURE_DEG = 25.0
 # Within its own asphalt too: Overture's line for a carriageway can run 4 to 5 m off OpenStreetMap's (the Ring Road at
 # the end of Ako Adjei's cut), and the road left on the ground there ran along the ramp, between its walls.
 OFF_STRUCTURE_W = 1.0     # beyond the piece's half width
+OFF_STRUCTURE_LOW_M = 4.5 # where the piece is this low over (or under) the ground
 # What stands on the ground keeps off a structure's road where the road is low over it: within its asphalt, the
 # deck's overhang and this much more (m), wherever the road there is under the thing's height and a car's over the
 # ground (a ramp, a cut, a low deck). Buildings, compound walls, street lights, parked cars and hiding places stood in
@@ -877,13 +878,17 @@ def cut_structures(roads, pieces, step=1.0):
         return roads, 0.0
     segs, dirs, reach = [], [], []
     for p in pieces:
-        pts = p["pts"]
-        for a, b in zip(pts, pts[1:]):
+        pts, off = p["pts"], p.get("off") or [0.0] * len(p["pts"])
+        for k, (a, b) in enumerate(zip(pts, pts[1:])):
             d = math.dist(a, b)
             if d > 1e-6:
                 segs.append(LineString([a, b]))
                 dirs.append(((b[0] - a[0]) / d, (b[1] - a[1]) / d))
-                reach.append(max(OFF_STRUCTURE_M, float(p.get("w", 0)) / 2 + OFF_STRUCTURE_W))
+                # The whole asphalt where the piece is low (a ramp, a cut, at the ground): a road there is on it. Under
+                # a deck a road on the ground runs on (Independence Avenue's old line under its flyover, to the
+                # Ako Adjei roundabout), so there only the centreline's OFF_STRUCTURE_M.
+                low = min(abs(off[k]), abs(off[k + 1])) < OFF_STRUCTURE_LOW_M
+                reach.append(max(OFF_STRUCTURE_M, float(p.get("w", 0)) / 2 + OFF_STRUCTURE_W) if low else OFF_STRUCTURE_M)
     far = max(reach)
     tree = shapely.STRtree(segs)
     cos_max = math.cos(math.radians(OFF_STRUCTURE_DEG))
