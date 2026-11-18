@@ -816,6 +816,18 @@ def lay_ground(mesh, region):
 ELEVATED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "work", "elevated.json")
 OFF_STRUCTURE_M = 3.0     # a road this close to a structure's centreline, and along it, is that structure
 OFF_STRUCTURE_DEG = 25.0
+# Within its own asphalt too: Overture's line for a carriageway can run 4 to 5 m off OpenStreetMap's (the Ring Road at
+# the end of Ako Adjei's cut), and the road left on the ground there ran along the ramp, between its walls.
+OFF_STRUCTURE_W = 1.0     # beyond the piece's half width
+# What stands on the ground keeps off a structure's road where the road is low over it: within its asphalt, the
+# deck's overhang and this much more (m), wherever the road there is under the thing's height and a car's over the
+# ground (a ramp, a cut, a low deck). Buildings, compound walls, street lights, parked cars and hiding places stood in
+# the lanes of the ramps and cuts, and under the decks through them (the director, 18 Nov 2026: "some lanes of the
+# interchanges are blocked").
+STRUCTURE_CLEAR_M = 1.5
+LAMP_TOP_M = 10.0         # a street light's height
+CAR_TOP_M = 1.6           # a parked car's
+
 
 
 def load_elevated(path, oe, on):
@@ -856,12 +868,13 @@ def whole_structures(pieces, near):
 
 def cut_structures(roads, pieces, step=1.0):
     """The roads with what runs along a structure taken out: a road within OFF_STRUCTURE_M of a piece's centreline
-    and within OFF_STRUCTURE_DEG of its direction is that piece (Overture's roads are OpenStreetMap's ways), which the
+    (or on its asphalt: its half width and OFF_STRUCTURE_W) and within OFF_STRUCTURE_DEG of its direction is that piece
+    (Overture's roads are OpenStreetMap's ways), which the
     game builds on its deck, its fill or in its cut; a road that crosses a piece keeps its crossing. Returns the roads
     (rid, cls, name, line) and the metres taken out."""
     if not pieces:
         return roads, 0.0
-    segs, dirs = [], []
+    segs, dirs, reach = [], [], []
     for p in pieces:
         pts = p["pts"]
         for a, b in zip(pts, pts[1:]):
@@ -869,13 +882,15 @@ def cut_structures(roads, pieces, step=1.0):
             if d > 1e-6:
                 segs.append(LineString([a, b]))
                 dirs.append(((b[0] - a[0]) / d, (b[1] - a[1]) / d))
+                reach.append(max(OFF_STRUCTURE_M, float(p.get("w", 0)) / 2 + OFF_STRUCTURE_W))
+    far = max(reach)
     tree = shapely.STRtree(segs)
     cos_max = math.cos(math.radians(OFF_STRUCTURE_DEG))
     out, gone = [], 0.0
     for rid, cls, name, g in roads:
         lines = [g] if isinstance(g, LineString) else [l for l in getattr(g, "geoms", []) if isinstance(l, LineString)]
         for line in lines:
-            if not tree.query(line.buffer(OFF_STRUCTURE_M)).size:
+            if not tree.query(line.buffer(far)).size:
                 out.append((rid, cls, name, line))
                 continue
             n = max(2, int(math.ceil(line.length / step)) + 1)
@@ -887,14 +902,14 @@ def cut_structures(roads, pieces, step=1.0):
                 b = line.interpolate(min(line.length, dd + 0.5))
                 vx, vy = b.x - a.x, b.y - a.y
                 vn = math.hypot(vx, vy) or 1.0
-                for j in tree.query(p.buffer(OFF_STRUCTURE_M)):
+                for j in tree.query(p.buffer(far)):
                     # Square ends: the piece stops at its last point, where the road on the ground goes on.
                     (ax, ay), (bx, by) = segs[j].coords
                     ln = math.hypot(bx - ax, by - ay)
                     t = ((p.x - ax) * dirs[j][0] + (p.y - ay) * dirs[j][1])
                     if t < -0.01 or t > ln + 0.01:
                         continue
-                    if segs[j].distance(p) < OFF_STRUCTURE_M and abs((vx * dirs[j][0] + vy * dirs[j][1]) / vn) > cos_max:
+                    if segs[j].distance(p) < reach[j] and abs((vx * dirs[j][0] + vy * dirs[j][1]) / vn) > cos_max:
                         keep[k] = False
                         break
             if keep.all():
@@ -920,6 +935,27 @@ def cut_structures(roads, pieces, step=1.0):
                 k = m + 1
             gone += float(line.length) - kept
     return out, gone
+
+
+def structure_ground(pieces):
+    """Each piece's road as footprints on the ground, one per segment: (polygon, lowest offset over the ground at its
+    ends, m). The polygon covers the asphalt, the deck's overhang and STRUCTURE_CLEAR_M, flat at the segment's ends."""
+    out = []
+    for p in pieces:
+        reach = float(p.get("w", 7.0)) / 2 + 0.55 + STRUCTURE_CLEAR_M
+        for k in range(len(p["pts"]) - 1):
+            a, b = p["pts"][k], p["pts"][k + 1]
+            if math.dist(a, b) < 1e-6:
+                continue
+            out.append((LineString([a, b]).buffer(reach, cap_style="flat"), min(p["off"][k], p["off"][k + 1])))
+    return out
+
+
+def under_structure(geom, ground, top):
+    """Whether something on the ground, `top` m tall, at `geom` stands in a structure's road: a footprint of
+    structure_ground() whose road is lower over the ground there than the thing's top and a car's height (a cut's
+    road is under the ground: anything over it stands in its lanes or on its wall)."""
+    return any(off < top + 2.0 and poly.intersects(geom) for poly, off in ground)
 
 
 def build(args):
@@ -956,11 +992,13 @@ def build(args):
         roads.append((rid, cls, name, local(g)))
     # The interchanges and flyovers: their pieces leave the ground's roads (the game builds them at their levels).
     elev, feet = load_elevated(args.elevated, oe, on)
+    on_structures, under = [], Counter()
     if elev or feet:
         near = clip.buffer(50)
         elev = whole_structures(elev, near)
         feet = [f for f in feet if LineString(f["pts"]).intersects(near)]
         roads, gone = cut_structures(roads, elev)
+        on_structures = structure_ground(elev)
         print(f"structures: {len(elev)} pieces ({sum(LineString(p['pts']).length for p in elev) / 1000:.2f} km) "
               f"and {len(feet)} footbridges in the area; {gone / 1000:.2f} km of road taken off the ground")
     oxford = shapely.union_all([g for _, _, n, g in roads if n == "Oxford Street"]) if roads else None
@@ -1080,6 +1118,11 @@ def build(args):
                 h = n * STOREY_M
             parapet = 0.4 + rnd * 0.6
             h += parapet
+            # Over a ramp or a cut, or under a deck lower than its roof: the structure's road is there (the game
+            # builds it), and the building's walls stood across its lanes or through its deck.
+            if on_structures and under_structure(poly, on_structures, h):
+                under["buildings"] += 1
+                continue
             heights.append(h)
             c = poly.centroid
             obj = cell_name("Buildings", c.x, c.y)
@@ -1128,7 +1171,9 @@ def build(args):
         for _, cls, _, g in roads:
             g = g.intersection(clip.buffer(60))
             district_roads += [(cls, l) for l in ([g] if isinstance(g, LineString) else getattr(g, "geoms", [])) if isinstance(l, LineString)]
-        compound_walls = massing.compounds(mesh, cell_name, yards, keep_out + fuel_ground, district_roads, ROAD_WIDTH, counts, clip, oxford)
+        # Off the structures' roads where they are low (a ramp, a cut), as off a fuel station's ground.
+        low = [poly for poly, off in on_structures if off < 4.0]
+        compound_walls = massing.compounds(mesh, cell_name, yards, keep_out + fuel_ground + low, district_roads, ROAD_WIDTH, counts, clip, oxford)
 
     # Roads: ribbons with mitred joints, a dashed centre line on the major classes.
     lights = []
@@ -1180,6 +1225,11 @@ def build(args):
     lights, moved, dropped = off_asphalt(lights, [(g, road_width(cls, name, rid=rid)) for rid, cls, name, g in roads])
     if moved or dropped:
         print(f"street lights off the asphalt: {moved} moved back, {dropped} dropped")
+    # None on a structure's road, nor under a deck its pole would pass through: the decks have their own lamps.
+    if on_structures:
+        kept = [l for l in lights if not under_structure(Point(l["x"], l["z"]), on_structures, LAMP_TOP_M)]
+        under["street lights"] += len(lights) - len(kept)
+        lights = kept
     for l in lights:
         l.pop("twin", None)
 
@@ -1208,6 +1258,10 @@ def build(args):
             pieces += [(rid, cls, name, l) for l in ([g] if isinstance(g, LineString) else list(getattr(g, "geoms", [])))
                        if isinstance(l, LineString) and l.length >= 1]
         parked = place_parked(rules["parking"], pieces, keep_out + [p for _, p in yards] + fuel_ground, lap)
+        if on_structures:
+            kept = [c for c in parked if not under_structure(Point(c["x"], c["z"]).buffer(2.3), on_structures, CAR_TOP_M)]
+            under["parked cars"] += len(parked) - len(kept)
+            parked = kept
 
     # Hiding places for the heat chase, off the side streets and away from Oxford Street's dressed block.
     hide_roads = []
@@ -1215,7 +1269,9 @@ def build(args):
         g = g.intersection(clip)
         hide_roads += [(rid, cls, l) for l in ([g] if isinstance(g, LineString) else list(getattr(g, "geoms", [])))
                        if isinstance(l, LineString) and l.length >= 1]
-    hiding = hiding_places(hide_roads, keep_out + [p for _, p in yards], compound_walls, parked, lights,
+    if under:
+        print("off the structures' roads: " + ", ".join(f"{n} {k}" for k, n in under.items()))
+    hiding = hiding_places(hide_roads, keep_out + [p for _, p in yards] + [poly for poly, off in on_structures if off < 4.0], compound_walls, parked, lights,
                            avoid=oxford.buffer(40) if oxford is not None else None, clip=clip)
 
     # The named places of the area, where the slice has them (read above, before the buildings).

@@ -1,0 +1,124 @@
+"""Checks the interchanges' pieces (scripts/elevated.py) and what keeps off them on the ground (scripts/build_district.py)
+on synthetic data: roundabouts driven one way, footbridges over and onto decks, twin carriageways fitted to the room
+between them, slip roads levelled with the road they leave where the two overlap, the roads and the solids taken off
+the structures' ground.
+
+    python3 tests/test_elevated.py
+"""
+import os
+import sys
+
+from shapely.geometry import LineString, Point, box
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
+
+import build_district as bd  # noqa: E402
+import elevated as el  # noqa: E402
+
+failures = 0
+
+
+def check(name, ok, detail=""):
+    global failures
+    print(("PASS  " if ok else "FAIL  ") + name + (f" ({detail})" if detail else ""))
+    failures += 0 if ok else 1
+
+
+def piece(pid, pts, off, w=7.6, oneway=True, kind=None, lanes=None):
+    p = {"id": pid, "osm": 1, "cls": "primary", "name": "", "w": w, "pts": [list(q) for q in pts], "off": list(off),
+         "kind": kind or "".join("F" if o > el.EPS else "C" if o < -el.EPS else "G" for o in off)}
+    if oneway:
+        p["oneway"] = True
+    if lanes:
+        p["lanes"] = lanes
+    return p
+
+
+# Roundabouts: one way, as OpenStreetMap's junction=roundabout says, whatever the oneway tag.
+check("a roundabout's ring is one way", el.is_oneway({"highway": "primary", "junction": "roundabout"}))
+check("a two-way primary is not", not el.is_oneway({"highway": "primary"}))
+check("a slip road and a motorway are", el.is_oneway({"highway": "primary_link"}) and el.is_oneway({"highway": "motorway"}))
+check("a roundabout's ring takes a one-way carriageway's width",
+      el.width({"highway": "primary", "junction": "roundabout"}) == el.ONE_WAY_W["primary"])
+
+# Footbridges: over a road at the ground, FOOT_M; across a deck 7 m up, FOOT_M over the deck; ending on a deck's edge,
+# stopped there at the deck's level.
+deck = piece("d", [(0, 0), (200, 0)], [7.0] * 2, oneway=False)
+road = piece("g", [(0, 50), (200, 50)], [0.0] * 2, oneway=False)
+h, line = el.over_decks(LineString([(100, -20), (100, 20)]), [deck])
+check("a footbridge across a deck stands FOOT_M over it", h == 7.0 + el.FOOT_M, f"{h}")
+h, line = el.over_decks(LineString([(100, 30), (100, 70)]), [deck, road])
+check("a footbridge over a road at the ground stands FOOT_M over the ground", h == el.FOOT_M and line.length == 40, f"{h}")
+h, line = el.over_decks(LineString([(100, 30), (100, 2.4)]), [deck])
+reach = deck["w"] / 2 + 2.15
+check("a footbridge ending on a deck stops at its edge, at its level",
+      h == 7.0 and abs(min(y for _, y in line.coords) - reach) < 0.05, f"{h}, ends at {min(y for _, y in line.coords):.2f} m")
+
+# Twin carriageways 7.2 m apart drawn 11.1 m wide (three lanes each): narrowed to the room between them.
+east = piece("e", [(x, 0) for x in range(0, 401, 20)], [7.0] * 21, w=11.1, lanes=3)
+west = piece("w", [(x, 7.2) for x in range(400, -1, -20)], [7.0] * 21, w=11.1, lanes=3)
+n = el.fit_twins([east, west])
+room = 7.2 - el.TWIN_BARRIER_M
+check("both carriageways of a pair are narrowed to the room between them", n == 2 and east["w"] == west["w"] == round(max(el.TWIN_MIN_W, room), 1),
+      f"{east['w']}, {west['w']}")
+check("their lanes as many as fit at 3 m", east["lanes"] == 2 and west["lanes"] == 2, f"{east['lanes']}")
+check("their asphalt no longer overlaps", east["w"] / 2 + west["w"] / 2 <= 7.2 - el.TWIN_BARRIER_M + 1e-6)
+# Not narrowed: the pair 30 m apart; two carriageways the same way (a slip road beside its road); the wrong side
+# (left-hand traffic); a cut under a deck.
+far_e = piece("fe", [(x, 100) for x in range(0, 401, 20)], [7.0] * 21, w=11.1)
+far_w = piece("fw", [(x, 130) for x in range(400, -1, -20)], [7.0] * 21, w=11.1)
+same_a = piece("sa", [(x, 200) for x in range(0, 401, 20)], [7.0] * 21, w=11.1)
+same_b = piece("sb", [(x, 207) for x in range(0, 401, 20)], [7.0] * 21, w=11.1)
+wrong_e = piece("we", [(x, 307) for x in range(0, 401, 20)], [7.0] * 21, w=11.1)
+wrong_w = piece("ww", [(x, 300) for x in range(400, -1, -20)], [7.0] * 21, w=11.1)
+low_e = piece("le", [(x, 400) for x in range(0, 401, 20)], [7.0] * 21, w=11.1)
+low_w = piece("lw", [(x, 407) for x in range(400, -1, -20)], [-7.0] * 21, w=11.1)
+n = el.fit_twins([far_e, far_w, same_a, same_b, wrong_e, wrong_w, low_e, low_w])
+check("no pair far apart, the same way, the wrong way round or at another level is narrowed", n == 0, f"{n}")
+
+# A slip road leaving a deck's point at 15 degrees, drawn ramping down at once (at GRADE): over the deck's asphalt it runs at the
+# deck's level, then comes down to its own.
+main = piece("m", [(x, 0) for x in range(0, 201, 5)], [7.0] * 41, kind="D" * 41, w=7.6)
+import math  # noqa: E402
+slip_pts = [(100 + d * math.cos(math.radians(15)), -d * math.sin(math.radians(15))) for d in range(0, 121, 5)]
+slip_off = [max(0.0, 7.0 - el.GRADE * d) for d in range(0, 121, 5)]
+slip = piece("s", slip_pts, slip_off, w=6.5)
+moved = el.level_merges([main, slip])
+over = [k for k, q in enumerate(slip["pts"]) if 0 < k < len(slip_pts) - 1 and LineString(main["pts"]).distance(Point(q)) <= (7.6 + 6.5) / 2 - 0.3]
+check("the slip road runs at the deck's level where the two overlap", moved > 0 and over and all(abs(slip["off"][k] - 7.0) < 0.01 for k in over),
+      f"{len(over)} points over the deck, {moved} moved")
+grades = [abs(slip["off"][k + 1] - slip["off"][k]) / 5 for k in range(len(slip_pts) - 1)]
+check("and comes down to its own level at a grade a car drives", max(grades) <= el.MERGE_MAX + 1e-6, f"{max(grades):.3f}")
+check("its far end keeps its own level", slip["off"][-1] == slip_off[-1])
+# Two roads parting at a shallow angle bound for levels far apart (a scissors): left as they are.
+up = piece("u", [(x, 0) for x in range(0, 41, 5)], [4.0 + 0.09 * x for x in range(0, 41, 5)], w=7.6)
+down_pts = [(x, x * math.tan(math.radians(10))) for x in range(0, 31, 5)]
+down = piece("dn", down_pts, [max(0.0, 4.0 - 0.09 * x) for x in range(0, 31, 5)], w=7.0)
+before = list(down["off"])
+el.level_merges([up, down])
+check("a scissors is not levelled into a grade no car drives", down["off"] == before, f"{down['off']}")
+
+# The ground's roads: a road on a ramp's asphalt 4.5 m off its centreline (Overture's line off OpenStreetMap's) is
+# taken off; a frontage road 12 m off it stays; a road crossing it keeps its crossing.
+ramp = piece("r", [(0, 0), (200, 0)], [3.0, 3.0], w=7.6)
+roads = [("on", "primary", "", LineString([(20, 4.5), (180, 4.5)])),
+         ("front", "service", "", LineString([(20, 12), (180, 12)])),
+         ("across", "residential", "", LineString([(100, -40), (100, 40)]))]
+kept, gone = bd.cut_structures(roads, [ramp])
+ids = [r[0] for r in kept]
+check("a road on a ramp's asphalt is taken off the ground", "on" not in ids and gone > 150, f"{ids}, {gone:.0f} m")
+check("a frontage road and a crossing road stay", "front" in ids and "across" in ids, f"{ids}")
+
+# What stands on the ground keeps off the structures' roads where they are low: on a ramp and in a cut, under a deck
+# lower than it; not under a deck high over it, nor beside the road.
+ground = bd.structure_ground([ramp, piece("c", [(0, 100), (200, 100)], [-6.0, -6.0], w=7.6),
+                              piece("h", [(0, 200), (200, 200)], [14.0, 14.0], kind="DD", w=7.6)])
+check("a building on a ramp stands in its road", bd.under_structure(box(90, -2, 100, 2), ground, 6.0))
+check("a parked car in a cut stands in its road", bd.under_structure(Point(50, 101).buffer(2.3), ground, bd.CAR_TOP_M))
+check("a street light under a deck 14 m up does not", not bd.under_structure(Point(50, 200), ground, bd.LAMP_TOP_M - 3.0))
+check("a 10 m street light under it does", bd.under_structure(Point(50, 200), ground, bd.LAMP_TOP_M + 3.0))
+check("a building beside the ramp does not", not bd.under_structure(box(90, 10, 100, 20), ground, 9.0))
+
+print(f"{failures} failure(s)")
+sys.exit(1 if failures else 0)
