@@ -16,7 +16,9 @@ Canopies: OpenStreetMap maps a station's canopy as a closed way tagged building=
 man_made=canopy). Overture carries those ways as buildings (class "roof", source OpenStreetMap), and the district
 extruded them as solid blocks down to the ground. Each canopy inside a station's site, or within CANOPY_M of a station
 mapped as a point (and nearer it than any other station), is the station's: exported with it, and the district leaves
-out the buildings it covers (is_canopy()), since the game builds the canopy on columns in their place.
+out the buildings it covers (is_canopy()), since the game builds the canopy on columns in their place. A point
+station pinned in or beside a canopy-sized footprint takes it for its canopy (adopt_pin_footprints()), and a detector's
+footprints on a point station's lot are cleared for its forecourt (on_lot()).
 
 Data (c) OpenStreetMap contributors (ODbL), Overture Maps Foundation (CDLA Permissive 2.0 and ODbL).
 """
@@ -24,7 +26,7 @@ import math
 
 import numpy as np
 import shapely
-from shapely.geometry import MultiPolygon, Point, Polygon
+from shapely.geometry import Point, Polygon
 
 import places as named_places
 
@@ -34,8 +36,8 @@ TWIN_M, MERGE_M = 35.0, 80.0
 CANOPY_M = 45.0
 CANOPY_AREA_M2 = (25.0, 1600.0)
 # The ground kept free of compound walls and parked cars in front of a station mapped as a point, until the game lays
-# its forecourt: this wide along the street (m) and this deep from the asphalt's edge (circle-game src/world/fuel.ts
-# STANDARD: 28 m by 24 m).
+# its forecourt: this wide along the street (m) and this deep from the asphalt's edge (room for circle-game's medium
+# forecourt, src/world/fuel.ts STANDARD).
 LOT_W, LOT_D = 30.0, 24.0
 # Buildings the district leaves out as canopies: those whose footprint lies this much (share of its area) under a
 # station's canopy.

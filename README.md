@@ -22,6 +22,7 @@ Pre-production. The area files, the Overture counting and extraction script, the
 | [scripts/overture_slice.py](scripts/overture_slice.py) | Counts or extracts Overture buildings and roads inside an area |
 | [scripts/build_lookdev.py](scripts/build_lookdev.py) | Dresses the first 220 m of Oxford Street at target quality: facades with windows, bars, AC units and shopfronts, the shop signs and billboards transcribed on Oxford Street and the lap, rooms and shop interiors behind lit glass, sidewalks, gutters, power lines, kiosks, umbrellas |
 | [scripts/build_district.py](scripts/build_district.py) | Turns an export into a drivable district for the engines: OBJ meshes, streetlights, a benchmark lap ([requirements-district.txt](requirements-district.txt)) |
+| [scripts/fuel_stations.py](scripts/fuel_stations.py) | Accra's fuel stations for the game's forecourts: OpenStreetMap's and Overture's merged, the brand as tagged, the site, shop and canopy outlines, the street in front; the canopies the district used to extrude left to the game. See [Fuel stations](#fuel-stations) |
 | [scripts/massing.py](scripts/massing.py) | The district's building modules: hipped roofs on houses, stair bulkheads, set-back top storeys, unfinished frame storeys, compound walls with gates along residential streets |
 | [scripts/export_glb.py](scripts/export_glb.py), [scripts/export_scene.py](scripts/export_scene.py) | What the game loads: indexed GLB per 250 m cell with glTF PBR materials (or, with `--tile-m`, one GLB per square of cells for streaming), and a scene JSON (lights, lap, parked cars, models, roads, solid outlines, hiding places, tiles) in glTF axes |
 | [scripts/export_world.py](scripts/export_world.py) | The world the game streams: areas that join along their edges, home first, with their offsets in one frame |
@@ -274,6 +275,45 @@ OpenStreetMap maps a boulevard with a central reservation as one one-way road pe
   - **Freshness:** as current as the Overture release the city is built from (monthly); rebuilding with a newer `OVERTURE_RELEASE` refreshes them. The game asks no service for places while it runs, so no player's position leaves the machine.
 
 `latest` picks the newest release on Overture's public bucket; a fixed name from the [release list](https://docs.overturemaps.org/release/) works too. Downloads and working files go under `data/`, which is not committed.
+
+### Fuel stations
+
+`scripts/fuel_stations.py` (checked by `tests/test_fuel_stations.py`) gives each area its fuel stations, which
+`build_district.py` writes as `fuelStations` and `export_scene.py` passes to the game in glTF axes (circle-game
+`src/world/fuel.ts` builds a forecourt at each one, `docs/fuel-stations.md` there).
+
+- **Sources:** OpenStreetMap's `amenity=fuel` from the extract (`osm_extract.py`: a node, or a closed way round the
+  site; on a building, the way is the shop's outline), and Overture's places of category `gas_station` at the maps'
+  safety floor (0.55), not closed. One station where both map the same one: any two within 35 m, the same brand or name
+  within 80 m, or a node inside a site; OpenStreetMap's feature is kept.
+- **What each carries:** the brand as tagged, spelt as the forecourts write it (`Total` is TotalEnergies, `Goil` is
+  GOIL), the name (`places.garage_name()`: marked `person`, or dropped in a public build, as the garages' are), the
+  operator, its point, the nearest street a car drives and the point on its asphalt edge in front (`door`, `toward`,
+  `road`), and the `site`, `shop` and `canopies` outlines OpenStreetMap maps.
+- **Canopies:** `osm_extract.py` now keeps the closed ways tagged `building=roof`, `building=canopy` or
+  `man_made=canopy`, and the brand and operator tags. A canopy inside a station's site, or within 45 m of a station
+  mapped as a point, is the station's. Overture carries those ways as buildings of class `roof`, which the district
+  extruded as solid blocks down to the ground (and `build_lookdev.py` dressed Oxford Street's TotalEnergies canopy as a
+  four-storey building: it leaves open roofs out now). They are left out of the buildings (`is_canopy()`). A station
+  pinned in or beside (4.5 m) a footprint of a canopy's size (60 to 900 m2) takes it for its canopy
+  (`adopt_pin_footprints()`): mappers often draw the canopy as a plain building and pin the station there (Oxford
+  Street's Shell). A footprint up to 1,500 m2 over a canopy is left out too (a detector draws the canopy and the shop
+  as one building, a mapper may draw the whole roof round it), and so is a machine-learned footprint (Google,
+  Microsoft) lying on the lot of a station mapped as a point (30 m along the street by 24 m from the asphalt, and 6 m
+  round its pin: `on_lot()`). OpenStreetMap's other buildings are never taken. The compound walls and the parked cars
+  keep off each station's site or lot.
+- **What OpenStreetMap maps** (Ghana extract of 17 Nov 2026, over the slices' boxes): almost every station is a point.
+  vertical-slice 20 (all points, 4 with a canopy mapped), jamestown 3 (1 area), north-37 10 (5 with a canopy),
+  east-accra 192 (10 areas, 2 of them on the shop; 40 with a canopy), aburi 40 (4 areas, 3 with a canopy),
+  accra-central 73 (2 areas, 27 with a canopy), coast-east 27 (1 area, 7 with a canopy). Of 558 roofs over open ground
+  in those boxes, 547 are `building=roof` (10 more `building:part=roof`, which the extract leaves out). About three stations in four carry a brand: Shell, Goil, Total or TotalEnergies,
+  Allied, Puma, Star Oil, Engen, Glory Oil, Fraga Oil, Petrosol, Top Oil, Pacific.
+- **Counts per area** (the build of 18 Nov 2026, Overture 2026-10-21.0): Osu 5, Ring Road 2, Liberation Road 6, East
+  Legon, Madina, Adenta 37, Tema Motorway 24, Aburi 17, Circle, Makola 30, Kaneshie 10, La, Teshie 10, Jamestown 3:
+  141 in the world. Of them 101 carry a canopy (57 taken from the footprint their pin stands in); 102 canopy
+  footprints and 40 detector footprints on the stations' lots are left out of the buildings.
+- `--no-fuel` builds the district as before: canopies extruded, walls and parked cars over the stations' ground, no
+  `fuelStations`.
 
 ### The interchanges, at their real levels
 
