@@ -1,0 +1,38 @@
+{
+ "about": "Electric-vehicle chargers in Accra that their operators or the press document but that neither OpenStreetMap nor Overture maps (the Ghana extract of 17 Nov 2026 has one amenity=charging_station in Accra, outside the game's areas; Overture 2026-10-21.0 has none). Each stands only at a host that OpenStreetMap maps: the fuel station or the car park its sources name, by its OpenStreetMap id, so no position is guessed. scripts/ev_chargers.py reads this file (build_district.py --ev-documented); a charger OpenStreetMap or Overture maps within 60 m of the host replaces its entry. Unknown fields are left out, not guessed. To check on the ground, as the brands are cleared, before a public release.",
+ "chargers": [
+  {
+   "host": "node/1124532346",
+   "host_kind": "fuel",
+   "operator": "TotalEnergies",
+   "kind": "ac",
+   "kw": 22,
+   "since": "2022-09",
+   "sources": [
+    "https://www.myjoyonline.com/totalenergies-marketing-ghana-plc-commissions-first-ever-electric-vehicle-charging-unit-in-ghana/",
+    "https://totalenergies.com.gh/totalenergies-marketing-ghana-commissions-very-first-level-ii-ev-charging-unit"
+   ],
+   "note": "A Level 2 unit of about 22 kW at the Liberation Road branch of TotalEnergies (the host is OpenStreetMap's 'Liberation Road TotalEnergies'), commissioned in September 2022, the first at a service station in Ghana; how many cars at once and which connector are not stated."
+  },
+  {
+   "host": "way/177953987",
+   "host_kind": "parking",
+   "host_name": "A&C Mall",
+   "operator": "POBAD",
+   "kind": "dc",
+   "since": "2020-12",
+   "sources": [
+    "https://cleantechnica.com/?p=226270",
+    "https://yen.com.gh/ghana/310989-byd-seagulls-rise-a-taxi-ghana-future-transport/"
+   ],
+   "note": "POBAD's chargers at the A&C Mall, East Legon (CleanTechnica, December 2020: DC fast chargers supporting CCS, CHAdeMO and GB/T, and slow AC chargers, not said which stand at which mall); circle-reference obs-accra-ev-seagull-001 (Yen, August 2026) names chargers in 'the A&C Mall area'. The host is the mall's car park as OpenStreetMap maps it ('A & C Mall', amenity=parking)."
+  }
+ ],
+ "unplaced": [
+  {"what": "Xcharge EV, a 120 kW DC charger inside the Friendly Mall, Spintex Road", "why": "neither the mall nor the charger is mapped", "source": "https://xchargeev.com/?p=507"},
+  {"what": "Xcharge EV, a 120 kW DC charger at 38A Lagos Avenue, East Legon (June 2025)", "why": "an address only: no host mapped at that number", "source": "https://xchargeev.com/?p=502"},
+  {"what": "Xcharge EV, a 120 kW charger at Dzorwulu (December 2024)", "why": "no address given", "source": "https://xchargeev.com/new-120kw-charger-dzorwulu/"},
+  {"what": "POBAD at the Stanbic Heights mall, Airport City (2020)", "why": "Overture pins the building as an event service, OpenStreetMap does not map it; one source, of 2020", "source": "https://cleantechnica.com/?p=226270"},
+  {"what": "OpenStreetMap's node/14163525001 (amenity=charging_station, motorcar=yes, fee=yes, 5.6377 N 0.2414 W, north-west Accra, west of Achimota)", "why": "outside every area the game builds", "source": "https://www.openstreetmap.org/node/14163525001"}
+ ]
+}
