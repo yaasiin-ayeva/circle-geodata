@@ -519,8 +519,11 @@ FOOT_AT_GROUND_M = 0.9  # a footbridge over a cut at a base-level site: its walk
 # pair apart instead of narrowing it, separate_twins()). Elsewhere OpenStreetMap's lanes, or the class's width.
 LANE_FACTS = [
     # Circle's top tier, the Ring Road viaduct: 3 lanes each way (FHECOR; OSM lanes=3).
-    # It comes down to 11 m at its western end, over the western roundabout; its approaches on fill keep its lanes.
+    # Its approaches on fill keep its lanes, and so do its decks at the first tier where it comes down west of Circle
+    # over the western roundabout (one road: a lane fewer there closed its outer lane at their joint).
     {"site": "Kwame Nkrumah Interchange", "level": 14.0, "within": 3.5, "cls": ("primary",), "fills": True, "lanes": 3, "lane_m": 3.5},
+    {"site": "Kwame Nkrumah Interchange", "level": 7.0, "within": 1.0, "cls": ("primary",), "names": ("Ring Road West High Street",),
+     "lanes": 3, "lane_m": 3.5},
     # Ring Road Central under the Faanofaa flyover, by Circle: 3 lanes each way (OSM).
     {"site": "Kwame Nkrumah Interchange", "ways": (1219373916, 1219373917), "lanes": 3, "lane_m": 3.5},
     # The elevated loop from the viaduct down to Kwame Nkrumah Avenue: 2 lanes (FHECOR).
@@ -706,6 +709,8 @@ def separate_twins(pieces):
         shift[idx] = d
     for idx, d in shift.items():
         p = pieces[idx]
+        if d.any():
+            p["drawn"] = [list(q) for q in p["pts"]]     # OpenStreetMap's line, which the ground's roads are taken off by
         for k in range(len(p["pts"])):
             if d[k].any():
                 p["pts"][k] = [round(p["pts"][k][0] + float(d[k][0]), 2), round(p["pts"][k][1] + float(d[k][1]), 2)]

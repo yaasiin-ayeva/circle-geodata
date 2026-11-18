@@ -136,6 +136,13 @@ check("a building beside the ramp does not", not bd.under_structure(box(90, 10, 
 
 check("no car is parked by a ramp's foot", bd.FOOT_CLEAR_M >= 30)
 
+# A carriageway moved apart from its twin is taken off the ground's roads by OpenStreetMap's line, where Overture's
+# road (the same way) still runs.
+moved_p = piece("mv", [(0, 3.6), (200, 3.6)], [7.0, 7.0], kind="DD")
+moved_p["drawn"] = [[0, 0], [200, 0]]
+kept, gone = bd.cut_structures([("same", "primary", "", LineString([(10, 0.2), (190, 0.2)]))], [moved_p])
+check("a carriageway moved apart is taken off the ground by its drawn line", not kept and gone > 150, f"{gone:.0f} m")
+
 # relief.py's cut floors: a cut from its mouth at x = 0 (on the ground, where a road on the ground meets it) down at
 # 9 % to 7 m under the ground, on flat ground at 10 m. The floor is held under the cut's road inside the cut, and the
 # ground beyond its mouth stays where the road on the ground lies (no trough to step out of onto the cut's road).

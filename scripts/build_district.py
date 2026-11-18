@@ -834,7 +834,7 @@ def load_elevated(path, oe, on):
         return [], []
     d = json.load(open(path))
     move = lambda pts: [[round(x - oe, 2), round(y - on, 2)] for x, y in pts]
-    return ([{**p, "pts": move(p["pts"])} for p in d["pieces"]],
+    return ([{**p, "pts": move(p["pts"]), **({"drawn": move(p["drawn"])} if "drawn" in p else {})} for p in d["pieces"]],
             [{**f, "pts": move(f["pts"])} for f in d["footbridges"]])
 
 
@@ -873,7 +873,7 @@ def cut_structures(roads, pieces, step=1.0):
         return roads, 0.0
     segs, dirs = [], []
     for p in pieces:
-        pts = p["pts"]
+        pts = p.get("drawn", p["pts"])      # OpenStreetMap's line, where elevated.py moved twin carriageways apart
         for a, b in zip(pts, pts[1:]):
             d = math.dist(a, b)
             if d > 1e-6:

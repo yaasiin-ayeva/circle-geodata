@@ -214,7 +214,7 @@ def world_structures(world, folder, elevated_path):
     o = world["origin_wgs84"]
     oe, on = to_utm.transform(o["lon"], o["lat"])
     move = lambda pts: [[round(x - oe, 2), round(on - y, 2)] for x, y in pts]
-    return ([{**p, "pts": move(p["pts"])} for p in d["pieces"] if p["id"] in ids],
+    return ([{**{k: v for k, v in p.items() if k != "drawn"}, "pts": move(p["pts"])} for p in d["pieces"] if p["id"] in ids],
             [{**f, "pts": move(f["pts"])} for f in d["footbridges"] if f["id"] in ids])
 
 
@@ -257,7 +257,10 @@ def mouths_to_ground(pieces, h, grid):
             if abs(d) < 0.05:
                 continue
             span = min(MOUTH_SPAN_M, s[-1])
-            y += d * np.clip(1 - np.abs(s - s[e]) / span, 0, 1)
+            k = d * np.clip(1 - np.abs(s - s[e]) / span, 0, 1)
+            y += k
+            # Its offset over the natural ground with it: the game stands the cut's walls on the ground it gives.
+            p["off"] = [round(float(o + dk), 2) for o, dk in zip(p["off"], k)]
             moved += 1
         p["y"] = [round(float(v), 2) for v in y]
     return moved
@@ -565,13 +568,17 @@ def main():
         # ground at its mouth, over MOUTH_SPAN_M, and its floor is held again under it.
         if mouths_to_ground(held, h, fine):
             hold()
-        # A footbridge's ground at its points (its deck stands its height over the highest of them).
+        # A footbridge's ground at its points (its deck stands its height over the highest of them). One at the
+        # ground's level over a cut (Ako Adjei's, elevated.py FOOT_AT_GROUND_M) has its points over the cut's held
+        # floor: the ground along it, its highest, is its banks' top, every point's.
         for f in feet:
             pts = np.array(f["pts"], dtype=np.float64)
+            if f["h"] < 2.0:
+                pts = densify(pts, 1.0)[0]
             fi = (pts[:, 0] - fine.x0) / fine.step
             fj = (pts[:, 1] - fine.z0) / fine.step
             g = ndimage.map_coordinates(h, [fj.clip(0, fine.nz - 1), fi.clip(0, fine.nx - 1)], order=1, mode="nearest")
-            f["g"] = [round(float(v), 2) for v in g]
+            f["g"] = [round(float(g.max()), 2)] * len(f["pts"]) if f["h"] < 2.0 else [round(float(v), 2) for v in g]
         with open(os.path.join(args.out, "structures.json"), "w") as f:
             json.dump({"axes": world["axes"], "level_m": 7.0, "pieces": pieces, "footbridges": feet,
                        "credits": "Interchanges, flyovers and footbridges: OpenStreetMap contributors (ODbL)."},
