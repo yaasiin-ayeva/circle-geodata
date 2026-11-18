@@ -237,6 +237,32 @@ def structure_heights(pieces, natural, carved, grid):
         p["y"] = [round(float(v), 2) for v in y]
 
 
+MOUTH_SPAN_M = 30.0   # a cut's road comes to the ground at its mouth over this
+
+
+def mouths_to_ground(pieces, h, grid):
+    """Each cut's end at the ground (a mouth) brought to the ground's final height there, the difference spread over
+    MOUTH_SPAN_M of the road (never further than its other end). Returns how many ends moved."""
+    moved = 0
+    for p in pieces:
+        pts = np.array(p["pts"], dtype=np.float64)
+        s = np.concatenate([[0], np.cumsum(np.hypot(*np.diff(pts, axis=0).T))])
+        y = np.array(p["y"], dtype=np.float64)
+        for e in (0, len(pts) - 1):
+            if abs(p["off"][e]) > 0.3:
+                continue
+            fi, fj = (pts[e, 0] - grid.x0) / grid.step, (pts[e, 1] - grid.z0) / grid.step
+            g = float(ndimage.map_coordinates(h, [[np.clip(fj, 0, grid.nz - 1)], [np.clip(fi, 0, grid.nx - 1)]], order=1, mode="nearest")[0])
+            d = g - y[e]
+            if abs(d) < 0.05:
+                continue
+            span = min(MOUTH_SPAN_M, s[-1])
+            y += d * np.clip(1 - np.abs(s - s[e]) / span, 0, 1)
+            moved += 1
+        p["y"] = [round(float(v), 2) for v in y]
+    return moved
+
+
 def world_bounds(world):
     b = None
     for a in world["areas"]:
@@ -530,8 +556,15 @@ def main():
         structure_heights(pieces, natural, h, fine)
         del natural
         # The cuts' floors again, under their roads' final heights (their ends meet the carved ground).
-        hold_cut_floors(h, fine, [("cut", float(p["w"]), np.array(p["pts"], dtype=np.float64), np.array(p["y"]) - CUT_UNDER_M, None, np.array(p["off"]))
-                                  for p in pieces if "C" in p["kind"] or ("T" in p["kind"] and not under_roads(np.array(p["pts"]), roads))], other)
+        held = [p for p in pieces if "C" in p["kind"] or ("T" in p["kind"] and not under_roads(np.array(p["pts"]), roads))]
+        hold = lambda: hold_cut_floors(h, fine, [("cut", float(p["w"]), np.array(p["pts"], dtype=np.float64), np.array(p["y"]) - CUT_UNDER_M,
+                                                  None, np.array(p["off"])) for p in held], other)
+        hold()
+        # A cut's mouth meets the ground where the roads on the ground were carved, which can lie half a metre off the
+        # height its road was given before them (two roads meeting there, at Tetteh Quarshie): the road comes to the
+        # ground at its mouth, over MOUTH_SPAN_M, and its floor is held again under it.
+        if mouths_to_ground(held, h, fine):
+            hold()
         # A footbridge's ground at its points (its deck stands its height over the highest of them).
         for f in feet:
             pts = np.array(f["pts"], dtype=np.float64)
