@@ -1286,9 +1286,13 @@ def build(args):
     ids = []
     footprints = []
     rng = np.random.default_rng(11)
-    for bid, src, height, floors, blob in bd.load(con, os.path.join(args.slice, "buildings.parquet"), "id, source, height, num_floors"):
+    for bid, src, height, floors, cls, blob in bd.load(con, os.path.join(args.slice, "buildings.parquet"), "id, source, height, num_floors, class"):
         g = local(shapely.from_wkb(bytes(blob)))
         if not zone.contains(g.centroid):
+            continue
+        # An open roof (building=roof: a fuel station's canopy, a carport) has no facade to dress: left to the district,
+        # which leaves a station's canopy to the game's forecourt (fuel_stations.py).
+        if cls == "roof":
             continue
         g = g.buffer(0).simplify(0.3)
         polys = list(g.geoms) if isinstance(g, MultiPolygon) else [g]

@@ -40,6 +40,7 @@ import shapely
 from PIL import Image, ImageDraw
 from pyproj import Transformer
 
+import fuel_stations
 import places as named_places
 from shapely.geometry import LineString, MultiLineString, MultiPolygon, Point, Polygon, box
 from shapely.geometry.polygon import orient
@@ -975,6 +976,50 @@ def build(args):
         print(f"dual carriageways: {len(CARRIAGEWAY_W)} carriageway segments, median between them"
               + (f" ({', '.join(named[:8])}{'...' if len(named) > 8 else ''})" if named else ""))
 
+    # The places OpenStreetMap and Overture map in the area (an older slice has no places.parquet, an older extract no
+    # osm.parquet: none then), read before the buildings: the fuel stations' canopies are left out of them.
+    places_path = os.path.join(args.slice, "places.parquet")
+    # Every place OpenStreetMap maps there joins them, where the slice has its extract (scripts/osm_extract.py).
+    osm_path = os.path.join(args.slice, "osm.parquet")
+    osm_rows = named_places.load_osm(osm_path) if os.path.exists(osm_path) else []
+    place_rows = named_places.load_places(con, places_path) if os.path.exists(places_path) else []
+    to_local_ll = lambda lon, lat: tuple(np.array(to_utm.transform(lon, lat)) - (oe, on))
+    shapely.prepare(clip)
+    inside_clip = lambda x, z: bool(shapely.contains_xy(clip, x, z))
+    # The fuel stations (scripts/fuel_stations.py): the game builds their forecourts, canopies on columns included, so
+    # the canopies OpenStreetMap maps as building=roof (extruded to the ground as blocks until now) are left out of the
+    # buildings below, and the compound walls and parked cars keep off their ground. --no-fuel builds as before.
+    fuel = []
+    if not args.no_fuel:
+        street_lines = []
+        for rid, cls, name, g in roads:
+            if cls not in TRAFFIC_CLASSES:
+                continue
+            g = g.intersection(clip)
+            for l in ([g] if isinstance(g, LineString) else list(getattr(g, "geoms", []))):
+                if isinstance(l, LineString) and l.length >= 2:
+                    street_lines.append((name, road_width(cls, name, rid=rid), l))
+        roofs = [local(shapely.from_wkb(bytes(blob))) for (blob,) in
+                 con.execute(f"SELECT geometry::BLOB FROM '{os.path.join(args.slice, 'buildings.parquet')}' WHERE class = 'roof'").fetchall()]
+        fuel = fuel_stations.find_fuel_stations(osm_rows, place_rows, street_lines, inside_clip, to_local_ll, local, roofs)
+        # The footprints the point stations' pins stand in or beside (their canopies, drawn as plain buildings or by a
+        # detector).
+        pins = [s for s in fuel if not s.get("site") and not s.get("canopies")]
+        if pins:
+            pin_tree = shapely.STRtree([lonlat(Point(s["x"], s["z"]).buffer(fuel_stations.PIN_M)) for s in pins])
+            held = []
+            for (blob,) in con.execute(f"SELECT geometry::BLOB FROM '{os.path.join(args.slice, 'buildings.parquet')}'").fetchall():
+                g = shapely.from_wkb(bytes(blob))
+                if len(pin_tree.query(g, predicate="intersects")):
+                    held.append(local(g).buffer(0))
+            adopted = fuel_stations.adopt_pin_footprints(pins, held)
+            if adopted:
+                print(f"fuel stations: {adopted} pinned in or beside a footprint of a canopy's size, built under it")
+    fuel_canopies = fuel_stations.canopy_shapes(fuel)
+    fuel_lots = fuel_stations.lot_shapes(fuel)
+    fuel_ground = fuel_stations.keep_clear(fuel)
+    replaced = cleared = 0
+
     landmark_points = [shapely.geometry.Point(*np.array(to_utm.transform(lon, lat)) - (oe, on))
                        for _, lat, lon in rules["landmarks"]]
 
@@ -995,6 +1040,12 @@ def build(args):
         g = local(g).buffer(0).simplify(0.25)
         if any(g.contains(p) for p in landmark_points):
             continue                                    # the landmark is built by hand below
+        if fuel_canopies[1] is not None and fuel_stations.is_canopy(g, fuel_canopies, src):
+            replaced += 1
+            continue                                    # a fuel station's canopy: the game builds it on columns
+        if fuel_lots[1] is not None and fuel_stations.on_lot(g, fuel_lots, src):
+            cleared += 1
+            continue                                    # drawn by a detector on a station's ground: the forecourt's
         polys = list(g.geoms) if isinstance(g, MultiPolygon) else [g]
         if bid in exclude:
             keep_out += [p for p in polys if isinstance(p, Polygon)]
@@ -1066,7 +1117,7 @@ def build(args):
         for _, cls, _, g in roads:
             g = g.intersection(clip.buffer(60))
             district_roads += [(cls, l) for l in ([g] if isinstance(g, LineString) else getattr(g, "geoms", [])) if isinstance(l, LineString)]
-        compound_walls = massing.compounds(mesh, cell_name, yards, keep_out, district_roads, ROAD_WIDTH, counts, clip, oxford)
+        compound_walls = massing.compounds(mesh, cell_name, yards, keep_out + fuel_ground, district_roads, ROAD_WIDTH, counts, clip, oxford)
 
     # Roads: ribbons with mitred joints, a dashed centre line on the major classes.
     lights = []
@@ -1145,7 +1196,7 @@ def build(args):
             g = g.intersection(clip)
             pieces += [(rid, cls, name, l) for l in ([g] if isinstance(g, LineString) else list(getattr(g, "geoms", [])))
                        if isinstance(l, LineString) and l.length >= 1]
-        parked = place_parked(rules["parking"], pieces, keep_out + [p for _, p in yards], lap)
+        parked = place_parked(rules["parking"], pieces, keep_out + [p for _, p in yards] + fuel_ground, lap)
 
     # Hiding places for the heat chase, off the side streets and away from Oxford Street's dressed block.
     hide_roads = []
@@ -1156,16 +1207,8 @@ def build(args):
     hiding = hiding_places(hide_roads, keep_out + [p for _, p in yards], compound_walls, parked, lights,
                            avoid=oxford.buffer(40) if oxford is not None else None, clip=clip)
 
-    # The named places of the area, where the slice has them (an older slice has no places.parquet: none then).
+    # The named places of the area, where the slice has them (read above, before the buildings).
     spots = []
-    places_path = os.path.join(args.slice, "places.parquet")
-    # Every place OpenStreetMap maps there joins them, where the slice has its extract (scripts/osm_extract.py).
-    osm_path = os.path.join(args.slice, "osm.parquet")
-    osm_rows = named_places.load_osm(osm_path) if os.path.exists(osm_path) else []
-    place_rows = named_places.load_places(con, places_path) if os.path.exists(places_path) else []
-    to_local_ll = lambda lon, lat: tuple(np.array(to_utm.transform(lon, lat)) - (oe, on))
-    shapely.prepare(clip)
-    inside_clip = lambda x, z: bool(shapely.contains_xy(clip, x, z))
     if place_rows or osm_rows:
         spots = named_places.select_places(place_rows + osm_rows, inside_clip, to_local_ll)
     else:
@@ -1176,6 +1219,10 @@ def build(args):
     if garages:
         print(f"garages: {len(garages)} ({sum(1 for g in garages if g['name'])} named, "
               f"{sum(1 for g in garages if g.get('osm'))} from OpenStreetMap)")
+    if fuel:
+        print(f"fuel stations: {len(fuel)} ({sum(1 for f in fuel if f.get('osm'))} from OpenStreetMap, "
+              f"{sum(1 for f in fuel if f.get('site'))} with their site, {sum(1 for f in fuel if f.get('canopies'))} with a canopy); "
+              f"{replaced} canopy footprints left out of the buildings, {cleared} machine-learned footprints cleared off their ground")
     medians = find_medians(roads, clip)
     if medians:
         print(f"medians: {len(medians)} pieces, {sum(LineString(m['pts']).length for m in medians) / 1000:.2f} km")
@@ -1202,7 +1249,7 @@ def build(args):
         "bounds_m": {"xmin": round(minx, 1), "xmax": round(maxx, 1), "zmin": round(miny, 1), "zmax": round(maxy, 1)},
         "axes": "x east, y up, z north, metres from origin",
         "stats": {"buildings": nb, "road_km": round(road_km, 2), "lights": len(lights),
-                  **({"parked": len(parked)} if rules.get("parking") else {}), "hiding": len(hiding), "places": len(spots), "medians_m": round(sum(LineString(m["pts"]).length for m in medians)), "triangles": tris,
+                  **({"parked": len(parked)} if rules.get("parking") else {}), "hiding": len(hiding), "places": len(spots), "fuel_stations": len(fuel), "canopies_replaced": replaced, "forecourts_cleared": cleared, "medians_m": round(sum(LineString(m["pts"]).length for m in medians)), "triangles": tris,
                   "vertices": verts, "objects": objs, "lap_m": round(lap["length_m"], 1) if lap else None,
                   "height_m_median": round(float(np.median(heights)), 1) if heights else None,
                   "massing": {k: (round(v) if isinstance(v, float) else v) for k, v in sorted(counts.items())}},
@@ -1225,12 +1272,14 @@ def build(args):
         "medians": medians,
         # Real garages, for the game's fitters (find_garages(); circle-game reads SceneData.garages).
         "garages": garages,
+        # The fuel stations (scripts/fuel_stations.py; circle-game src/world/fuel.ts builds their forecourts).
+        **({"fuelStations": fuel} if fuel else {}),
         # The interchanges', flyovers' and footbridges' pieces in the area (scripts/elevated.py ids): relief.py gives
         # them their heights and the game builds them (circle-game src/world/interchanges.ts).
         **({"structures": [p["id"] for p in elev] + [f["id"] for f in feet]} if elev or feet else {}),
         "credits": "Buildings and roads: Overture Maps Foundation (ODbL), from OpenStreetMap contributors, "
                    "Google Open Buildings and Microsoft. Heights from typology rules."
-                   + (" Places and garages: OpenStreetMap contributors (ODbL)." if osm_rows else "")
+                   + (" Places, garages and fuel stations: OpenStreetMap contributors (ODbL)." if osm_rows else "")
                    + (" Places: Overture Maps Foundation (CDLA Permissive 2.0 and ODbL), from Meta, Microsoft, "
                       "Foursquare, AllThePlaces and OpenStreetMap contributors." if spots else ""),
     }
@@ -1982,6 +2031,8 @@ def main():
                     help="the interchanges and flyovers (scripts/elevated.py); without the file every road is on the ground")
     ap.add_argument("--no-massing", action="store_true",
                     help="plain extruded footprints, no roofs, bulkheads, frames or compound walls (the old district)")
+    ap.add_argument("--no-fuel", action="store_true",
+                    help="no fuel stations: their canopies extruded as buildings, walls and parked cars over their ground, as before")
     build(ap.parse_args())
 
 

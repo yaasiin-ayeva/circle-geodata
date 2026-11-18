@@ -1,5 +1,5 @@
 """Every point of interest OpenStreetMap maps inside an area: osm.parquet next to the Overture slice, for the game's
-maps (places.py) and its garages (build_district.py "garages").
+maps (places.py), its garages (build_district.py "garages") and its fuel stations (fuel_stations.py).
 
     python3 scripts/osm_extract.py --pbf data/osm/ghana.osm.pbf --name east-accra --out data/work/slice-east
     python3 scripts/osm_extract.py --pbf data/osm/ghana.osm.pbf --to vertical-slice:data/work/slice \
@@ -10,9 +10,11 @@ extract of download.openstreetmap.fr, refreshed daily; Geofabrik's works the sam
 carries one of KEYS (amenity, shop, tourism, leisure, office, craft, healthcare, historic, public_transport, club,
 emergency, man_made=tower|lighthouse, sport): nodes as they are, closed ways and multipolygons at a point inside their
 outline, with the outline (WKB) and its area. Named or not: the maps draw the named ones, the garages keep the others
-too. Columns: id ("node/123", "way/45", "relation/6"), name, key and value (the first of KEYS the feature carries),
-brand (true when OpenStreetMap names a brand: brand, brand:wikidata or operator:wikidata), lon, lat, area_m2, outline,
-and the raw tags of note (shop, amenity, craft, service:vehicle:*) as "tags" JSON.
+too. Canopies are kept as well (closed ways tagged building=roof, building=canopy or man_made=canopy, key "building"
+or "man_made"), for the fuel stations' forecourts: the maps leave them out. Columns: id ("node/123", "way/45",
+"relation/6"), name, key and value (the first of KEYS the feature carries), brand (true when OpenStreetMap names a
+brand: brand, brand:wikidata or operator:wikidata), lon, lat, area_m2, outline, and the raw tags of note (shop,
+amenity, craft, building, man_made, brand, operator, service:vehicle:*) as "tags" JSON.
 
 Data (c) OpenStreetMap contributors, ODbL 1.0 (SOURCES.md): the game's credits already carry it.
 
@@ -37,7 +39,10 @@ MAN_MADE = {"tower", "lighthouse", "water_tower", "monument"}
 FURNITURE = {"bench", "waste_basket", "waste_disposal", "recycling", "parking_space", "bicycle_parking", "vending_machine",
              "drinking_water", "toilets", "shelter", "telephone", "post_box", "clock", "grit_bin", "loading_dock",
              "water_point", "watering_place", "hunting_stand", "parking_entrance", "motorcycle_parking"}
-NOTE = ("shop", "amenity", "craft", "service", "building")
+NOTE = ("shop", "amenity", "craft", "service", "building", "man_made", "brand", "operator")
+# The roofs over open ground a fuel station's forecourt stands under (fuel_stations.py): building=roof|canopy or
+# man_made=canopy, outlines only.
+CANOPY = {("building", "roof"), ("building", "canopy"), ("man_made", "canopy")}
 
 SCHEMA = pa.schema([("id", pa.string()), ("name", pa.string()), ("key", pa.string()), ("value", pa.string()),
                     ("brand", pa.bool_()), ("lon", pa.float64()), ("lat", pa.float64()), ("area_m2", pa.float64()),
@@ -71,6 +76,11 @@ def first_key(tags):
     return None
 
 
+def canopy_key(tags):
+    """The (key, value) that makes a feature a canopy (CANOPY), or None."""
+    return next(((k, v) for k, v in CANOPY if tags.get(k) == v), None)
+
+
 def is_brand(tags):
     return any(k in tags for k in ("brand", "brand:wikidata", "operator:wikidata"))
 
@@ -82,7 +92,7 @@ def area_m2(poly, lat):
 
 
 def row(fid, tags, lon, lat, outline=None):
-    kv = first_key(tags)
+    kv = first_key(tags) or (canopy_key(tags) if outline is not None else None)
     if kv is None:
         return None
     note = {k: v for k, v in tags.items() if k in NOTE or k.startswith("service:vehicle")}
@@ -128,7 +138,7 @@ def extract_many(pbf, boxes):
             if not a.tags:
                 return
             tags = dict(a.tags)
-            if first_key(tags) is None:
+            if first_key(tags) is None and canopy_key(tags) is None:
                 return
             polys = []
             try:
