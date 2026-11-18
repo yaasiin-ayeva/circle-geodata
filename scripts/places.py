@@ -26,6 +26,9 @@ CATEGORIES = {
     "transit": (0.90, {"bus_station", "railway_station", "international_airport", "airport", "ferry_terminal"}),
     "police": (0.85, {"police_station"}),
     "fuel": (0.80, {"gas_station"}),
+    # Electric-vehicle chargers (ev_chargers.py builds them; OpenStreetMap's amenity=charging_station): an icon of their
+    # own since the game draws them, for the electric cars' battery.
+    "charging": (0.78, {"ev_charging_station", "charging_station"}),
     "market": (0.75, {"market", "farmers_market", "shopping_mall", "department_store", "marketplace", "retail"}),
     "bank": (0.70, {"bank_or_credit_union", "financial_service"}),
     "university": (0.70, {"college_university", "university", "college", "military_school"}),
@@ -67,7 +70,7 @@ BASE_ONLY = {"bus_station", "railway_station", "international_airport", "airport
 # MIN_CONFIDENCE_BROAD is for the everyday kinds (shops, services, offices, food, bars, leisure): Overture's Meta-only
 # pins in Accra mostly score 0.5 to 0.65, and a stale one there costs a small icon at close zoom, not a wrong turn.
 MIN_CONFIDENCE, MIN_CONFIDENCE_SAFETY, MIN_CONFIDENCE_BROAD = 0.65, 0.55, 0.50
-SAFETY = {"hospital", "police", "fuel"}
+SAFETY = {"hospital", "police", "fuel", "charging"}
 BROAD = {"shop", "service", "office", "food", "nightlife", "leisure"}
 # Two places of the same category closer than this (m) whose names share most of their words are one place; a land
 # use area and a place of the same name merge within MERGE_AREA_M.
@@ -104,7 +107,8 @@ OSM_BY_VALUE = {
     ("amenity", "hospital"): "hospital", ("amenity", "clinic"): "hospital", ("amenity", "doctors"): "hospital",
     ("amenity", "dentist"): "hospital", ("healthcare", "*"): "hospital", ("emergency", "ambulance_station"): "hospital",
     ("amenity", "police"): "police", ("amenity", "fire_station"): "police", ("office", "diplomatic"): "embassy",
-    ("amenity", "embassy"): "embassy", ("amenity", "fuel"): "fuel", ("amenity", "charging_station"): "fuel",
+    ("amenity", "embassy"): "embassy", ("amenity", "fuel"): "fuel", ("amenity", "charging_station"): "charging",
+    ("man_made", "charge_point"): None,
     ("amenity", "bank"): "bank", ("amenity", "bureau_de_change"): "bank", ("amenity", "mobile_money_agent"): "bank",
     ("amenity", "marketplace"): "market", ("shop", "mall"): "market", ("shop", "supermarket"): "market",
     ("shop", "department_store"): "market", ("amenity", "university"): "university", ("amenity", "college"): "university",
@@ -293,9 +297,11 @@ def load_places(con, path):
 def load_osm(path):
     """osm.parquet's rows (osm_extract.py) as select_places() rows: source "osm", the icon category as "cat" (None
     left out), the garage kind as "garage" where the feature is one, "fuel" true on a fuel station (amenity=fuel) with
-    its tags of note ("tags": brand, operator, building), and the canopies (building=roof|canopy, man_made=canopy:
-    "canopy" true, "cat" None) for the fuel stations' forecourts (fuel_stations.py). select_places() leaves the
-    canopies out."""
+    its tags of note ("tags": brand, operator, building), the canopies (building=roof|canopy, man_made=canopy:
+    "canopy" true, "cat" None) for the fuel stations' forecourts (fuel_stations.py), and the electric-vehicle chargers
+    (amenity=charging_station: "charging" true; a lone man_made=charge_point: "charge_point" true, "cat" None) with
+    their tags (network, capacity, access, socket:*...) for ev_chargers.py. select_places() leaves the canopies and
+    the lone charge points out."""
     import json
     import pyarrow.parquet as pq
 
@@ -304,15 +310,19 @@ def load_osm(path):
     table = pq.read_table(path)
     for r in table.select(cols + (["tags"] if "tags" in table.column_names else [])).to_pylist():
         canopy = (r["key"], r["value"]) in CANOPY_TAGS and r["outline"] is not None
+        point = (r["key"], r["value"]) == ("man_made", "charge_point")
         cat = osm_category(r["key"], r["value"])
-        if cat is None and not canopy:
+        if cat is None and not canopy and not point:
             continue
         fuel = (r["key"], r["value"]) == ("amenity", "fuel")
-        tags = json.loads(r.get("tags") or "{}") if fuel or canopy else {}
+        charging = (r["key"], r["value"]) == ("amenity", "charging_station")
+        tags = json.loads(r.get("tags") or "{}") if fuel or canopy or charging or point else {}
         out.append({"source": "osm", "cat": None if canopy else cat, "id": r["id"], "name": r["name"], "brand": r["brand"],
                     "lon": r["lon"], "lat": r["lat"], "area_m2": r["area_m2"], "outline": r["outline"],
                     "garage": GARAGE_KIND.get((r["key"], r["value"])),
-                    **({"fuel": True, "tags": tags} if fuel else {}), **({"canopy": True, "tags": tags} if canopy else {})})
+                    **({"fuel": True, "tags": tags} if fuel else {}), **({"canopy": True, "tags": tags} if canopy else {}),
+                    **({"charging": True, "tags": tags} if charging else {}),
+                    **({"charge_point": True, "tags": tags, "cat": None} if point else {})})
     return out
 
 

@@ -1,5 +1,6 @@
 """Every point of interest OpenStreetMap maps inside an area: osm.parquet next to the Overture slice, for the game's
-maps (places.py), its garages (build_district.py "garages") and its fuel stations (fuel_stations.py).
+maps (places.py), its garages (build_district.py "garages"), its fuel stations (fuel_stations.py) and its electric-vehicle
+chargers (ev_chargers.py).
 
     python3 scripts/osm_extract.py --pbf data/osm/ghana.osm.pbf --name east-accra --out data/work/slice-east
     python3 scripts/osm_extract.py --pbf data/osm/ghana.osm.pbf --to vertical-slice:data/work/slice \
@@ -14,7 +15,8 @@ too. Canopies are kept as well (closed ways tagged building=roof, building=canop
 or "man_made"), for the fuel stations' forecourts: the maps leave them out. Columns: id ("node/123", "way/45",
 "relation/6"), name, key and value (the first of KEYS the feature carries), brand (true when OpenStreetMap names a
 brand: brand, brand:wikidata or operator:wikidata), lon, lat, area_m2, outline, and the raw tags of note (shop,
-amenity, craft, building, man_made, brand, operator, service:vehicle:*) as "tags" JSON.
+amenity, craft, building, man_made, brand, operator, service:vehicle:*, and a charger's network, capacity, access, fee,
+vehicles and socket:*) as "tags" JSON. A charge point mapped on its own (man_made=charge_point) is kept too.
 
 Data (c) OpenStreetMap contributors, ODbL 1.0 (SOURCES.md): the game's credits already carry it.
 
@@ -34,12 +36,14 @@ from shapely.geometry import Point, Polygon, MultiPolygon
 KEYS = ("amenity", "shop", "craft", "healthcare", "tourism", "leisure", "office", "historic", "public_transport",
         "club", "emergency", "sport", "man_made")
 # man_made values worth a pin; the rest (pipelines, water tanks, surveillance) are not places.
-MAN_MADE = {"tower", "lighthouse", "water_tower", "monument"}
+MAN_MADE = {"tower", "lighthouse", "water_tower", "monument", "charge_point"}
 # amenity values that are street furniture, not places a driver looks for.
 FURNITURE = {"bench", "waste_basket", "waste_disposal", "recycling", "parking_space", "bicycle_parking", "vending_machine",
              "drinking_water", "toilets", "shelter", "telephone", "post_box", "clock", "grit_bin", "loading_dock",
              "water_point", "watering_place", "hunting_stand", "parking_entrance", "motorcycle_parking"}
-NOTE = ("shop", "amenity", "craft", "service", "building", "man_made", "brand", "operator")
+NOTE = ("shop", "amenity", "craft", "service", "building", "man_made", "brand", "operator",
+        # An electric-vehicle charger's (ev_chargers.py): how many cars at once, who may use it, which vehicles.
+        "network", "capacity", "access", "fee", "motorcar", "motorcycle", "bicycle", "scooter")
 # The roofs over open ground a fuel station's forecourt stands under (fuel_stations.py): building=roof|canopy or
 # man_made=canopy, outlines only.
 CANOPY = {("building", "roof"), ("building", "canopy"), ("man_made", "canopy")}
@@ -95,7 +99,7 @@ def row(fid, tags, lon, lat, outline=None):
     kv = first_key(tags) or (canopy_key(tags) if outline is not None else None)
     if kv is None:
         return None
-    note = {k: v for k, v in tags.items() if k in NOTE or k.startswith("service:vehicle")}
+    note = {k: v for k, v in tags.items() if k in NOTE or k.startswith(("service:vehicle", "socket:"))}
     return {"id": fid, "name": tags.get("name") or tags.get("name:en") or "", "key": kv[0], "value": kv[1],
             "brand": is_brand(tags), "lon": round(lon, 7), "lat": round(lat, 7),
             "area_m2": round(area_m2(outline, lat), 1) if outline is not None else 0.0,
