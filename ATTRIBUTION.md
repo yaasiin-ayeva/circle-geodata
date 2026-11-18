@@ -14,6 +14,8 @@ Contains modified Copernicus Sentinel data [year].
 Produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence
 and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA;
 all rights reserved.
+Roof colours and swimming pools: Accra 2019 Mosaic, Maxar Technologies, Open Cities
+Africa, via OpenAerialMap, CC BY-NC 4.0 (non-commercial).
 
 The CHALE map database (roads, building footprints and heights) is available
 free under the ODbL 1.0 at: [URL of the published database]
@@ -24,3 +26,4 @@ Notes:
 - Replace `[year]` with the year of the Sentinel-2 scenes used, and `[URL ...]` with the published database's address before release.
 - The Copernicus DEM licence also requires its liability disclaimer: copy it from the licence PDF into the game's legal screen.
 - If NASADEM is used in a build, add its dataset citation.
+- The Maxar line applies to builds made with `build_district.py --roofs` (scripts/imagery.py). It is CC BY-NC: drop it, and the roofs, from a commercial build unless the imagery is licensed.

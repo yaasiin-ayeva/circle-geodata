@@ -9,3 +9,5 @@ osmium>=4.0
 scipy>=1.11
 tifffile>=2024.1
 imagecodecs>=2024.1
+# The satellite's roofs (scripts/imagery.py): the Maxar mosaic read by HTTP ranges
+rasterio>=1.3

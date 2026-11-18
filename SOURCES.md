@@ -33,7 +33,8 @@ Street View, Google imagery, Google Earth and Google Photorealistic 3D Tiles may
 | Source | Licence |
 | --- | --- |
 | FABDEM | Non-commercial licence, unless a commercial licence is bought |
-| Maxar Open Data | CC BY-NC 4.0, and no Accra event found |
+| Maxar Open Data (disaster events) | CC BY-NC 4.0, and no Accra event found |
+| [Accra 2019 Mosaic](https://map.openaerialmap.org/) (Maxar Technologies, Open Cities Africa, on OpenAerialMap) | CC BY-NC 4.0. Used since 18 Nov 2026 by `scripts/imagery.py`: each roof's colour (clay tile, rusted, painted or grey sheet) and the swimming pools, read at 0.3 m and passed to the build with `--roofs`. No pixel of it ships, only the class of each roof; that is still an adaptation, so non-commercial only: the director's decision of 18 Nov 2026 (the game is not commercial yet). A commercial build leaves `--roofs` out (the roofs go back to the district's draw) or licenses the imagery |
 
 ## Own capture
 
