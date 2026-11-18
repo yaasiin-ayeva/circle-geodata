@@ -80,6 +80,26 @@ low_w = piece("lw", [(x, 407) for x in range(400, -1, -20)], [-7.0] * 21, w=11.1
 n = el.fit_twins([far_e, far_w, same_a, same_b, wrong_e, wrong_w, low_e, low_w])
 check("no pair far apart, the same way, the wrong way round or at another level is narrowed", n == 0, f"{n}")
 
+# Twin carriageways the record gives three lanes each (LANE_FACTS: Circle's viaduct), drawn 7.2 m apart: they keep their
+# width and move apart, each half the room it lacks; a slip road ending on one comes with it at its end, not 60 m on;
+# a foot at the ground stays on its drawn line.
+se = piece("se", [(x, 0) for x in range(0, 401, 20)], [0.0] + [7.0] * 19 + [0.0], w=11.1, lanes=3)
+sw = piece("sw", [(x, 7.2) for x in range(400, -1, -20)], [0.0] + [7.0] * 19 + [0.0], w=11.1, lanes=3)
+se["surveyed"] = sw["surveyed"] = True
+slip_s = piece("ss", [(200 + d, -d * 0.5) for d in range(0, 101, 10)], [7.0 - 0.06 * d for d in range(0, 101, 10)], w=6.5)
+check("a surveyed pair is not narrowed", el.fit_twins([se, sw]) == 0 and se["w"] == 11.1 == sw["w"])
+moved = el.separate_twins([se, sw, slip_s])
+gap = abs(se["pts"][10][1] - sw["pts"][10][1])
+check("it moves apart to its widths and the barrier between", moved > 0 and abs(gap - (11.1 + el.TWIN_BARRIER_M)) < 0.3, f"{gap:.2f} m apart")
+check("each away from the other (Ghana drives on the right: the other on its left)", se["pts"][10][1] < 0 and sw["pts"][10][1] > 7.2)
+check("its feet at the ground stay where the ground's roads meet them", se["pts"][0] == [0, 0] and sw["pts"][-1] == [0, 7.2])
+check("a slip road ending on it comes with it there, and not 60 m on",
+      abs(slip_s["pts"][0][1] - se["pts"][10][1]) < 0.01 and slip_s["pts"][6] == [260, -30.0], f"{slip_s['pts'][0]}, {slip_s['pts'][6]}")
+check("a deck the record names takes its lanes", el.lane_fact({"name": "Tema Motorway Interchange"}, 1, {"highway": "trunk", "oneway": "yes", "name": "Harbour Road"}, True, 7.0) == (2, 3.65))
+check("a ramp at another level, or a way the record does not name, does not",
+      el.lane_fact({"name": "Tema Motorway Interchange"}, 1, {"highway": "trunk", "oneway": "yes", "name": "Harbour Road"}, True, 14.0) is None and
+      el.lane_fact({"name": "Tema Motorway Interchange"}, 1, {"highway": "trunk", "oneway": "yes", "name": "Aflao Road"}, True, 7.0) is None)
+
 # A slip road leaving a deck's point at 15 degrees, drawn ramping down at once (at GRADE): over the deck's asphalt it runs at the
 # deck's level, then comes down to its own.
 main = piece("m", [(x, 0) for x in range(0, 201, 5)], [7.0] * 41, kind="D" * 41, w=7.6)

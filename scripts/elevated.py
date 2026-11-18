@@ -435,17 +435,20 @@ def build(ways, to_utm):
                     "D" if wid in flyover else "T" if wid in tunnels else
                     "F" if off.get(v, 0.0) > EPS else "C" if off.get(v, 0.0) < -EPS else "G" for v in run)
                 s = site_of(*pos[run[len(run) // 2]], sites)
+                fact = lane_fact(s, wid, t, wid in flyover, max(abs(off.get(v, 0.0)) for v in run))
                 pieces.append({
                     "id": f"{wid}/{i}", "osm": wid, "cls": t["highway"], "name": t.get("name", t.get("ref", "")), "w": width(t),
                     **({"lanes": int(t["lanes"])} if t.get("lanes", "").isdigit() else {}),
                     **({"oneway": True} if is_oneway(t) else {}),
                     "site": s["name"] if s else "", "style": s["style"] if s else "flyover",
                     "pts": [[round(pos[v][0], 2), round(pos[v][1], 2)] for v in run],
-                    "off": [round(off.get(v, 0.0), 2) for v in run], "kind": kinds})
+                    "off": [round(off.get(v, 0.0), 2) for v in run], "kind": kinds,
+                    **({"w": round(fact[0] * fact[1] + 0.6, 1), "lanes": fact[0], "surveyed": True} if fact else {})})
             i = j + 1
 
     # Footbridges over main roads: a deck at FOOT_M over the road, stairs at its ends (the game draws them).
     main = [i for i, w in enumerate(drive) if w["tags"]["highway"] in MAIN]
+    cut_ways = {p["osm"] for p in pieces if min(p["off"]) < -3.0}
     feet = []
     for w in ways:
         t = w["tags"]
@@ -457,13 +460,21 @@ def build(ways, to_utm):
             continue
         s = site_of(*w["line"].interpolate(0.5, normalized=True).coords[0], sites)
         if s and s["base"] > 0:
-            continue    # a sidewalk on a base-level deck (Ako Adjei's roundabout): the deck carries it
+            # A sidewalk on a base-level deck (Ako Adjei's roundabout): the deck carries it. But one that spans the
+            # cut beside the roundabout is a bridge of its own at the ground's level (Ako Adjei's two over the Ring
+            # Road's cut, OSM 1301935314 and 1301935317).
+            if not any(w["line"].crosses(wby[c]["line"]) for c in cut_ways if c in wby):
+                continue
+            feet.append({"id": f"fb{w['id']}", "osm": w["id"], "over": sorted(set(under)), "w": 2.6,
+                         "pts": [[round(x, 2), round(y, 2)] for x, y in w["xy"]], "h": FOOT_AT_GROUND_M})
+            continue
         h, line = over_decks(w["line"], pieces)
         if line is None:
             continue    # a sidewalk along a deck, drawn as its own bridge: the deck carries it
         feet.append({"id": f"fb{w['id']}", "osm": w["id"], "over": sorted(set(under)), "w": 2.6,
                      "pts": [[round(x, 2), round(y, 2)] for x, y in line.coords], "h": h})
     fit_twins(pieces)
+    separate_twins(pieces)
     level_merges(pieces)
     return pieces, feet, sorted(flyover), sorted(tunnels)
 
@@ -497,6 +508,51 @@ def over_decks(line, pieces):
             line = max(parts, key=lambda g: g.length)
             h = max(h, off)                 # onto its edge: at its level
     return round(h, 2), line
+
+
+FOOT_AT_GROUND_M = 0.9  # a footbridge over a cut at a base-level site: its walk at the ground's level
+
+# The lanes of the decks the public record gives (the director's research of 18 Nov 2026, from FHECOR, DUR, JICA and
+# QGMI's sheets): (site, the deck's level over the ground and how far from it, names it carries or way ids, lanes each
+# way, lane width).
+# A piece they name keeps that width whatever room OpenStreetMap's drawing leaves it (fit_twins() then moves the
+# pair apart instead of narrowing it, separate_twins()). Elsewhere OpenStreetMap's lanes, or the class's width.
+LANE_FACTS = [
+    # Circle's top tier, the Ring Road viaduct: 3 lanes each way (FHECOR; OSM lanes=3).
+    # It comes down to 11 m at its western end, over the western roundabout; its approaches on fill keep its lanes.
+    {"site": "Kwame Nkrumah Interchange", "level": 14.0, "within": 3.5, "cls": ("primary",), "fills": True, "lanes": 3, "lane_m": 3.5},
+    # Ring Road Central under the Faanofaa flyover, by Circle: 3 lanes each way (OSM).
+    {"site": "Kwame Nkrumah Interchange", "ways": (1219373916, 1219373917), "lanes": 3, "lane_m": 3.5},
+    # The elevated loop from the viaduct down to Kwame Nkrumah Avenue: 2 lanes (FHECOR).
+    {"site": "Kwame Nkrumah Interchange", "ways": (1219373325, 419689463), "lanes": 2, "lane_m": 3.5},
+    # The Tema Motorway Interchange's flyover, Harbour Road to the N2: 2 lanes of 3.65 m each way (DUR, JICA).
+    {"site": "Tema Motorway Interchange", "level": 7.0, "names": ("Harbour Road", "N2"), "lanes": 2, "lane_m": 3.65},
+    # Obetsebi Lamptey's two viaducts, 2 lanes each way (QGMI).
+    {"site": "Obetsebi Lamptey Interchange", "level": 7.0, "names": ("Obetsebi Lamptey Interchange",), "lanes": 2, "lane_m": 3.5},
+    {"site": "Obetsebi Lamptey Interchange", "level": 14.0, "names": ("Ring Road West High Street",), "lanes": 2, "lane_m": 3.5},
+]
+
+
+def lane_fact(site, wid, tags, flyover, level):
+    """(lanes, lane width) for a piece LANE_FACTS names: on a flyover way of its site at its level (or by its way id),
+    one way; else None."""
+    if not site or not (tags.get("oneway") in ("yes", "1", "true") or tags["highway"].endswith("_link")):
+        return None
+    for f in LANE_FACTS:
+        if f["site"] != site["name"]:
+            continue
+        if "ways" in f:
+            if wid in f["ways"]:
+                return f["lanes"], f["lane_m"]
+            continue
+        if not (flyover or f.get("fills")) or abs(level - f["level"]) > f.get("within", 0.5):
+            continue
+        if "cls" in f and tags["highway"] not in f["cls"]:
+            continue
+        if "names" in f and tags.get("name", tags.get("ref", "")) not in f["names"] and tags.get("ref", "") not in f["names"]:
+            continue
+        return f["lanes"], f["lane_m"]
+    return None
 
 
 TWIN_BARRIER_M = 1.2    # between twin carriageways' asphalt: the two decks' overhangs, edge to edge
@@ -551,13 +607,110 @@ def fit_twins(pieces):
         if not n or len(gaps) / n < TWIN_SHARE:
             continue
         room = float(np.percentile(gaps, 20)) - TWIN_BARRIER_M
-        if room >= p["w"]:
-            continue
+        if room >= p["w"] or p.get("surveyed"):
+            continue                        # a surveyed width stays: separate_twins() makes the room
         p["w"] = round(max(TWIN_MIN_W, room), 1)
         if p.get("lanes"):
             p["lanes"] = max(1, min(p["lanes"], int(p["w"] // 3.0)))
         fitted += 1
     return fitted
+
+
+TWIN_TAPER_M = 40.0     # a carriageway moved apart comes back to its drawn line over this, at a foot or a slip road
+
+
+def separate_twins(pieces):
+    """The two carriageways of a deck the record gives more lanes than OpenStreetMap leaves room for (LANE_FACTS:
+    Circle's viaduct, 3 lanes each way drawn 7 to 9 m apart) move apart, each half the room it lacks, away from the
+    other: every point of such a piece by the room it lacks there (the most within 15 m, smoothed), and the points of
+    the pieces that end on it (a slip road, the next way along) with it, less with distance from that end over
+    TWIN_TAPER_M, so they stay joined; a foot at the ground comes back to its drawn line over TWIN_TAPER_M, where the
+    ground's roads meet it. Returns how many points moved."""
+    ones = [p for p in pieces if p.get("oneway") and len(p["pts"]) >= 2]
+    lines = [LineString(p["pts"]) for p in ones]
+    if not lines:
+        return 0
+    tree = shapely.STRtree(lines)
+
+    def cum(p):
+        return np.concatenate([[0], np.cumsum(np.hypot(*np.diff(np.array(p["pts"], dtype=np.float64), axis=0).T))])
+    move = {}                                   # a point (rounded) -> its displacement
+    for i, p in enumerate(ones):
+        if not p.get("surveyed"):
+            continue
+        pts = np.array(p["pts"], dtype=np.float64)
+        n = len(pts)
+        lack, away = np.zeros(n), np.zeros((n, 2))
+        for k in range(n):
+            a, b = pts[max(0, k - 1)], pts[min(n - 1, k + 1)]
+            t = b - a
+            if np.linalg.norm(t) < 1e-6:
+                continue
+            t /= np.linalg.norm(t)
+            left = np.array([-t[1], t[0]])
+            away[k] = -left
+            for j in tree.query(shapely.Point(pts[k]).buffer(p["w"] + 4.0)):
+                if j == i:
+                    continue
+                q = ones[j]
+                at = lines[j].project(shapely.Point(pts[k]))
+                v = np.array(lines[j].interpolate(at).coords[0]) - pts[k]
+                d = float(np.linalg.norm(v))
+                if d < 1.0 or float(v @ left) < 0.8 * d:
+                    continue
+                u = np.array(lines[j].interpolate(min(at + 1.0, lines[j].length)).coords[0]) - \
+                    np.array(lines[j].interpolate(max(at - 1.0, 0.0)).coords[0])
+                if np.linalg.norm(u) < 1e-6 or float(u @ t) / np.linalg.norm(u) > -0.82:
+                    continue
+                qs = cum(q)
+                if abs(float(np.interp(at, qs, q["off"])) - p["off"][k]) > 1.5:
+                    continue
+                need = p["w"] / 2 + q["w"] / 2 + TWIN_BARRIER_M
+                lack[k] = max(lack[k], (need - d) / 2)
+        if not lack.any():
+            continue
+        s = cum(p)
+        grown = np.array([lack[np.abs(s - s[k]) <= 15.0].max() for k in range(n)])
+        smooth = np.array([grown[np.abs(s - s[k]) <= 15.0].mean() for k in range(n)])
+        # A foot at the ground stays where it meets the ground's roads.
+        for e in (0, n - 1):
+            if abs(p["off"][e]) < 0.3:
+                smooth *= np.clip(np.abs(s - s[e]) / TWIN_TAPER_M, 0, 1)
+        for k in range(n):
+            if smooth[k] > 0.01:
+                key = (round(pts[k][0], 2), round(pts[k][1], 2))
+                dv = away[k] * smooth[k]
+                if key not in move or np.linalg.norm(dv) > np.linalg.norm(move[key]):
+                    move[key] = dv
+    if not move:
+        return 0
+    moved = 0
+    # The pieces that end on a point moved come with it, less with distance from that end.
+    shift = {}
+    for idx, p in enumerate(pieces):
+        pts = np.array(p["pts"], dtype=np.float64)
+        n, s = len(pts), cum(p)
+        d = np.zeros((n, 2))
+        for k in range(n):
+            key = (round(pts[k][0], 2), round(pts[k][1], 2))
+            if key in move:
+                d[k] = move[key]
+        if not p.get("surveyed"):
+            for e in (0, n - 1):
+                if not d[e].any():
+                    continue
+                f = np.clip(1 - np.abs(s - s[e]) / TWIN_TAPER_M, 0, 1)
+                for k in range(n):
+                    if np.linalg.norm(d[e] * f[k]) > np.linalg.norm(d[k]):
+                        d[k] = d[e] * f[k]
+        shift[idx] = d
+    for idx, d in shift.items():
+        p = pieces[idx]
+        for k in range(len(p["pts"])):
+            if d[k].any():
+                p["pts"][k] = [round(p["pts"][k][0] + float(d[k][0]), 2), round(p["pts"][k][1] + float(d[k][1]), 2)]
+                moved += 1
+    return moved
 
 
 MERGE_MAX = 0.10        # the steepest a slip road may be, coming back to its own level after running at its road's
