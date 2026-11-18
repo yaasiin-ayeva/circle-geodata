@@ -166,7 +166,20 @@ def utm(g):
 
 
 def write(rows, schema, path):
-    pq.write_table(pa.Table.from_pylist(rows, schema=schema.with_metadata(GEO_META)), path)
+    """Written whole or not at all: to a temporary name first, renamed onto `path` once complete. circle-game's
+    scripts/build-city.sh takes a slice as whole once its roads.parquet is there (circle-game #139), so a file cut short
+    by a dead network or a killed build must never stand under its final name (#16)."""
+    tmp = path + ".tmp"
+    pq.write_table(pa.Table.from_pylist(rows, schema=schema.with_metadata(GEO_META)), tmp)
+    os.replace(tmp, path)
+
+
+def write_json(obj, path):
+    """A JSON file written whole or not at all, as write() does for the layers."""
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(obj, f, indent=2)
+    os.replace(tmp, path)
 
 
 def count(args):
@@ -242,8 +255,7 @@ def export(args):
             "length_m": float(shapely.length(utm(r["_g"]))), "geometry": r["geometry"]} for r in rows], ROADS, roads)
     summary = summarize_roads(roads)
     summary.update({"aoi": args.name, "release": args.release or args.source})
-    with open(os.path.join(args.out, "roads-summary.json"), "w") as f:
-        json.dump(summary, f, indent=2)
+    write_json(summary, os.path.join(args.out, "roads-summary.json"))
     print(f"wrote {', '.join(x + '.parquet' for x in layers)} and roads-summary.json in {args.out}; "
           f"{summary['road_km_total']} km of road, {summary['road_km_arterial']} km arterial")
 
