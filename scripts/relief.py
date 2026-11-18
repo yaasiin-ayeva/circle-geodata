@@ -368,11 +368,14 @@ def hold_cut_floors(h, grid, roads, other):
         inside = (fi >= 0) & (fi <= grid.nx - 1) & (fj >= 0) & (fj <= grid.nz - 1)
         seg = np.hypot(*np.diff(pts, axis=0).T)
         prof = np.interp(d, np.concatenate([[0], np.cumsum(seg)]), own[0])
-        i = np.rint(fi[inside]).astype(int)
-        j = np.rint(fj[inside]).astype(int)
-        floor[j, i] = np.fmin(floor[j, i], prof[inside])
-        fhalf[j, i] = w / 2 + CUT_FLOOR_M
-        rhalf[j, i] = w / 2 + 2.0
+        # Each sample holds the four nodes of the cell it is in, not only its nearest: the ground drawn over a cell is
+        # mixed from its four corners, and a corner left at the bank's height lifted it over the road between them
+        # (6 to 20 cm over 43 of the cuts' points in the game's check). Each corner takes the lowest sample round it.
+        for i in (np.floor(fi[inside]).astype(int), np.minimum(np.floor(fi[inside]).astype(int) + 1, grid.nx - 1)):
+            for j in (np.floor(fj[inside]).astype(int), np.minimum(np.floor(fj[inside]).astype(int) + 1, grid.nz - 1)):
+                np.fmin.at(floor, (j, i), prof[inside])
+                fhalf[j, i] = w / 2 + CUT_FLOOR_M
+                rhalf[j, i] = w / 2 + 2.0
     cut = ~np.isnan(floor)
     if not cut.any():
         return
