@@ -816,10 +816,6 @@ def lay_ground(mesh, region):
 ELEVATED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "work", "elevated.json")
 OFF_STRUCTURE_M = 3.0     # a road this close to a structure's centreline, and along it, is that structure
 OFF_STRUCTURE_DEG = 25.0
-# Within its own asphalt too: Overture's line for a carriageway can run 4 to 5 m off OpenStreetMap's (the Ring Road at
-# the end of Ako Adjei's cut), and the road left on the ground there ran along the ramp, between its walls.
-OFF_STRUCTURE_W = 1.0     # beyond the piece's half width
-OFF_STRUCTURE_LOW_M = 4.5 # where the piece is this low over (or under) the ground
 # What stands on the ground keeps off a structure's road where the road is low over it: within its asphalt, the
 # deck's overhang and this much more (m), wherever the road there is under the thing's height and a car's over the
 # ground (a ramp, a cut, a low deck). Buildings, compound walls, street lights, parked cars and hiding places stood in
@@ -870,33 +866,26 @@ def whole_structures(pieces, near):
 
 def cut_structures(roads, pieces, step=1.0):
     """The roads with what runs along a structure taken out: a road within OFF_STRUCTURE_M of a piece's centreline
-    (or on its asphalt: its half width and OFF_STRUCTURE_W) and within OFF_STRUCTURE_DEG of its direction is that piece
-    (Overture's roads are OpenStreetMap's ways), which the
+    and within OFF_STRUCTURE_DEG of its direction is that piece (Overture's roads are OpenStreetMap's ways), which the
     game builds on its deck, its fill or in its cut; a road that crosses a piece keeps its crossing. Returns the roads
     (rid, cls, name, line) and the metres taken out."""
     if not pieces:
         return roads, 0.0
-    segs, dirs, reach = [], [], []
+    segs, dirs = [], []
     for p in pieces:
-        pts, off = p["pts"], p.get("off") or [0.0] * len(p["pts"])
-        for k, (a, b) in enumerate(zip(pts, pts[1:])):
+        pts = p["pts"]
+        for a, b in zip(pts, pts[1:]):
             d = math.dist(a, b)
             if d > 1e-6:
                 segs.append(LineString([a, b]))
                 dirs.append(((b[0] - a[0]) / d, (b[1] - a[1]) / d))
-                # The whole asphalt where the piece is low (a ramp, a cut, at the ground): a road there is on it. Under
-                # a deck a road on the ground runs on (Independence Avenue's old line under its flyover, to the
-                # Ako Adjei roundabout), so there only the centreline's OFF_STRUCTURE_M.
-                low = min(abs(off[k]), abs(off[k + 1])) < OFF_STRUCTURE_LOW_M
-                reach.append(max(OFF_STRUCTURE_M, float(p.get("w", 0)) / 2 + OFF_STRUCTURE_W) if low else OFF_STRUCTURE_M)
-    far = max(reach)
     tree = shapely.STRtree(segs)
     cos_max = math.cos(math.radians(OFF_STRUCTURE_DEG))
     out, gone = [], 0.0
     for rid, cls, name, g in roads:
         lines = [g] if isinstance(g, LineString) else [l for l in getattr(g, "geoms", []) if isinstance(l, LineString)]
         for line in lines:
-            if not tree.query(line.buffer(far)).size:
+            if not tree.query(line.buffer(OFF_STRUCTURE_M)).size:
                 out.append((rid, cls, name, line))
                 continue
             n = max(2, int(math.ceil(line.length / step)) + 1)
@@ -908,14 +897,14 @@ def cut_structures(roads, pieces, step=1.0):
                 b = line.interpolate(min(line.length, dd + 0.5))
                 vx, vy = b.x - a.x, b.y - a.y
                 vn = math.hypot(vx, vy) or 1.0
-                for j in tree.query(p.buffer(far)):
+                for j in tree.query(p.buffer(OFF_STRUCTURE_M)):
                     # Square ends: the piece stops at its last point, where the road on the ground goes on.
                     (ax, ay), (bx, by) = segs[j].coords
                     ln = math.hypot(bx - ax, by - ay)
                     t = ((p.x - ax) * dirs[j][0] + (p.y - ay) * dirs[j][1])
                     if t < -0.01 or t > ln + 0.01:
                         continue
-                    if segs[j].distance(p) < reach[j] and abs((vx * dirs[j][0] + vy * dirs[j][1]) / vn) > cos_max:
+                    if segs[j].distance(p) < OFF_STRUCTURE_M and abs((vx * dirs[j][0] + vy * dirs[j][1]) / vn) > cos_max:
                         keep[k] = False
                         break
             if keep.all():
