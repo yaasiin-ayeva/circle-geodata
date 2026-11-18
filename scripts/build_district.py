@@ -824,7 +824,7 @@ OFF_STRUCTURE_DEG = 25.0
 STRUCTURE_CLEAR_M = 1.5
 LAMP_TOP_M = 10.0         # a street light's height
 CAR_TOP_M = 1.6           # a parked car's
-FOOT_CLEAR_M = 40.0       # no car parked this near a ramp's foot on the ground (m)
+FOOT_CLEAR_M = 60.0       # no car parked this near a ramp's foot on the ground (m)
 
 
 
