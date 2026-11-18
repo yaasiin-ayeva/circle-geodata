@@ -127,10 +127,18 @@ def is_tunnel(t):
     return t.get("tunnel", "no") not in ("no", "", "building_passage", "culvert")
 
 
+def is_oneway(t):
+    """Driven one way only: tagged so, a slip road or a motorway, or a roundabout's ring (OpenStreetMap's
+    junction=roundabout implies it: the ring at the Ako Adjei Interchange was driven both ways, against the traffic
+    on the ground's half of it)."""
+    return (t.get("oneway") in ("yes", "1", "true") or t["highway"].endswith("_link") or t["highway"] == "motorway"
+            or t.get("junction") in ("roundabout", "circular"))
+
+
 def width(t):
     """The carriageway's width (m): OpenStreetMap's lanes when mapped, else the class's."""
     cls = t["highway"].replace("_link", "")
-    oneway = t.get("oneway") in ("yes", "1", "true") or t["highway"].endswith("_link") or cls == "motorway"
+    oneway = is_oneway(t)
     try:
         lanes = int(t.get("lanes", "0"))
     except ValueError:
@@ -430,8 +438,7 @@ def build(ways, to_utm):
                 pieces.append({
                     "id": f"{wid}/{i}", "osm": wid, "cls": t["highway"], "name": t.get("name", t.get("ref", "")), "w": width(t),
                     **({"lanes": int(t["lanes"])} if t.get("lanes", "").isdigit() else {}),
-                    **({"oneway": True} if t.get("oneway") in ("yes", "1", "true") or t["highway"] == "motorway"
-                       or t["highway"].endswith("_link") else {}),
+                    **({"oneway": True} if is_oneway(t) else {}),
                     "site": s["name"] if s else "", "style": s["style"] if s else "flyover",
                     "pts": [[round(pos[v][0], 2), round(pos[v][1], 2)] for v in run],
                     "off": [round(off.get(v, 0.0), 2) for v in run], "kind": kinds})
@@ -451,9 +458,185 @@ def build(ways, to_utm):
         s = site_of(*w["line"].interpolate(0.5, normalized=True).coords[0], sites)
         if s and s["base"] > 0:
             continue    # a sidewalk on a base-level deck (Ako Adjei's roundabout): the deck carries it
+        h, line = over_decks(w["line"], pieces)
         feet.append({"id": f"fb{w['id']}", "osm": w["id"], "over": sorted(set(under)), "w": 2.6,
-                     "pts": [[round(x, 2), round(y, 2)] for x, y in w["xy"]], "h": FOOT_M})
+                     "pts": [[round(x, 2), round(y, 2)] for x, y in line.coords], "h": h})
+    fit_twins(pieces)
+    level_merges(pieces)
     return pieces, feet, sorted(flyover), sorted(tunnels)
+
+
+def over_decks(line, pieces):
+    """A footbridge by a structure: (its height over the ground, its line). Over a deck or a ramp it crosses, it stands
+    FOOT_M over that deck; one that ends on a deck's edge (the Nii Tetteh Amui flyover's, which come down to its
+    side over the motorway) stops at the deck's edge, at the deck's level, where at 6.2 m it stood across the
+    flyover's lanes under their 7 m deck. Elsewhere FOOT_M over the road under it."""
+    h = FOOT_M
+    for p in pieces:
+        pl = LineString(p["pts"])
+        reach = p["w"] / 2 + 2.15          # the asphalt, the deck's overhang, half the footbridge and a hand's breadth
+        if pl.distance(line) > reach:
+            continue
+        band = pl.buffer(reach, cap_style="flat")
+        if not line.intersects(band):
+            continue
+        s = np.concatenate([[0], np.cumsum(np.hypot(*np.diff(np.array(p["pts"], dtype=np.float64), axis=0).T))])
+        off = float(np.interp(pl.project(line.intersection(band).centroid), s, p["off"]))
+        if off <= 0.5:
+            continue                        # a road at the ground or in a cut: passed over as any road
+        rest = line.difference(band)
+        parts = [g for g in getattr(rest, "geoms", [rest]) if isinstance(g, LineString) and g.length > 1.0]
+        if len(parts) >= 2:
+            h = max(h, off + FOOT_M)        # across the deck: over it
+        elif parts:
+            line = max(parts, key=lambda g: g.length)
+            h = max(h, off)                 # onto its edge: at its level
+    return round(h, 2), line
+
+
+TWIN_BARRIER_M = 1.2    # between twin carriageways' asphalt: the two decks' overhangs, edge to edge
+TWIN_MIN_W = 6.0        # the narrowest a fitted carriageway gets: two lanes of 3 m
+TWIN_SHARE = 0.6        # of its points with the other carriageway beside it, for a piece to be one of a pair
+
+
+def fit_twins(pieces):
+    """The two carriageways of a flyover or a cut side by side within their widths: OpenStreetMap draws the top tier
+    at Circle 7 to 9 m centre to centre with three lanes each (11.1 m), so each deck ran 2 m into the other's lanes,
+    its parapet and lamps standing in them and its traffic meeting the other's head on. A one-way piece with, along
+    TWIN_SHARE of its points, a one-way piece at its level to its left running the other way (Ghana drives on the
+    right, so the opposite carriageway is on the left) is narrowed to the room between them, less TWIN_BARRIER_M:
+    the 20th percentile of the gap, not under TWIN_MIN_W; its lanes as many as fit at 3 m. As build_district.py
+    find_carriageways() narrows the ground's dual carriageways to theirs. Returns how many were narrowed."""
+    ones = [p for p in pieces if p.get("oneway") and len(p["pts"]) >= 2]
+    lines = [LineString(p["pts"]) for p in ones]
+    tree = shapely.STRtree(lines) if lines else None
+    fitted = 0
+    for i, p in enumerate(ones):
+        pts = np.array(p["pts"], dtype=np.float64)
+        gaps, n = [], 0
+        for k in range(len(pts)):
+            a, b = pts[max(0, k - 1)], pts[min(len(pts) - 1, k + 1)]
+            t = b - a
+            if np.linalg.norm(t) < 1e-6:
+                continue
+            t /= np.linalg.norm(t)
+            left = np.array([-t[1], t[0]])
+            n += 1
+            best = None
+            for j in tree.query(shapely.Point(pts[k]).buffer(p["w"] + 2.0)):
+                if j == i:
+                    continue
+                q = ones[j]
+                at = lines[j].project(shapely.Point(pts[k]))
+                o = np.array(lines[j].interpolate(at).coords[0])
+                v = o - pts[k]
+                d = float(np.linalg.norm(v))
+                if d < 1.0 or float(v @ left) < 0.8 * d:
+                    continue
+                u = np.array(lines[j].interpolate(min(at + 1.0, lines[j].length)).coords[0]) - \
+                    np.array(lines[j].interpolate(max(at - 1.0, 0.0)).coords[0])
+                if np.linalg.norm(u) < 1e-6 or float(u @ t) / np.linalg.norm(u) > -0.82:
+                    continue
+                qs = np.concatenate([[0], np.cumsum(np.hypot(*np.diff(np.array(q["pts"]), axis=0).T))])
+                if abs(float(np.interp(at, qs, q["off"])) - p["off"][k]) > 1.5:
+                    continue
+                best = d if best is None else min(best, d)
+            if best is not None:
+                gaps.append(best)
+        if not n or len(gaps) / n < TWIN_SHARE:
+            continue
+        room = float(np.percentile(gaps, 20)) - TWIN_BARRIER_M
+        if room >= p["w"]:
+            continue
+        p["w"] = round(max(TWIN_MIN_W, room), 1)
+        if p.get("lanes"):
+            p["lanes"] = max(1, min(p["lanes"], int(p["w"] // 3.0)))
+        fitted += 1
+    return fitted
+
+
+MERGE_MAX = 0.10        # the steepest a slip road may be, coming back to its own level after running at its road's
+
+
+def level_merges(pieces):
+    """Where a piece leaves another or joins it (an end on one of its points), the two roads overlap beyond that
+    point until they part, and there both must be one surface: a slip road off Obetsebi Lamptey's ring ran 2.9 m
+    over the ring's lanes 8 m from where they met, its deck through them. The branch's points over the main road's
+    asphalt take the main road's offset there, and the ones beyond come back to their own within MERGE_MAX (never
+    past the branch's far end, which keeps its own). The main road is the one the branch ends on partway, else the
+    wider (the longer at equal widths). Returns how many points moved."""
+    def cum(p):
+        return np.concatenate([[0], np.cumsum(np.hypot(*np.diff(np.array(p["pts"], dtype=np.float64), axis=0).T))])
+    lines = [LineString(p["pts"]) for p in pieces]
+    at = defaultdict(list)          # a point -> [(piece index, vertex index)]
+    for i, p in enumerate(pieces):
+        for k, q in enumerate(p["pts"]):
+            at[(round(q[0], 1), round(q[1], 1))].append((i, k))
+    moved = 0
+    for key, members in at.items():
+        ends = [(i, k) for i, k in members if k in (0, len(pieces[i]["pts"]) - 1)]
+        for bi, bk in ends:
+            b = pieces[bi]
+            for mi, mk in members:
+                if mi == bi:
+                    continue
+                m = pieces[mi]
+                interior = 0 < mk < len(m["pts"]) - 1
+                if not interior:
+                    # Two ends together: the branch is the narrower (the shorter at equal widths), and only where the
+                    # two leave the point the same way (a slip road off a carriageway, not the next way along).
+                    if (m["w"], lines[mi].length) <= (b["w"], lines[bi].length):
+                        continue
+                    da = np.array(b["pts"][1 if bk == 0 else -2]) - np.array(b["pts"][bk])
+                    dm = np.array(m["pts"][1 if mk == 0 else -2]) - np.array(m["pts"][mk])
+                    if np.linalg.norm(da) < 1e-6 or np.linalg.norm(dm) < 1e-6 or \
+                            float(da @ dm) / (np.linalg.norm(da) * np.linalg.norm(dm)) < math.cos(math.radians(35)):
+                        continue
+                ms = cum(m)
+                order = range(1, len(b["pts"])) if bk == 0 else range(len(b["pts"]) - 2, -1, -1)
+                reach = (m["w"] + b["w"]) / 2 - 0.3
+                off = list(b["off"])
+                last, delta = None, 0.0
+                for v in order:
+                    if v in (0, len(b["pts"]) - 1):
+                        break               # the far end keeps its own level
+                    pt = shapely.Point(b["pts"][v])
+                    d = lines[mi].project(pt)
+                    if d <= 0.01 or d >= lines[mi].length - 0.01 or lines[mi].distance(pt) > reach:
+                        break
+                    want = float(np.interp(d, ms, m["off"]))
+                    delta = want - off[v]
+                    off[v] = round(want, 2)
+                    last = v
+                if last is None or abs(delta) < 0.01:
+                    continue
+                bs = cum(b)
+                # Back over a span at which the branch's own grade and the way back together stay within MERGE_MAX.
+                own = max((abs(b["off"][v + 1] - b["off"][v]) / max(bs[v + 1] - bs[v], 1e-6) for v in range(len(bs) - 1)), default=0.0)
+                ramp = abs(delta) / max(MERGE_MAX - own - 0.01, 0.02)
+                far = bs[-1] - bs[last] if bk == 0 else bs[last]
+                span = min(ramp, far)
+                for v in order:
+                    gone = abs(bs[v] - bs[last])
+                    if (bk == 0 and v <= last) or (bk != 0 and v >= last) or v in (0, len(b["pts"]) - 1):
+                        continue
+                    if gone >= span:
+                        break
+                    off[v] = round(off[v] + delta * (1 - gone / span), 2)
+                # Only where the branch can then come back to its own level at a grade a car drives (MERGE_MAX): two
+                # roads that part at a shallow angle bound for levels far apart (a scissors, as OpenStreetMap draws
+                # Graphic Road's ramps at Obetsebi Lamptey) stay as they are.
+                def grade(o):
+                    return max((abs(o[v + 1] - o[v]) / max(bs[v + 1] - bs[v], 1e-6) for v in range(len(o) - 1)), default=0.0)
+                if grade(off) > max(MERGE_MAX, grade(b["off"]) + 0.01):
+                    continue
+                moved += sum(1 for x, y in zip(off, b["off"]) if abs(x - y) > 0.005)
+                b["off"] = off
+    # The kinds of the points moved off or onto the ground (a deck or a tunnel keeps its own).
+    for p in pieces:
+        p["kind"] = "".join(c if c in "DT" else ("F" if o > EPS else "C" if o < -EPS else "G")
+                            for c, o in zip(p["kind"], p["off"]))
+    return moved
 
 
 def main():
