@@ -43,6 +43,9 @@ SIDEWALK = 2.8
 SIDEWALK_Z = 0.35
 GUTTER_Z = 0.02
 STOREY = 3.2
+FASCIA_Z = (2.7, 3.7)   # the dark band over a commercial ground floor that carries the shop signs, metres up
+FASCIA_DEPTH = 0.22     # out from the wall
+SIGN_THICKNESS = 0.03   # a sign board mounted on the band's face
 
 # Shop signs transcribed on Oxford Street and the lap, word for word, with the colours of their supports
 # (circle-reference catalogue/texts.csv, Street View Aug 2024; circle-bible DECISIONS.md, 14 Nov 2026). Names in plain
@@ -297,7 +300,7 @@ def facade(B, bid, poly, height, storeys, street, street_dir, rng, kind="commerc
                     z0, z1 = f * STOREY, (f + 1) * STOREY
                     r = bd.unit_hash(bid, i, k, f)
                     if f == 0 and faces_street and kind != "house":
-                        shopfront(B, obj, wall, bid, a, t, n, s0, s1, z0, z1, r, (i, k))
+                        shopfront(B, obj, wall, bid, a, t, n, s0, s1, z0, z1, r, (i, k), fascia)
                     elif f > 0 and bw > 2.2:
                         window(B, obj, wall, a, t, n, s0, s1, z0, z1, r)
                     else:
@@ -306,8 +309,9 @@ def facade(B, bid, poly, height, storeys, street, street_dir, rng, kind="commerc
             if faces_street and fascia:
                 # The dark band over the ground floor that carries the shop signs.
                 yaw = math.atan2(t[1], t[0])
-                c = wall_point(a, t, n, L / 2, 0.11)
-                B.box(obj, "M_Fascia", (c[0], c[1], 3.2), (L + 0.1, 0.22, 1.0), yaw=yaw, bottom=True)
+                c = wall_point(a, t, n, L / 2, FASCIA_DEPTH / 2)
+                B.box(obj, "M_Fascia", (c[0], c[1], (FASCIA_Z[0] + FASCIA_Z[1]) / 2), (L + 0.1, FASCIA_DEPTH, FASCIA_Z[1] - FASCIA_Z[0]),
+                      yaw=yaw, bottom=True)
                 if storeys >= 2 and L >= 6 and bd.unit_hash(bid, i, "uplight") < 0.5:
                     # Cold white floodlights on the fascia washing the upper floors, as on the newer blocks at night.
                     for s in (L * 0.25, L * 0.75):
@@ -474,7 +478,7 @@ def window(B, obj, wall, a, t, n, s0, s1, z0, z1, r):
         B.count("ac_units")
 
 
-def shopfront(B, obj, wall, bid, a, t, n, s0, s1, z0, z1, r, key):
+def shopfront(B, obj, wall, bid, a, t, n, s0, s1, z0, z1, r, key, fascia=False):
     yaw = math.atan2(t[1], t[0])
     o0, o1, top = s0 + 0.25, s1 - 0.25, z0 + 2.75
     wall_rect(B, obj, wall, a, t, n, s0, o0, z0, z1)
@@ -489,14 +493,24 @@ def shopfront(B, obj, wall, bid, a, t, n, s0, s1, z0, z1, r, key):
     cell = int(bd.unit_hash(bid, key, "sign") * len(SIGNS))
     col, row = cell % 4, cell // 4
     u0, u1, v0, v1 = col / 4, (col + 1) / 4, 1 - (row + 1) / 8, 1 - row / 8
-    d = 0.18
-    sz0, sz1 = top + 0.05, min(z1 - 0.1, top + 0.95)
+    if fascia:
+        # On the fascia, the dark band that carries the shop signs (facade()): the board is mounted on the band's
+        # face and fills it, about the atlas cell's 4:1. Until 19 Nov 2026 it stood 0.18 m out from the wall, inside
+        # the band's 0.22 m deep box, so no sign on a fascia ever showed: the street read as a dark band. Its own
+        # object (LookDev_Signs_<cell>) lets the game take these boards out (circle-game ?lookdevsigns=0).
+        board = obj.replace("LookDev_Buildings", "LookDev_Signs")
+        d0, d = FASCIA_DEPTH, FASCIA_DEPTH + SIGN_THICKNESS
+        sz0, sz1 = FASCIA_Z[0] + 0.1, FASCIA_Z[1] - 0.1
+    else:
+        board = obj
+        d0, d = 0.0, 0.18
+        sz0, sz1 = top + 0.05, min(z1 - 0.1, top + 0.95)
     p0, p1 = wall_point(a, t, n, o0, d), wall_point(a, t, n, o1, d)
     sign = "M_Sign_Lit" if lit or r > 0.85 else "M_Sign_Painted"
-    B.quad(obj, sign, (*p0, sz0), (*p1, sz0), (*p1, sz1), (*p0, sz1), ((u0, v0), (u1, v0), (u1, v1), (u0, v1)))
-    q0, q1 = wall_point(a, t, n, o0, 0), wall_point(a, t, n, o1, 0)
-    B.quad(obj, "M_SignFrame", (*q0, sz1), (*p0, sz1), (*p1, sz1), (*q1, sz1))   # top
-    B.quad(obj, "M_SignFrame", (*q0, sz0), (*q1, sz0), (*p1, sz0), (*p0, sz0))   # underside
+    B.quad(board, sign, (*p0, sz0), (*p1, sz0), (*p1, sz1), (*p0, sz1), ((u0, v0), (u1, v0), (u1, v1), (u0, v1)))
+    q0, q1 = wall_point(a, t, n, o0, d0), wall_point(a, t, n, o1, d0)
+    B.quad(board, "M_SignFrame", (*q0, sz1), (*p0, sz1), (*p1, sz1), (*q1, sz1))   # top
+    B.quad(board, "M_SignFrame", (*q0, sz0), (*q1, sz0), (*p1, sz0), (*p0, sz0))   # underside
     B.count("signs")
     if 0.25 < bd.unit_hash(bid, key, "awning") < 0.6:
         colour = ["M_Awning_Red", "M_Awning_Blue", "M_Awning_Green"][int(bd.unit_hash(bid, key, "awcol") * 3)]

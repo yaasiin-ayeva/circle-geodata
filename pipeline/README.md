@@ -13,7 +13,7 @@ From open data to district tiles the browser game streams. Python scripts turn t
 | 7 | Building typologies | Python | A type per footprint, by rule from area, height, land use, road class and place category | Rules in `build_district.py`; to extend |
 | 8 | Building kits | Blender by script | Modules for concrete-block buildings of 1–4 storeys, grilles, louvre windows, corrugated roofs, roller-shutter shops, kiosks, compound walls, curtain-wall towers, placed per footprint and instanced; fictional signs only, drawn by the game at load | Oxford Street block built in Python (`build_lookdev.py`); kits to do |
 | 9 | Street furniture and night detail | Python, Blender by script | Streetlights (some stretches dark on purpose) and every light source as a candidate for the game's light pool, trotro stops, hawker tables, gas cylinders, billboards, drain crossings, painted kerbs, palms | Osu streetlights and block lights done |
-| 10 | Export | glTF-Transform, meshopt, KTX2 | One GLB per district cell with LODs and colliders, and a scene JSON (lights, routes, spawn points), cached by the game; race routes polished by hand | GLB and scene JSON done for Osu (`export_glb.py`, `export_scene.py`); KTX2 and per-cell streaming to do |
+| 10 | Export | glTF-Transform, meshopt, KTX2 | One GLB per district cell with LODs and colliders, and a scene JSON (lights, routes, spawn points), cached by the game; race routes polished by hand | GLB and scene JSON done for Osu (`export_glb.py`, `export_scene.py`); the look-dev block's images in KTX2 (`export_glb.py --ktx2`, 19 Nov 2026); per-cell streaming to do |
 
 ## Merge rules (step 3)
 

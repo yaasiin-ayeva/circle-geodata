@@ -9,7 +9,20 @@ from look.json (the values the Unity proof of concept used): base colour, roughn
 metallic, emission with KHR_materials_emissive_strength above 1, texture tiling with KHR_texture_transform.
 Atlases written by build_lookdev.py (signs, billboards, interiors) are embedded when they sit next to the
 OBJ; tiled photo textures (ambientCG sets) are embedded from --textures when given, downscaled to
---max-texture. Compression (meshopt geometry, KTX2 textures) is a later pass: gltfpack.
+--max-texture. Geometry compression (meshopt) is a later pass: gltfpack.
+
+The look-dev block's pack for the game (circle-game scripts/build-city.sh) is written with KTX2 textures and the
+tiling baked into the texture coordinates:
+
+    python3 scripts/export_glb.py data/work/osu-poc/osu-lookdev.obj --textures ../circle-game/art/textures \
+        --bake-tiling --ktx2 "node ../circle-game/scripts/ktx2_encode.mjs" --out data/work/web/osu-lookdev.ktx2.glb
+
+--ktx2 encodes each image with Basis Universal (KHR_texture_basisu): UASTC for the atlases with lettering (--uastc,
+by default the signs' and the billboards'), ETC1S for the rest, as the director chose from stills on 19 Nov 2026.
+On the GPU that is 1 byte a pixel (UASTC) or half a byte (ETC1S, opaque) instead of 4 with mipmaps. --bake-tiling
+writes each material's tiling into its primitives' texture coordinates instead of KHR_texture_transform, so every
+material over one image samples one texture: three.js's GLTFLoader gives each material with its own transform a copy
+of the texture, and its WebGPU renderer uploads each copy (CorrugatedSteel005 four times).
 
 For a district the game streams (the Ring Road), --tile-m 500 writes the cells in squares of 500 m instead, one GLB
 per square in a folder named after --out, with tiles.json listing each tile's file, bounds and triangles;
@@ -28,14 +41,17 @@ import json
 import math
 import os
 import re
+import shlex
 import struct
 import subprocess
 import sys
+import tempfile
 
 import numpy as np
 from PIL import Image
 
 ATLASES = ("signs-atlas.png", "billboards-atlas.png", "interiors-atlas.png")
+TEXT_ATLASES = ("signs-atlas.png", "billboards-atlas.png")   # lettering (build_lookdev.py): UASTC under --ktx2
 
 
 def srgb_to_linear(c):
@@ -89,7 +105,12 @@ def weld(V, VT, VN, corners):
 
 
 class GlbWriter:
-    def __init__(self):
+    def __init__(self, ktx2=None, uastc=TEXT_ATLASES, bake_tiling=False):
+        self.ktx2 = ktx2                  # the encoder command (a list), or None for JPEG and PNG
+        self.uastc = set(uastc)
+        self.bake_tiling = bake_tiling
+        self.tiling = {}                  # material index -> the tiling baked into its texture coordinates
+        self.required = set()
         self.gltf = {"asset": {"version": "2.0", "generator": "circle-geodata export_glb.py"},
                      "scene": 0, "scenes": [{"nodes": []}], "nodes": [], "meshes": [], "materials": [],
                      "accessors": [], "bufferViews": [], "buffers": [], "textures": [], "images": [], "samplers": []}
@@ -133,15 +154,26 @@ class GlbWriter:
         if max(img.size) > max_size:
             s = max_size / max(img.size)
             img = img.resize((max(1, round(img.width * s)), max(1, round(img.height * s))), Image.LANCZOS)
-        out = io.BytesIO()
-        if has_alpha:
-            img.save(out, "PNG", optimize=True)
-            mime = "image/png"
+        name = os.path.basename(image_path)
+        if self.ktx2:
+            data, mime = encode_ktx2(self.ktx2, img, "uastc" if name in self.uastc else "etc1s", repeat), "image/ktx2"
         else:
-            img.save(out, "JPEG", quality=88)
-            mime = "image/jpeg"
-        self.gltf["images"].append({"bufferView": self.view(out.getvalue()), "mimeType": mime, "name": os.path.basename(image_path)})
-        self.gltf["textures"].append({"sampler": self.sampler(repeat), "source": len(self.gltf["images"]) - 1})
+            out = io.BytesIO()
+            if has_alpha:
+                img.save(out, "PNG", optimize=True)
+                mime = "image/png"
+            else:
+                img.save(out, "JPEG", quality=88)
+                mime = "image/jpeg"
+            data = out.getvalue()
+        self.gltf["images"].append({"bufferView": self.view(data), "mimeType": mime, "name": name})
+        if self.ktx2:
+            self.gltf["textures"].append({"sampler": self.sampler(repeat),
+                                          "extensions": {"KHR_texture_basisu": {"source": len(self.gltf["images"]) - 1}}})
+            self.extensions.add("KHR_texture_basisu")
+            self.required.add("KHR_texture_basisu")
+        else:
+            self.gltf["textures"].append({"sampler": self.sampler(repeat), "source": len(self.gltf["images"]) - 1})
         cache[key] = len(self.gltf["textures"]) - 1
         return cache[key]
 
@@ -152,6 +184,8 @@ class GlbWriter:
                 del g[k]
         if self.extensions:
             g["extensionsUsed"] = sorted(self.extensions)
+        if self.required:
+            g["extensionsRequired"] = sorted(self.required)
         while len(self.bin) % 4:
             self.bin += b"\0"
         g["buffers"] = [{"byteLength": len(self.bin)}]
@@ -161,6 +195,23 @@ class GlbWriter:
             f.write(struct.pack("<III", 0x46546C67, 2, 12 + 8 + len(js) + 8 + len(self.bin)))
             f.write(struct.pack("<II", len(js), 0x4E4F534A) + js)
             f.write(struct.pack("<II", len(self.bin), 0x004E4942) + bytes(self.bin))
+
+
+def encode_ktx2(command, img, mode, repeat):
+    """One image to KTX2 through the encoder command (circle-game scripts/ktx2_encode.mjs: Basis Universal, sRGB,
+    mipmaps to 4 px wrapped or clamped as the sampler is), from the pixels themselves rather than a JPEG of them."""
+    rgba = img.convert("RGBA")
+    with tempfile.TemporaryDirectory() as tmp:
+        src, dst = os.path.join(tmp, "image.rgba"), os.path.join(tmp, "image.ktx2")
+        with open(src, "wb") as f:
+            f.write(rgba.tobytes())
+        subprocess.run(command + ["--mode", mode, "--wrap", "repeat" if repeat else "clamp",
+                                  "--size", f"{rgba.width}x{rgba.height}", src, dst], check=True)
+        with open(dst, "rb") as f:
+            data = f.read()
+    if data[:12] != b"\xabKTX 20\xbb\r\n\x1a\n":
+        raise RuntimeError(f"{command[0]} did not write a KTX2 file")
+    return data
 
 
 def find_texture_set(roots, name):
@@ -193,7 +244,9 @@ def material(w, name, spec, obj_dir, tex_roots, max_tex, cache, missing):
             tex_index = w.texture(img, True, max_tex, cache)
             info = {"index": tex_index}
             tiling = float(spec.get("tiling", 1))
-            if tiling != 1:
+            if tiling != 1 and w.bake_tiling:
+                w.tiling[len(w.gltf["materials"])] = tiling      # this material's index, appended below
+            elif tiling != 1:
                 info["extensions"] = {"KHR_texture_transform": {"scale": [tiling, tiling]}}
                 w.extensions.add("KHR_texture_transform")
             pbr["baseColorTexture"] = info
@@ -221,10 +274,10 @@ def material(w, name, spec, obj_dir, tex_roots, max_tex, cache, missing):
     return len(w.gltf["materials"]) - 1
 
 
-def write_glb(V, VT, VN, groups, keys, look, obj_dir, tex_roots, max_tex, out_path, uv_on, missing, unknown):
+def write_glb(V, VT, VN, groups, keys, look, obj_dir, tex_roots, max_tex, out_path, uv_on, missing, unknown, writer=None):
     """One GLB of the (object, material) groups in keys: a node per object, a primitive per material. Returns the
     file's statistics and the bounds of its positions in glTF axes ([xmin, ymin, zmin], [xmax, ymax, zmax])."""
-    w = GlbWriter()
+    w = writer() if writer else GlbWriter()
     mat_index, cache = {}, {}
     nodes = {}
     tris = verts_in = verts_out = 0
@@ -245,7 +298,8 @@ def write_glb(V, VT, VN, groups, keys, look, obj_dir, tex_roots, max_tex, out_pa
         index = idx.astype(np.uint16) if len(p) < 65536 else idx
         attributes = {"POSITION": w.accessor(p, "VEC3", 34962, bounds=True), "NORMAL": w.accessor(n, "VEC3", 34962)}
         if uv_on is None or mtl.startswith(uv_on):
-            attributes["TEXCOORD_0"] = w.accessor(uv, "VEC2", 34962)
+            tiling = w.tiling.get(mat_index[mtl], 1.0)
+            attributes["TEXCOORD_0"] = w.accessor(uv * np.float32(tiling) if tiling != 1 else uv, "VEC2", 34962)
         prim = {"attributes": attributes, "indices": w.accessor(index, "SCALAR", 34963), "material": mat_index[mtl]}
         nodes.setdefault(obj, []).append(prim)
     for obj, prims in nodes.items():
@@ -284,13 +338,13 @@ def pack(gltfpack, src, dst):
                    stdout=subprocess.DEVNULL)
 
 
-def export(obj_path, look_path, tex_roots, out_path, max_tex, uv_on=None, tile_m=None, gltfpack=None):
+def export(obj_path, look_path, tex_roots, out_path, max_tex, uv_on=None, tile_m=None, gltfpack=None, writer=None):
     look = json.load(open(look_path))["materials"]
     V, VT, VN, groups, order = read_obj(obj_path)
     missing, unknown = set(), set()
     obj_dir = os.path.dirname(obj_path)
     if not tile_m:
-        s, _ = write_glb(V, VT, VN, groups, order, look, obj_dir, tex_roots, max_tex, out_path, uv_on, missing, unknown)
+        s, _ = write_glb(V, VT, VN, groups, order, look, obj_dir, tex_roots, max_tex, out_path, uv_on, missing, unknown, writer)
         print(f"{os.path.basename(out_path)}: {s['cells']} cells, {s['primitives']} primitives, {s['materials']} materials, "
               f"{s['triangles']} triangles, vertices {s['vertices_in']} -> {s['vertices']}, {s['images']} images, {s['bytes'] / 1048576:.2f} MB")
     else:
@@ -313,7 +367,7 @@ def export(obj_path, look_path, tex_roots, out_path, max_tex, uv_on=None, tile_m
         for (i, j), keys in sorted(tiles.items()):
             name = f"{stem}_{i}_{j}"
             path = os.path.join(folder, name + ".glb")
-            s, (lo, hi) = write_glb(V, VT, VN, groups, keys, look, obj_dir, tex_roots, max_tex, path, uv_on, missing, unknown)
+            s, (lo, hi) = write_glb(V, VT, VN, groups, keys, look, obj_dir, tex_roots, max_tex, path, uv_on, missing, unknown, writer)
             entry = {"file": f"{stem}/{name}.glb", "tile": [i, j],
                      "bounds": [round(float(lo[0]), 1), round(float(lo[2]), 1), round(float(hi[0]), 1), round(float(hi[2]), 1)],
                      "height_m": round(float(hi[1]), 1), "triangles": s["triangles"], "primitives": s["primitives"],
@@ -354,10 +408,23 @@ def main():
                          "tiles.json")
     ap.add_argument("--gltfpack", metavar="PATH", help="with --tile-m, pack each tile with this gltfpack (the "
                     "district's flags) into <tile>.pack.glb and list the packed sizes")
+    ap.add_argument("--ktx2", metavar="COMMAND",
+                    help="encode the images to KTX2 (KHR_texture_basisu) with this command, called as COMMAND --mode "
+                         "uastc|etc1s --wrap repeat|clamp --size WxH IN.rgba OUT.ktx2 (circle-game: "
+                         "\"node scripts/ktx2_encode.mjs\")")
+    ap.add_argument("--uastc", default=",".join(TEXT_ATLASES), metavar="NAMES",
+                    help="with --ktx2, the images encoded in UASTC (comma separated file names; the others in "
+                         "ETC1S); by default the atlases with lettering, " + ", ".join(TEXT_ATLASES))
+    ap.add_argument("--bake-tiling", action="store_true",
+                    help="write each material's texture tiling into its texture coordinates instead of "
+                         "KHR_texture_transform: one texture per image in the game, not a copy per material")
     args = ap.parse_args()
     if args.tile_m and args.tile_m % CELL_M:
         ap.error("--tile-m must be a multiple of 250")
-    export(args.obj, args.look, args.textures, args.out, args.max_texture, args.uv_only, args.tile_m, args.gltfpack)
+    ktx2 = shlex.split(args.ktx2) if args.ktx2 else None
+    uastc = [n for n in args.uastc.split(",") if n]
+    writer = lambda: GlbWriter(ktx2=ktx2, uastc=uastc, bake_tiling=args.bake_tiling)
+    export(args.obj, args.look, args.textures, args.out, args.max_texture, args.uv_only, args.tile_m, args.gltfpack, writer)
 
 
 if __name__ == "__main__":

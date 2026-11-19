@@ -105,6 +105,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--district", required=True)
     ap.add_argument("--lookdev")
+    ap.add_argument("--block-ktx2", metavar="GLB",
+                    help="with --lookdev, the block's GLB with KTX2 textures (export_glb.py --ktx2 --bake-tiling), "
+                         "named in files.blockKtx2: the game loads it in place of files.block")
     ap.add_argument("--out", required=True)
     ap.add_argument("--glb", help="the district GLB the scene goes with (default: named after --district, "
                                   "osu-poc.json -> osu-poc.glb)")
@@ -239,6 +242,8 @@ def main():
     if args.lookdev:
         lk = json.load(open(args.lookdev))
         scene["files"]["block"] = "osu-lookdev.glb"
+        if args.block_ktx2:
+            scene["files"]["blockKtx2"] = os.path.basename(args.block_ktx2)
         lights = []
         for l in lk["lights"]:
             e = {"kind": l["kind"], "position": g(l["x"], l["y"], l["z"])}
