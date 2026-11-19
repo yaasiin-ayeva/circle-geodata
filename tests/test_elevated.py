@@ -229,6 +229,11 @@ for k, (x, z) in enumerate([(20.0, 25.0), (30.0, 18.0), (40.0, 12.0), (50.0, 7.0
 wv5[9] = [(9, k) for k in range(5)]
 n5 = el.beside_cuts([cut5], wv5, pos5, {9: {"tags": {"highway": "service"}}}, [], set())
 check("a road that comes down onto the cut's road is not carried at the banks' top", n5 == 0, f"{n5} pieces")
+# A road beyond the cut's end, within the floor's reach round it but not abreast of it (Nsawam Road on past its own
+# cut's mouth at Circle, 25 m from the next cut's end): on the ground, as it was.
+pos6 = {(8, k): (110.0 + 5.0 * k, 14.0) for k in range(10)}
+n6 = el.beside_cuts([cut5], {8: [(8, k) for k in range(10)]}, pos6, {8: {"tags": {"highway": "primary"}}}, [], set())
+check("a road beyond a cut's end is not carried", n6 == 0, f"{n6} pieces")
 
 # relief.py's shelves: a cut 6.5 m deep in flat ground at 10 m, the floor and the pit beside it at 3 m to 16 m off the
 # line (the 8 m grid back at the banks' top at 24 m): a shelf from its wall's coping to the ground, both sides; one
