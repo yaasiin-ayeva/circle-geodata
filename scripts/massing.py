@@ -39,6 +39,13 @@ STOREY_M = 3.2
 #   YARD         a building that stands in a walled compound: few shops on its ground floor (residential
 #                streets have 10-20% shopfront, Oxford Street 80-90%).
 NO_OPENINGS, NO_PARAPET, YARD = 1, 2, 4
+# The typologies' flags (typology.py, 19 Nov 2026), read by circle-game's wall material and dressing under ?kit2:
+#   SHOPFRONT  a storey building's frontage: shops in almost every ground bay, balconies on a third of the bays above;
+#   CURTAIN    a glass curtain wall: the game draws mullions, spandrels and reflective glass instead of punched windows;
+#   BALCONIES  flats: balconies with glass rails on most bays, almost no shops;
+#   HALL       a church's or mosque's hall: no shops, tall windows over the double-height floor.
+# Older games read these walls by their low bits only, as before (a SHOPFRONT wall is a plain street wall to them).
+SHOPFRONT, CURTAIN, BALCONIES, HALL = 8, 16, 32, 64
 
 # Compound wall paints (street survey: white or cream, coral-red, ochre, dark grey on newer villas), as the
 # district's wall materials; circle-game repaints them in the surveyed palette.
@@ -282,20 +289,25 @@ def frame_storey(mesh, obj, poly, z, hgt=2.9):
 PITCHED_ROOFS = ("M_RoofSheet_Rust", "M_RoofTile_Red", "M_RoofSheet_Painted")
 
 
-def building(mesh, obj, wall_mat, bid, poly, n_storeys, parapet, near_oxford, yard, counts, district="osu", seen=None):
+def building(mesh, obj, wall_mat, bid, poly, n_storeys, parapet, near_oxford, yard, counts, district="osu", seen=None,
+             extra=0):
     """One building's massing: a house, a frame or a block. yard: it stands in a walled compound. district picks the
     roof palette (ROOF_PALETTES; Osu's mix when it has none). seen: the roof material the satellite saw (imagery.py),
     or None: it replaces the draw from the palette, and a clay tile, rusted or painted sheet roof is always pitched
-    (hipped where the footprint allows, else a low single-slope sheet over the whole footprint)."""
+    (hipped where the footprint allows, else a low single-slope sheet over the whole footprint). extra: typology flags
+    (SHOPFRONT, BALCONIES) on every wall; a storey building (SHOPFRONT) keeps a flat roof whatever its palette."""
     palette = ROOF_PALETTES.get(district)
     pitched_seen = seen in PITCHED_ROOFS and n_storeys <= 3 and not near_oxford
-    base = YARD if yard else 0
+    base = (YARD if yard else 0) | extra
+    flat_only = bool(extra & SHOPFRONT)
+    if flat_only:
+        pitched_seen = False
     area = poly.area
     eaves = n_storeys * STOREY_M
     axes = frame_axes(poly)
     rect_fit = poly.area / axes[5].area if axes else 0.0
     # Houses: hipped roofs where the footprint is near a rectangle and narrow enough to span.
-    if (n_storeys <= 2 and not near_oxford and 30 <= area <= 400 and axes and rect_fit >= 0.8
+    if (not flat_only and n_storeys <= 2 and not near_oxford and 30 <= area <= 400 and axes and rect_fit >= 0.8
             and 4.0 <= axes[4] <= 15.0 and axes[3] <= 40.0
             and (pitched_seen or h01(bid, "hip") < (palette["pitched"] if palette else 0.85))):
         r = h01(bid, "roof")
@@ -322,7 +334,7 @@ def building(mesh, obj, wall_mat, bid, poly, n_storeys, parapet, near_oxford, ya
             counts[f"roof {seen}"] += 1
             return "house"
     # Districts of sheet roofs (Jamestown): the other low buildings, whatever their footprint, take a shed roof.
-    if (palette and palette.get("shed") and n_storeys <= palette.get("shed_storeys", 2) and not near_oxford and area >= 12 and axes
+    if (not flat_only and palette and palette.get("shed") and n_storeys <= palette.get("shed_storeys", 2) and not near_oxford and area >= 12 and axes
             and h01(bid, "shed") < palette["shed"]):
         roof = pick(palette["mix"], h01(bid, "roof"))
         walls(mesh, obj, wall_mat, poly, 0.0, eaves, base | NO_PARAPET)
@@ -424,3 +436,247 @@ def compounds(mesh, cell_name, yards, keep_out, roads, road_width, counts, distr
                 post(mesh, obj, paint, c + t * side * (GATE_W / 2 + 0.22), 0.44, 0.0, WALL_H + 0.35)
             counts["gates"] += 1
     return pieces
+
+
+# ---------------------------------------------------------------------------------------------- typologies
+# The builders typology.py picks (19 Nov 2026). They use the district's materials only: the wall paints (M_Wall_*),
+# the roofs (M_Roof, M_RoofSheet_*, M_RoofTile_Red) and M_Concrete_Raw. Variety comes from the flags, the proportions
+# and the game's per-plane paint, never from a material of their own (each is a render pipeline in the game).
+SHEETS = [("M_Roof", 0.45), ("M_RoofSheet_Painted", 0.25), ("M_RoofSheet_Rust", 0.30)]
+
+
+def tri_out(mesh, obj, mat, a, b, c, out, uv=None):
+    """A triangle facing `out` (a direction), whatever the order its corners come in."""
+    n = np.cross(np.subtract(b, a), np.subtract(c, a))
+    if float(np.dot(n, out)) < 0:
+        b, c = c, b
+    mesh.tri(obj, mat, tuple(a), tuple(b), tuple(c), None if uv is None else tuple(uv[:3]))
+
+
+def quad_out(mesh, obj, mat, a, b, c, d, out, uv=None):
+    """A quad (a, b, c, d around it) facing `out`."""
+    n = np.cross(np.subtract(b, a), np.subtract(c, a))
+    if float(np.dot(n, out)) < 0:
+        a, b, c, d = a, d, c, b
+    mesh.quad(obj, mat, tuple(a), tuple(b), tuple(c), tuple(d), uv)
+
+
+def gable_roof(mesh, obj, roof_mat, end_mat, poly, z0, pitch_deg, overhang=0.4, max_rise=6.0, end_flag=NO_OPENINGS):
+    """A gable roof over the footprint's best-fit rectangle: two slopes meeting on a ridge along the long axis, the
+    gable ends (triangles in `end_mat` over the end walls) and the soffit. Returns the ridge's height."""
+    o, u, v, Lu, Lv, _ = frame_axes(poly)
+    ou, ov = Lu / 2 + overhang, Lv / 2 + overhang
+    rise = min(max_rise, math.tan(math.radians(pitch_deg)) * ov)
+    z1 = z0 + rise
+    P = lambda a, b, z: (*(o + u * a + v * b), z)
+    up = (0, 0, 1)
+    for s in (-1, 1):                                                       # the slopes
+        quad_out(mesh, obj, roof_mat, P(-ou, s * ov, z0), P(ou, s * ov, z0), P(ou, 0, z1), P(-ou, 0, z1),
+                 (*(v * s), 1.0))
+        quad_out(mesh, obj, end_mat, P(-ou, s * ov, z0 - 0.02), P(ou, s * ov, z0 - 0.02), P(ou, 0, z1 - 0.02),
+                 P(-ou, 0, z1 - 0.02), (*(-v * s), -1.0))                   # their underside
+    inner = rise * (Lv / 2) / ov                                            # the rise over the wall line
+    for s in (-1, 1):                                                       # the gable ends, on the end walls
+        tri_out(mesh, obj, end_mat, P(s * Lu / 2, -Lv / 2, z0), P(s * Lu / 2, Lv / 2, z0), P(s * Lu / 2, 0, z0 + inner),
+                (*(u * s), 0.0), uv=_uv(Lv, z0, z1, end_flag | NO_PARAPET))
+    return z1
+
+
+def cross(mesh, obj, mat, c, along, z, size=1.6):
+    """A cross standing at plan point c (its arms along `along`), its foot at height z."""
+    c, along = np.asarray(c, dtype=float), np.asarray(along, dtype=float)
+    slab(mesh, obj, mat, c - along * 0.06, c + along * 0.06, 0.12, z, z + size, NO_OPENINGS)
+    slab(mesh, obj, mat, c - along * size * 0.32, c + along * size * 0.32, 0.1, z + size * 0.6, z + size * 0.72, NO_OPENINGS)
+
+
+def prism(mesh, obj, mat, c, r0, r1, z0, z1, sides=8, flag=NO_OPENINGS, top=None, phase=0.0):
+    """A vertical prism (or frustum) of `sides` sides around plan point c, from radius r0 at z0 to r1 at z1; `top`, a
+    material for its top face, or None for an open top."""
+    pts = lambda r, z: [(c[0] + r * math.cos(phase + 2 * math.pi * k / sides), c[1] + r * math.sin(phase + 2 * math.pi * k / sides), z)
+                        for k in range(sides)]
+    a, b = pts(r0, z0), pts(r1, z1)
+    for k in range(sides):
+        k2 = (k + 1) % sides
+        out = (math.cos(phase + 2 * math.pi * (k + 0.5) / sides), math.sin(phase + 2 * math.pi * (k + 0.5) / sides), 0.0)
+        quad_out(mesh, obj, mat, a[k], a[k2], b[k2], b[k], out, uv=_uv(1, z0, z1, flag))
+    if top:
+        for k in range(1, sides - 1):
+            tri_out(mesh, obj, top, b[0], b[k], b[k + 1], (0, 0, 1))
+
+
+def dome(mesh, obj, mat, c, r, z, rings=4, sides=12):
+    """A hemispherical dome of radius r on plan point c, its foot at height z, with a finial."""
+    prev = [(c[0] + r * math.cos(2 * math.pi * k / sides), c[1] + r * math.sin(2 * math.pi * k / sides), z) for k in range(sides)]
+    for i in range(1, rings + 1):
+        a = (math.pi / 2) * i / rings
+        if i == rings:
+            apex = (c[0], c[1], z + r)
+            for k in range(sides):
+                tri_out(mesh, obj, mat, prev[k], prev[(k + 1) % sides], apex, np.subtract(apex, (c[0], c[1], z)) + np.subtract(prev[k], (c[0], c[1], z)))
+            break
+        rr, zz = r * math.cos(a), z + r * math.sin(a)
+        cur = [(c[0] + rr * math.cos(2 * math.pi * k / sides), c[1] + rr * math.sin(2 * math.pi * k / sides), zz) for k in range(sides)]
+        for k in range(sides):
+            k2 = (k + 1) % sides
+            mid = np.mean([prev[k], prev[k2], cur[k2], cur[k]], axis=0) - (c[0], c[1], z)
+            quad_out(mesh, obj, mat, prev[k], prev[k2], cur[k2], cur[k], mid)
+        prev = cur
+    prism(mesh, obj, "M_Concrete_Raw", c, 0.08, 0.02, z + r, z + r + 1.2, sides=4)
+
+
+
+def church(mesh, obj, wall_mat, bid, poly, counts, flags=0):
+    """A church. Small ones (under 400 m2) the modern A-frame of Accra's newer churches: low side walls and a steep
+    sheet roof down to them, its tall gable over the entrance with a cross. Larger ones the classic hall: walls of
+    about 7.5 m under a gable of sheet or tile, and on three in four a square bell tower at one end, with a spire and a
+    cross. The hall's walls carry the HALL flag: tall windows, no shops."""
+    axes = frame_axes(poly)
+    if axes is None:
+        return None
+    o, u, v, Lu, Lv, rect = axes
+    fit = poly.area / rect.area
+    roof = pick(SHEETS + [("M_RoofTile_Red", 0.25)], h01(bid, "church roof"))
+    hall = flags | HALL
+    if poly.area < 400 and fit >= 0.75 and Lv <= 22:
+        eaves = 2.6
+        walls(mesh, obj, wall_mat, poly, 0.0, eaves, hall | NO_PARAPET)
+        z1 = gable_roof(mesh, obj, roof if roof != "M_RoofTile_Red" else "M_RoofSheet_Painted", wall_mat, poly, eaves, 56,
+                        overhang=0.6, max_rise=10.0, end_flag=HALL)
+        front = h01(bid, "church front") < 0.5 and -1 or 1
+        cross(mesh, obj, "M_Concrete_Raw", o + u * front * (Lu / 2 + 0.6), v, z1 - 0.2)
+        counts["churches_aframe"] += 1
+        return "church"
+    eaves = 7.5 if poly.area < 1500 else 9.0
+    walls(mesh, obj, wall_mat, poly, 0.0, eaves, hall | NO_PARAPET)
+    if fit >= 0.7 and Lv <= 30:
+        z1 = gable_roof(mesh, obj, roof, wall_mat, poly, eaves, 30 if roof == "M_RoofTile_Red" else 22, overhang=0.5,
+                        max_rise=7.0, end_flag=HALL)
+    else:
+        cap(mesh, obj, "M_Roof", poly, eaves)
+        z1 = eaves
+    if h01(bid, "bell tower") < 0.75 and Lv >= 8:
+        side = min(4.5, max(3.2, Lv * 0.3))
+        end = -1 if h01(bid, "church front") < 0.5 else 1
+        c = o + u * end * (Lu / 2 - side / 2)
+        foot = shapely.geometry.polygon.orient(Polygon([c - u * side / 2 - v * side / 2, c + u * side / 2 - v * side / 2,
+                                                         c + u * side / 2 + v * side / 2, c - u * side / 2 + v * side / 2]), 1.0)
+        top = z1 + 4.0 + 4.0 * h01(bid, "tower h")
+        walls(mesh, obj, wall_mat, foot, 0.0, top, hall | NO_PARAPET)
+        spire = 3.5 + 3.0 * h01(bid, "spire")
+        prism(mesh, obj, "M_RoofSheet_Painted" if roof != "M_RoofTile_Red" else roof, c, side * 0.75, 0.05, top, top + spire,
+              sides=4, phase=math.atan2(u[1], u[0]) + math.pi / 4)
+        cross(mesh, obj, "M_Concrete_Raw", c, v, top + spire - 0.1, 1.4)
+        counts["bell_towers"] += 1
+    else:
+        front = -1 if h01(bid, "church front") < 0.5 else 1
+        cross(mesh, obj, "M_Concrete_Raw", o + u * front * (Lu / 2 + 0.5), v, z1 - 0.3)
+    counts["churches"] += 1
+    return "church"
+
+
+def mosque(mesh, obj, wall_mat, bid, poly, n_storeys, parapet, counts, flags=0):
+    """A mosque: the prayer hall's walls (HALL: tall windows, no shops) under a flat roof and parapet, a dome on a
+    drum over its middle, and a minaret at one corner of the footprint: an octagonal shaft with a balcony and a pointed
+    cap, its height drawn between 16 and 26 m and at least 7 m over the roof."""
+    axes = frame_axes(poly)
+    if axes is None:
+        return None
+    o, u, v, Lu, Lv, _ = axes
+    n = max(1, min(2, n_storeys))
+    top = n * STOREY_M + 1.2 + parapet
+    walls(mesh, obj, wall_mat, poly, 0.0, top, flags | HALL)
+    cap(mesh, obj, "M_Roof", poly, top)
+    inner = poly.buffer(-1.0)
+    # The dome over the hall's middle (its widest circle inside the footprint when the middle is outside it), as wide
+    # as fits up to a third of the short side and 7 m.
+    c = o if poly.contains(Point(*o)) else np.array(poly.representative_point().coords[0])
+    r = min(Lv * 0.32, 7.0)
+    while r >= 1.8 and not inner.contains(Point(*c).buffer(r)):
+        r *= 0.8
+    if r >= 1.8:
+        prism(mesh, obj, "M_Concrete_Raw", c, r, r, top, top + 0.9, sides=12)
+        dome(mesh, obj, "M_RoofSheet_Painted", c, r, top + 0.9)
+        counts["domes"] += 1
+    # The minaret at a corner of the best-fit rectangle that lies on the footprint, the drawn one first.
+    k = int(h01(bid, "minaret") * 4)
+    corners = [(1, 1), (-1, 1), (-1, -1), (1, -1)]
+    held = poly.buffer(-0.2)
+    m = next((p for su, sv in corners[k:] + corners[:k]
+              for p in [o + u * su * (Lu / 2 - 1.3) + v * sv * (Lv / 2 - 1.3)] if held.contains(Point(*p))), None)
+    if m is not None and (r < 1.8 or float(np.hypot(*(m - c))) > r + 1.2):
+        h = max(top + 7.0, 16.0 + 10.0 * h01(bid, "minaret h"))
+        prism(mesh, obj, "M_Concrete_Raw", m, 1.1, 0.95, top, h * 0.78)
+        prism(mesh, obj, "M_Concrete_Raw", m, 1.6, 1.6, h * 0.78, h * 0.78 + 0.35, top="M_Concrete_Raw")
+        prism(mesh, obj, "M_Concrete_Raw", m, 0.8, 0.75, h * 0.78 + 0.35, h)
+        prism(mesh, obj, "M_RoofSheet_Painted", m, 0.95, 0.03, h, h + 2.6)
+        counts["minarets"] += 1
+    counts["mosques"] += 1
+    return "mosque"
+
+
+def warehouse(mesh, obj, wall_mat, bid, poly, cls, counts, flags=0):
+    """A warehouse or a big box. Sheds (warehouse, industrial...) on a footprint close to a rectangle: a block plinth
+    of 2.4 m, corrugated sheet cladding above it to eaves of 5.5 to 8 m, a low gable of sheet and one or two roller
+    doors on a long side. Retail boxes and footprints of any shape: blank painted walls of 7 to 8 m and a flat roof
+    behind a parapet. No windows, no shops (NO_OPENINGS)."""
+    axes = frame_axes(poly)
+    if axes is None:
+        return None
+    o, u, v, Lu, Lv, rect = axes
+    fit = poly.area / rect.area
+    eaves = 5.5 + min(2.5, poly.area / 1500.0)
+    retail = (cls or "") in ("retail", "supermarket", "commercial")
+    if not retail and fit >= 0.75 and Lv <= 60:
+        sheet = pick(SHEETS, h01(bid, "shed sheet"))
+        walls(mesh, obj, wall_mat, poly, 0.0, 2.4, flags | NO_OPENINGS | NO_PARAPET)
+        walls(mesh, obj, sheet, poly, 2.4, eaves, 0)
+        gable_roof(mesh, obj, pick(SHEETS, h01(bid, "shed roof")), sheet, poly, eaves, 8, overhang=0.3, max_rise=3.0)
+        for s, k in ((-1, 0), (-1, 1)):                                      # roller doors on the long side
+            if k and Lu < 30:
+                break
+            a = (-0.25 + 0.5 * k) * Lu if Lu >= 30 else 0.0
+            c = o + u * a + v * s * (Lv / 2 + 0.05)
+            slab(mesh, obj, "M_RoofSheet_Painted", c - u * 2.2, c + u * 2.2, 0.08, 0.0, 4.6, NO_OPENINGS)
+            counts["roller_doors"] += 1
+        counts["sheds"] += 1
+        return "warehouse"
+    top = eaves + 1.2
+    walls(mesh, obj, wall_mat, poly, 0.0, top, flags | NO_OPENINGS)
+    cap(mesh, obj, "M_Roof", poly, top)
+    counts["big_boxes"] += 1
+    return "warehouse"
+
+
+def tower(mesh, obj, wall_mat, bid, poly, n_storeys, counts, flags=0):
+    """A glass office tower: its walls a curtain wall (CURTAIN: the game draws mullions, spandrels and glass) to the
+    top floor, an opaque crown of 1.5 m above it, a plant room on the roof. On a large footprint (900 m2 or more,
+    three in five) the tower stands on a two-storey glass podium of the whole footprint, 3 m in from its edges."""
+    n = max(5, n_storeys)
+    base = flags | CURTAIN | NO_PARAPET
+    shaft, z0 = poly, 0.0
+    if poly.area >= 900 and h01(bid, "podium") < 0.6:
+        upper = poly.buffer(-3.0, join_style="mitre")
+        if isinstance(upper, Polygon) and not upper.is_empty and upper.area >= 0.4 * poly.area:
+            z0 = 2 * STOREY_M + 0.6
+            walls(mesh, obj, wall_mat, poly, 0.0, z0, base)
+            cap(mesh, obj, "M_Roof", poly, z0)
+            shaft = shapely.geometry.polygon.orient(upper.simplify(0.1), 1.0)
+            counts["podiums"] += 1
+    top = n * STOREY_M + 0.6
+    walls(mesh, obj, wall_mat, shaft, z0, top, base)
+    walls(mesh, obj, wall_mat, shaft, top, top + 1.5, NO_OPENINGS | NO_PARAPET)
+    cap(mesh, obj, "M_Roof", shaft, top + 1.5)
+    bulkhead(mesh, obj, wall_mat, "M_Roof", shaft, top + 1.5, h01(bid, "corner"), NO_OPENINGS | NO_PARAPET)
+    counts["towers"] += 1
+    return "tower"
+
+
+def kiosk(mesh, obj, wall_mat, bid, poly, counts):
+    """A kiosk or a container shop on a verge: walls of 2.45 m (under the game's dressing, which leaves walls under
+    2.5 m alone; its wall material still draws the shop opening) and a thin sheet roof falling to one side with
+    a 0.5 m overhang over the counter."""
+    walls(mesh, obj, wall_mat, poly, 0.0, 2.45, NO_PARAPET)
+    if shed_roof(mesh, obj, pick(SHEETS, h01(bid, "kiosk roof")), wall_mat, poly, 2.45, 4, NO_PARAPET, overhang=0.5) is None:
+        cap(mesh, obj, "M_Roof", poly, 2.45)
+    counts["kiosks"] += 1
+    return "kiosk"
