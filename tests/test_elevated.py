@@ -283,6 +283,19 @@ close = {**low, "pts": [[-40.0, 4.5], [40.0, 4.5]]}
 rl.cut_shelves([c7, close], pit, g3)
 m7 = c7["shelf"][len(xs3) // 2]
 check("a shelf stops at a cut drawn within its own road's reach", m7[1] < 0.5 and m7[0] > want - 1.5, f"{m7}")
+# Two cuts forking from one point the same way (the connector leaving Nsawam Road's cut at Circle): each one's shelf
+# stops at the other, not over its lanes; and a cut carried on by a piece drawn the other way (its end on this one's
+# end): the shelf runs on across the joint.
+c8 = {**c3, "pts": [[float(x), 0.0] for x in xs3]}
+fork = {**low, "pts": [[-40.0, 0.0], [0.0, 3.0], [40.0, 6.0]], "y": [3.5] * 3, "off": [-6.5] * 3, "kind": "CCC"}
+rl.cut_shelves([c8, fork], pit, g3)
+m8 = c8["shelf"][len(xs3) // 2]
+check("a shelf stops at a cut forking from its own start", m8[1] < 2.0, f"{m8}")
+ra = {**c3, "pts": [[float(x), 0.0] for x in xs3 if x <= 0], "y": [3.5] * 9, "off": [-6.5] * 9, "kind": "C" * 9}
+rb = {**c3, "pts": [[float(x), 0.0] for x in xs3[::-1] if x >= 0], "y": [3.5] * 9, "off": [-6.5] * 9, "kind": "C" * 9}
+rl.cut_shelves([ra, rb], pit, g3)
+check("and runs on across a joint with a piece drawn the other way", all(want - 1.5 < w < want + 1.0 for w in ra["shelf"][-1][:2] + rb["shelf"][-1][:2]),
+      f"{ra['shelf'][-1]}, {rb['shelf'][-1]}")
 
 print(f"{failures} failure(s)")
 sys.exit(1 if failures else 0)

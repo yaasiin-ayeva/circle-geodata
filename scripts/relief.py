@@ -416,12 +416,14 @@ def cut_shelves(pieces, h, grid, roads=()):
         P = np.array(p["pts"], dtype=np.float64)
         y, off = np.array(p["y"]), np.array(p["off"])
         shelf = []
-        # A piece that carries this one on from an end (the next piece of the same carriageway, or a slip road leaving
-        # there) lies across the walk from that end point, which stopped the shelf at its first step: a wedge 20 m
-        # wide was missing at each joint between two pieces of a cut. Such a piece counts only off this cut's own road
-        # and wall; any other, wherever it runs (a cut drawn within a few metres of this one, at Circle).
+        # A piece that carries this one on from an end (the next piece of the same carriageway, going on the other way
+        # from their shared point) lies across the walk from that end point, which stopped the shelf at its first
+        # step: a wedge 20 m wide was missing at each joint between two pieces of a cut. Such a piece counts only off
+        # this cut's own road and wall; any other, wherever it runs: a cut drawn within a few metres of this one, or
+        # one that forks from the same point the same way (the connector from Nsawam Road's cut at Circle, whose
+        # shelf ran 28 m over Nsawam Road's lanes, 1.3 m over them).
         own = lines[n].buffer(p["w"] / 2 + SHELF_FROM_M)
-        ends = [P[0], P[-1]]
+        inward = [(P[0], P[1] - P[0]), (P[-1], P[-2] - P[-1])]
         clipped = {}
         for k in range(len(P)):
             if -off[k] < SHELF_DEPTH_M:
@@ -451,8 +453,9 @@ def cut_shelves(pieces, h, grid, roads=()):
                         continue
                     o = pieces[m]
                     if m not in clipped:
-                        Q = pieces[m]["pts"]
-                        carries = any(math.hypot(e[0] - q[0], e[1] - q[1]) < 0.5 for e in ends for q in (Q[0], Q[-1]))
+                        Q = np.array(pieces[m]["pts"], dtype=np.float64)
+                        carries = any(np.hypot(*(e - q)) < 0.5 and float(np.dot(u, w)) < 0
+                                      for e, u in inward for q, w in ((Q[0], Q[1] - Q[0]), (Q[-1], Q[-2] - Q[-1])))
                         clipped[m] = lines[m].difference(own) if carries else lines[m]
                     if clipped[m].is_empty:
                         continue
