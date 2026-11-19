@@ -264,6 +264,13 @@ rl.cut_shelves([c4, low], pit, g3)
 m4 = c4["shelf"][len(xs3) // 2]
 # Game's left is (tz, -tx): along +x, the left is -z; the lower road is at +z, on the right.
 check("a shelf stops short of a lower road beside it", m4[1] < 13.0 - 3.8 - 3.8 - rl.SHELF_FROM_M + 0.01 and m4[0] > want - 1.5, f"{m4}")
+# Near a mouth the other carriageway's cut is under a metre below the shelf (Ako Adjei's eastern mouth): the shelf
+# stops short of it as well, not over its lanes.
+c6 = {**c3, "pts": [[float(x), 0.0] for x in xs3]}
+shallow = {**low, "y": [9.3, 9.3], "off": [-0.7, -0.7]}
+rl.cut_shelves([c6, shallow], pit, g3)
+m6 = c6["shelf"][len(xs3) // 2]
+check("a shelf stops short of a cut beside it under a metre deep", m6[1] < 13.0 - 3.8 - 3.8 - rl.SHELF_FROM_M + 0.01, f"{m6}")
 
 print(f"{failures} failure(s)")
 sys.exit(1 if failures else 0)
