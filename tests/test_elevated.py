@@ -218,6 +218,17 @@ xs_ = [q[0] for q in side[0]["pts"]] if side else [0]
 check("from a point before the cut is deep to past where it comes up", min(xs_) <= 0.0 and 90.0 <= max(xs_) <= 100.0,
       f"x {min(xs_):.0f} to {max(xs_):.0f}")
 check("not beside a cut with grassed banks", beside("tetteh-quarshie")[0] == 0)
+# A road that comes down beside the cut onto its road (a service road onto Nsawam Road at Circle) lies in the pit by
+# right: not carried at the banks' top, where the shelf roofed it.
+xs5 = np.arange(0.0, 101.0, 5.0)
+cut5 = piece("c", [(x, 0.0) for x in xs5], [-6.0] * len(xs5))
+cut5.update(site="s", style="circle")
+pos5, wv5 = {}, {}
+for k, (x, z) in enumerate([(20.0, 25.0), (30.0, 18.0), (40.0, 12.0), (50.0, 7.0), (55.0, 2.0)]):
+    pos5[(9, k)] = (x, z)
+wv5[9] = [(9, k) for k in range(5)]
+n5 = el.beside_cuts([cut5], wv5, pos5, {9: {"tags": {"highway": "service"}}}, [], set())
+check("a road that comes down onto the cut's road is not carried at the banks' top", n5 == 0, f"{n5} pieces")
 
 # relief.py's shelves: a cut 6.5 m deep in flat ground at 10 m, the floor and the pit beside it at 3 m to 16 m off the
 # line (the 8 m grid back at the banks' top at 24 m): a shelf from its wall's coping to the ground, both sides; one
@@ -240,6 +251,13 @@ rl.cut_shelves([c5], low_pit, g3)
 m5 = c5["shelf"][len(xs3) // 2]
 check("where the ground beyond lies under the banks' top, the shelf is at the ground's level", all(abs(t - 9.0) < 0.05 for t in m5[2:]) and
       all(w < want + 1.0 for w in m5[:2]), f"{m5}")
+# A cut drawn as two pieces end to end (a junction along it): the shelf at their joint as wide as either side of it.
+ca = {**c3, "pts": [[float(x), 0.0] for x in xs3 if x <= 0], "y": [3.5] * 9, "off": [-6.5] * 9, "kind": "C" * 9}
+cb = {**c3, "pts": [[float(x), 0.0] for x in xs3 if x >= 0], "y": [3.5] * 9, "off": [-6.5] * 9, "kind": "C" * 9}
+rl.cut_shelves([ca, cb], pit, g3)
+ja, jb = ca["shelf"][-1], cb["shelf"][0]
+check("a cut's shelf runs on across the joint of two of its pieces", all(want - 1.5 < w < want + 1.0 for w in ja[:2] + jb[:2]),
+      f"{ja}, {jb}")
 c4 = {**c3, "pts": [[float(x), 0.0] for x in xs3]}
 low = {"pts": [[-40.0, 13.0], [40.0, 13.0]], "w": 7.6, "y": [3.5, 3.5], "off": [-6.5, -6.5], "kind": "CC", "style": "ako-adjei"}
 rl.cut_shelves([c4, low], pit, g3)

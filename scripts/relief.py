@@ -415,6 +415,11 @@ def cut_shelves(pieces, h, grid, roads=()):
         P = np.array(p["pts"], dtype=np.float64)
         y, off = np.array(p["y"]), np.array(p["off"])
         shelf = []
+        # The other pieces' roads off this cut's own road and wall: the piece that carries the cut on from its end
+        # (the next piece of the same carriageway) lies across the walk from its end point, which stopped the shelf at
+        # its first step there, a wedge 20 m wide missing at each joint between two pieces of a cut.
+        own = lines[n].buffer(p["w"] / 2 + SHELF_FROM_M)
+        clipped = {}
         for k in range(len(P)):
             if -off[k] < SHELF_DEPTH_M:
                 shelf.append([0.0, 0.0, round(float(y[k] - off[k]), 2), round(float(y[k] - off[k]), 2)])
@@ -442,7 +447,11 @@ def cut_shelves(pieces, h, grid, roads=()):
                     if m == n or pieces[m].get("level"):
                         continue
                     o = pieces[m]
-                    on = np.nonzero(shapely.distance(lines[m], pts) <= o["w"] / 2 + SHELF_FROM_M)[0]
+                    if m not in clipped:
+                        clipped[m] = lines[m].difference(own)
+                    if clipped[m].is_empty:
+                        continue
+                    on = np.nonzero(shapely.distance(clipped[m], pts) <= o["w"] / 2 + SHELF_FROM_M)[0]
                     if not len(on):
                         continue
                     d = shapely.line_locate_point(lines[m], pts[on])

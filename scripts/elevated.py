@@ -523,6 +523,17 @@ def beside_cuts(pieces, wverts, pos, wby, sites, covered):
                 return p
         return None
 
+    def in_cut(v):
+        """Whether a point lies on a walled cut's road, down in it (not a point of a piece: a bridge over the cut)."""
+        if v in covered:
+            return False
+        pt = shapely.Point(pos[v])
+        for n in tree.query(pt.buffer(reach_max)):
+            line, p = lines[n], walled[n]
+            if -float(np.interp(line.project(pt), cums[n], p["off"])) >= SHELF_DEPTH_M and line.distance(pt) <= p["w"] / 2 + 1.0:
+                return True
+        return False
+
     added = 0
     for wid, vs in wverts.items():
         t = wby[wid]["tags"]
@@ -540,6 +551,11 @@ def beside_cuts(pieces, wverts, pos, wby, sites, covered):
                 j += 1
             a, b = max(0, i - 1), min(len(vs) - 1, j + 1)
             run = vs[a:b + 1]
+            # Not a road that comes down beside the cut into it, its end on the cut's road (a service road onto Nsawam
+            # Road at Circle): it lies in the pit by right, and a shelf over it roofed it, 3.8 m over its asphalt.
+            if (a < i and in_cut(vs[a])) or (b > j and in_cut(vs[b])):
+                i = j + 1
+                continue
             if len(run) >= 2:
                 cut = next(c for c in near[i:j + 1] if c is not None)
                 # On the ground (G) only where it is off the cut's reach and off another piece: an end on a bridge or a
