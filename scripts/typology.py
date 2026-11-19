@@ -110,7 +110,8 @@ def classify(bid, area, storeys, tagged, height, cls, name, places, front, distr
     if (2 <= storeys <= 4 and 60 <= area <= 900 and cls in OPEN_CLASSES
             and (front in MAIN_ROADS or (front is not None and district in DENSE)) and h01(bid, "storey") < 0.85):
         return "storey"
-    if area < 20 and storeys == 1 and cls not in NOT_KIOSK and front is not None:
+    if (cls in ("kiosk", "container") and area < 40 and storeys <= 1) or (area < 20 and storeys == 1 and cls not in NOT_KIOSK
+                                                                           and front is not None):
         return "kiosk"
     return "generic"
 

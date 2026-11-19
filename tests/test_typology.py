@@ -111,6 +111,7 @@ check("no storey building on a residential street in East Legon", c(bid=sb, stor
 check("no storey building off the road", c(bid=sb, storeys=3, front=None) == "generic")
 check("kiosk: 12 m2 of one storey on the street", c(area=12, storeys=1, front="residential") == "kiosk")
 check("no kiosk: 12 m2 in a yard, off the street", c(area=12, storeys=1) != "kiosk")
+check("kiosk: mapped building=kiosk, wherever it stands", c(area=30, storeys=1, cls="kiosk") == "kiosk")
 check("no kiosk: a canopy (building=roof)", c(area=12, storeys=1, cls="roof", front="residential") != "kiosk")
 check("deterministic", all(c(bid=f"x{i}", storeys=3, front="primary") == c(bid=f"x{i}", storeys=3, front="primary") for i in range(50)))
 
