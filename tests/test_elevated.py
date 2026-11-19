@@ -276,6 +276,13 @@ shallow = {**low, "y": [9.3, 9.3], "off": [-0.7, -0.7]}
 rl.cut_shelves([c6, shallow], pit, g3)
 m6 = c6["shelf"][len(xs3) // 2]
 check("a shelf stops short of a cut beside it under a metre deep", m6[1] < 13.0 - 3.8 - 3.8 - rl.SHELF_FROM_M + 0.01, f"{m6}")
+# A cut drawn within a few metres of this one, not carrying it on from an end (Nsawam Road beside the connector's cut
+# at Circle): the shelf stops at it, never over its lanes.
+c7 = {**c3, "pts": [[float(x), 0.0] for x in xs3]}
+close = {**low, "pts": [[-40.0, 4.5], [40.0, 4.5]]}
+rl.cut_shelves([c7, close], pit, g3)
+m7 = c7["shelf"][len(xs3) // 2]
+check("a shelf stops at a cut drawn within its own road's reach", m7[1] < 0.5 and m7[0] > want - 1.5, f"{m7}")
 
 print(f"{failures} failure(s)")
 sys.exit(1 if failures else 0)

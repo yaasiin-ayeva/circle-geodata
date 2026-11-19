@@ -416,10 +416,12 @@ def cut_shelves(pieces, h, grid, roads=()):
         P = np.array(p["pts"], dtype=np.float64)
         y, off = np.array(p["y"]), np.array(p["off"])
         shelf = []
-        # The other pieces' roads off this cut's own road and wall: the piece that carries the cut on from its end
-        # (the next piece of the same carriageway) lies across the walk from its end point, which stopped the shelf at
-        # its first step there, a wedge 20 m wide missing at each joint between two pieces of a cut.
+        # A piece that carries this one on from an end (the next piece of the same carriageway, or a slip road leaving
+        # there) lies across the walk from that end point, which stopped the shelf at its first step: a wedge 20 m
+        # wide was missing at each joint between two pieces of a cut. Such a piece counts only off this cut's own road
+        # and wall; any other, wherever it runs (a cut drawn within a few metres of this one, at Circle).
         own = lines[n].buffer(p["w"] / 2 + SHELF_FROM_M)
+        ends = [P[0], P[-1]]
         clipped = {}
         for k in range(len(P)):
             if -off[k] < SHELF_DEPTH_M:
@@ -449,7 +451,9 @@ def cut_shelves(pieces, h, grid, roads=()):
                         continue
                     o = pieces[m]
                     if m not in clipped:
-                        clipped[m] = lines[m].difference(own)
+                        Q = pieces[m]["pts"]
+                        carries = any(math.hypot(e[0] - q[0], e[1] - q[1]) < 0.5 for e in ends for q in (Q[0], Q[-1]))
+                        clipped[m] = lines[m].difference(own) if carries else lines[m]
                     if clipped[m].is_empty:
                         continue
                     on = np.nonzero(shapely.distance(clipped[m], pts) <= o["w"] / 2 + SHELF_FROM_M)[0]
