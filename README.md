@@ -111,17 +111,26 @@ For the game (three.js, decision of 13 November 2026), the same files become com
 ```sh
 python3 scripts/export_glb.py data/work/osu-poc/osu-poc.obj --uv-only M_Wall_ --out data/work/web/osu-poc.glb
 python3 scripts/export_glb.py data/work/osu-poc/osu-lookdev.obj --textures ../circle-game/art/textures --out data/work/web/osu-lookdev.glb
-python3 scripts/export_scene.py --district data/work/osu-poc/osu-poc.json --lookdev data/work/osu-poc/osu-lookdev.json --out data/work/web/osu-scene.json
+# The block the game loads: its images in KTX2 and its tiling in the texture coordinates (below); needs circle-game's npm ci
+python3 scripts/export_glb.py data/work/osu-poc/osu-lookdev.obj --textures ../circle-game/art/textures --bake-tiling \
+    --ktx2 "node ../circle-game/scripts/ktx2_encode.mjs" --out data/work/web/osu-lookdev.ktx2.glb
+python3 scripts/export_scene.py --district data/work/osu-poc/osu-poc.json --lookdev data/work/osu-poc/osu-lookdev.json \
+    --block-ktx2 data/work/web/osu-lookdev.ktx2.glb --out data/work/web/osu-scene.json
 # Scenes exported before 13 Nov 2026: apply the street survey's lighting rules without rebuilding
 python3 scripts/relight_scene.py data/work/web/osu-scene.json
 python3 tests/test_street_lights.py
 python3 tests/test_massing.py
 gltfpack -i data/work/web/osu-poc.glb -o data/work/web/osu-poc.pack.glb -cc -kn -km -kv -vpf -vtf
 gltfpack -i data/work/web/osu-lookdev.glb -o data/work/web/osu-lookdev.pack.glb -cc -kn -km -kv -vpf -vtf   # -kv: the foliage cards need their UVs
+gltfpack -i data/work/web/osu-lookdev.ktx2.glb -o data/work/web/osu-lookdev.ktx2.pack.glb -cc -kn -km -kv -vpf -vtf   # keeps the KTX2 images
 cd ../circle-game && npm run data    # copies the packed GLB, the scene JSON and look.json into the game
 ```
 
 On 13 November the district came to 0.53 MB (1.94 MB with the building modules of 14 November) and the look-dev block to 1.79 MB after meshopt compression (0.4 MB of geometry, 1.4 MB of atlases still in JPEG and PNG); KTX2 textures come next, through ktx2-encoder and glTF-Transform (decision of 13 November 2026), since the npm gltfpack has no BasisU. Both files pass the Khronos glTF validator with no errors or warnings. Generated textures from the Unity proof of concept (pavers, lattice, foliage cards, puddles, skies, now in `circle-game/art/textures/Generated`) are not ported yet; `look.json` marks them.
+
+**The look-dev block in KTX2** (19 Nov 2026, circle-game `docs/render-plan.md`, D1). `--ktx2 COMMAND` encodes each image with Basis Universal into the GLB (`KHR_texture_basisu`, required): UASTC for the atlases with lettering (`--uastc`, by default `signs-atlas.png` and `billboards-atlas.png`), ETC1S for the rest, sRGB with mipmaps to 4 px, wrapped or clamped as the sampler is; the director chose that mix from stills (UASTC cannot be told from the JPEGs even at 4x, ETC1S roughens the letters' edges at 4x). The command is circle-game's `scripts/ktx2_encode.mjs` (ktx2-encoder, the encoder of the game's other KTX2 sets; it gets the pixels, not a JPEG of them), called as `COMMAND --mode uastc|etc1s --wrap repeat|clamp --size WxH IN.rgba OUT.ktx2`. `--bake-tiling` writes each material's tiling into its primitives' texture coordinates instead of `KHR_texture_transform`, so that every material over one image shares one texture (three.js's GLTFLoader gives each material with its own transform a copy of the texture, which its WebGPU renderer uploads on its own: CorrugatedSteel005 four times). gltfpack passes the KTX2 images through. Measured on 19 Nov 2026: the nine images take 14.0 MB of video memory instead of 106.7 MB, and the pack is 4.25 MB instead of 3.00 MB (the signs' atlas in UASTC is 2.1 MB of it). The mipmaps are 2x2 boxes in linear light, as the game's renderer makes them. `export_scene.py --block-ktx2` names the file in the scene (`files.blockKtx2`); the game loads it, or the JPEG block with `?lookdevktx=0`.
+
+**The shop signs on the fascias.** A commercial ground floor carries a dark band, the fascia (`build_lookdev.py` `FASCIA_Z`, 0.22 m deep), and its shops' sign boards stood 0.18 m out from the wall, inside that box: none of them ever showed, and the street read as a dark band. Since 19 Nov 2026 a board on a fascia is mounted on the band's face, 3 cm proud, and fills it (2.8 to 3.6 m, about the atlas cell's 4:1); the boards and their edges are their own objects, `LookDev_Signs_<cell>`, which the game hides with `?lookdevsigns=0`. Signs on buildings without a fascia are where they were.
 
 ### Jamestown, the first district beyond Osu
 
