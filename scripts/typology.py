@@ -37,6 +37,9 @@ WORSHIP_CLASSES = {"church", "cathedral", "chapel", "mosque", "temple", "religio
 MOSQUE_CLASSES = {"mosque"}
 WORSHIP_NAME = re.compile(r"\b(church|chapel|cathedral|tabernacle|mosque|masjid|temple|assembl(y|ies) of god|"
                           r"pentecost|methodist|presbyterian|anglican|baptist|catholic|adventist|parish)\b", re.I)
+# Names that say a church's or a mosque's business, not a place of worship ("Methodist Book Shop", "Cathedral Clinic").
+NOT_WORSHIP = re.compile(r"\b(shop|book\w*|clinic|lab|laborator\w*|school|institute|hospital|college|office|"
+                         r"secretariat|headquarters|hq|guest ?house|hotel|bank|pharmacy|store|centre for|academy)\b", re.I)
 MOSQUE_NAME = re.compile(r"\b(mosque|masjid|islam\w*|ahmadiyy?a|jama'?a|muslim)\b", re.I)
 WAREHOUSE_CLASSES = {"warehouse", "industrial", "manufacture", "hangar", "factory", "storage"}
 BIGBOX_CLASSES = {"retail", "supermarket", "commercial"}
@@ -83,7 +86,8 @@ def classify(bid, area, storeys, tagged, height, cls, name, places, front, distr
     cls = (cls or "").lower() or None
     tags = {t for t, _ in places}
     # Worship: by class, by OSM's tag, or by name: the building's own, or a religious organisation's inside it.
-    holy = [name or ""] + [n for t, n in places if t in ("amenity=place_of_worship", "category=religious_organization")]
+    holy = [n for n in [name or ""] + [n for t, n in places if t in ("amenity=place_of_worship", "category=religious_organization")]
+            if n and not NOT_WORSHIP.search(n)]
     text = " ".join(holy)
     worship = (cls in WORSHIP_CLASSES or "amenity=place_of_worship" in tags
                or (cls in (None, "yes") and WORSHIP_NAME.search(text) is not None))
@@ -173,11 +177,18 @@ def facing(index, poly):
 
 
 def worship_name(name, places):
-    """A church's or mosque's real name, from OpenStreetMap or Overture: its own, else a place of worship's inside it."""
-    for n in [name] + [n for t, n in places if t in ("amenity=place_of_worship", "category=religious_organization")]:
-        if n and WORSHIP_NAME.search(n):
+    """A church's or mosque's real name, from OpenStreetMap or Overture: the place of worship's mapped inside it first,
+    then the building's own, then a religious organisation's; never a name that says another business (NOT_WORSHIP),
+    and None rather than a guess."""
+    ranked = ([n for t, n in places if t == "amenity=place_of_worship"] + [name]
+              + [n for t, n in places if t == "category=religious_organization"])
+    for n in ranked:
+        if n and WORSHIP_NAME.search(n) and not NOT_WORSHIP.search(n):
             return n.strip()
-    return (name or "").strip() or None
+    for n in ranked[:2]:
+        if n and not NOT_WORSHIP.search(n) and len(n.strip()) >= 3:
+            return n.strip()
+    return None
 
 
 def shop_name(name, places):

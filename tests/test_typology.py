@@ -125,6 +125,9 @@ check("facing: towards the nearest road", f is not None and f[1] < -0.9, str(f))
 places = typology.Places([(Point(0, 10), "amenity=place_of_worship", "St Mary's Anglican Church"), (Point(50, 50), "shop=kiosk", "X")])
 check("places inside a footprint", places.inside(box(-5, 5, 5, 15)) == [("amenity=place_of_worship", "St Mary's Anglican Church")])
 check("worship name from OSM", typology.worship_name(None, places.inside(box(-5, 5, 5, 15))) == "St Mary's Anglican Church")
+check("no church: a bookshop named Methodist", c(places=[("category=religious_organization", "Methodist Book Shop")]) != "church")
+check("worship name: never a clinic's", typology.worship_name("Cathedral Clinic and Lab Limited", [("amenity=place_of_worship", "Holy Trinity Cathedral")]) == "Holy Trinity Cathedral")
+check("worship name: none rather than a business", typology.worship_name("Cathedral Clinic", []) is None)
 check("shop name: the building's own first", typology.shop_name("CITA HOUSE", [("shop=clothes", "Woodin")]) == "CITA HOUSE")
 
 # --- the builders --------------------------------------------------------------------------------------------------
