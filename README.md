@@ -108,6 +108,8 @@ The buildings are assembled from modules ([scripts/massing.py](scripts/massing.p
 
 `--no-massing` builds the old extruded boxes, for comparisons. The game tells compound walls, walls under pitched roofs and houses in yards apart by flags in the walls' texture coordinates (see the top of `massing.py`); export the district with `--uv-only M_Wall_` and pack it with gltfpack's `-kv` so they survive. These files were first built for the Unity proof of concept; the game now loads them through the GLB export below.
 
+Before the modules, each footprint gets a kind from [scripts/typology.py](scripts/typology.py) (19 November 2026): storey buildings on commercial frontages, flats, glass towers (with tower zones for Airport City and Ridge, whose towers OSM maps without floors), churches, mosques, warehouses and big boxes, and kiosks; the rest stays generic. The kinds use the district's materials only and reach the game as more wall flags (`SHOPFRONT`, `CURTAIN`, `BALCONIES`, `HALL`, top of `massing.py`). Churches' and mosques' real names and the storey buildings' name bands, from OSM and Overture, go to the district JSON and the scene as `names` (text only). On the 19 November builds: Central 2,112 storey buildings, 56 towers, 26 churches, 2 mosques, 1,262 kiosks; Kaneshie 1,179 storey buildings, 15 churches, 1 mosque; the Legon corridor 340 flats, 252 storey buildings, 25 churches, 4 mosques; Liberation Road 18 towers and 36 flats. `--no-typologies` builds as before.
+
 For the game (three.js, decision of 13 November 2026), the same files become compressed GLB and a scene JSON:
 
 ```sh
