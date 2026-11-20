@@ -171,6 +171,18 @@ check("warehouse: a shed with roller doors", k["sheds"] == 1 and k["roller_doors
 fl = Counter(flags_of(t) for t in m.tris("M_Wall_Ochre") if t[3])
 check("warehouse: plinth without openings", fl and all(f & massing.NO_OPENINGS for f in fl), dict(fl))
 check("warehouse: sheet cladding", any(m.tris(x) for x in ("M_Roof", "M_RoofSheet_Rust", "M_RoofSheet_Painted")))
+# Kiosks, sheds and churches draw from the sheets every district already has: a material new to a cell costs the game
+# a draw in each pass for every tile that holds it.
+common = {"M_Roof", "M_RoofSheet_Rust", "M_RoofTile_Red", "M_Concrete_Raw", "M_Wall_Ochre"}
+extra = set()
+for i in range(40):
+    for build in (lambda m, k: massing.kiosk(m, "o", "M_Wall_Ochre", f"k{i}", orient(box(0, 0, 4, 3), 1.0), k),
+                  lambda m, k: massing.warehouse(m, "o", "M_Wall_Ochre", f"w{i}", orient(box(0, 0, 50, 25), 1.0), "warehouse", k),
+                  lambda m, k: massing.church(m, "o", "M_Wall_Ochre", f"c{i}", orient(box(0, 0, 18, 10), 1.0), k),
+                  lambda m, k: massing.church(m, "o", "M_Wall_Ochre", f"c{i}", orient(box(0, 0, 30, 14), 1.0), k)):
+        m = Mesh(); build(m, Counter())
+        extra |= m.materials() - common
+check("kiosks, sheds and churches: only the common sheet materials", not extra, extra)
 m, k = Mesh(), Counter()
 massing.warehouse(m, "o", "M_Wall_Ochre", "w", shed, "supermarket", k)
 check("big box: flat roof, blank walls", k["big_boxes"] == 1 and m.tris("M_Roof"))

@@ -442,7 +442,10 @@ def compounds(mesh, cell_name, yards, keep_out, roads, road_width, counts, distr
 # The builders typology.py picks (19 Nov 2026). They use the district's materials only: the wall paints (M_Wall_*),
 # the roofs (M_Roof, M_RoofSheet_*, M_RoofTile_Red) and M_Concrete_Raw. Variety comes from the flags, the proportions
 # and the game's per-plane paint, never from a material of their own (each is a render pipeline in the game).
-SHEETS = [("M_Roof", 0.45), ("M_RoofSheet_Painted", 0.25), ("M_RoofSheet_Rust", 0.30)]
+# Sheet roofs for the typologies, from the two sheet materials every district already draws (grey and rusted): the
+# painted sheet appears in few districts, and a material new to a cell is one more draw in each of the game's passes
+# for every tile that holds it (the bench of 20 Nov 2026: 20 new cells per area, +8 % render objects).
+SHEETS = [("M_Roof", 0.6), ("M_RoofSheet_Rust", 0.4)]
 
 
 def tri_out(mesh, obj, mat, a, b, c, out, uv=None):
@@ -535,12 +538,12 @@ def church(mesh, obj, wall_mat, bid, poly, counts, flags=0):
         return None
     o, u, v, Lu, Lv, rect = axes
     fit = poly.area / rect.area
-    roof = pick(SHEETS + [("M_RoofTile_Red", 0.25)], h01(bid, "church roof"))
+    roof = pick([("M_Roof", 0.45), ("M_RoofSheet_Rust", 0.3), ("M_RoofTile_Red", 0.25)], h01(bid, "church roof"))
     hall = flags | HALL
     if poly.area < 400 and fit >= 0.75 and Lv <= 22:
         eaves = 2.6
         walls(mesh, obj, wall_mat, poly, 0.0, eaves, hall | NO_PARAPET)
-        z1 = gable_roof(mesh, obj, roof if roof != "M_RoofTile_Red" else "M_RoofSheet_Painted", wall_mat, poly, eaves, 56,
+        z1 = gable_roof(mesh, obj, roof if roof != "M_RoofTile_Red" else "M_RoofSheet_Rust", wall_mat, poly, eaves, 56,
                         overhang=0.6, max_rise=10.0, end_flag=HALL)
         front = h01(bid, "church front") < 0.5 and -1 or 1
         cross(mesh, obj, "M_Concrete_Raw", o + u * front * (Lu / 2 + 0.6), v, z1 - 0.2)
@@ -563,7 +566,7 @@ def church(mesh, obj, wall_mat, bid, poly, counts, flags=0):
         top = z1 + 4.0 + 4.0 * h01(bid, "tower h")
         walls(mesh, obj, wall_mat, foot, 0.0, top, hall | NO_PARAPET)
         spire = 3.5 + 3.0 * h01(bid, "spire")
-        prism(mesh, obj, "M_RoofSheet_Painted" if roof != "M_RoofTile_Red" else roof, c, side * 0.75, 0.05, top, top + spire,
+        prism(mesh, obj, roof, c, side * 0.75, 0.05, top, top + spire,
               sides=4, phase=math.atan2(u[1], u[0]) + math.pi / 4)
         cross(mesh, obj, "M_Concrete_Raw", c, v, top + spire - 0.1, 1.4)
         counts["bell_towers"] += 1
@@ -636,7 +639,7 @@ def warehouse(mesh, obj, wall_mat, bid, poly, cls, counts, flags=0):
                 break
             a = (-0.25 + 0.5 * k) * Lu if Lu >= 30 else 0.0
             c = o + u * a + v * s * (Lv / 2 + 0.05)
-            slab(mesh, obj, "M_RoofSheet_Painted", c - u * 2.2, c + u * 2.2, 0.08, 0.0, 4.6, NO_OPENINGS)
+            slab(mesh, obj, "M_RoofSheet_Rust", c - u * 2.2, c + u * 2.2, 0.08, 0.0, 4.6, NO_OPENINGS)
             counts["roller_doors"] += 1
         counts["sheds"] += 1
         return "warehouse"
