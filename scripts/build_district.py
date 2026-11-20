@@ -22,6 +22,10 @@ placeholders until the Open Buildings 2.5D heights are merged (pipeline step 3).
 the modules in massing.py (hipped roofs, bulkheads, set-backs, frame storeys, compound walls); --no-massing keeps
 plain extruded boxes. Needs shapely, pyproj,
 mapbox_earcut, networkx and Pillow (requirements-district.txt).
+
+The landmarks circle-game builds itself (landmark_footprints.py LANDMARKS: Black Star Square, the stadium, Jubilee
+House, Accra Mall...) are left out of every district: no massing and no solid outline on their footprints, which still
+keep compound walls, parked cars and hiding places off their ground. --keep-landmarks builds them as before.
 """
 import argparse
 import hashlib
@@ -48,6 +52,7 @@ from shapely.geometry import LineString, MultiLineString, MultiPolygon, Point, P
 from shapely.geometry.polygon import orient
 from shapely.ops import substring
 
+import landmark_footprints
 import massing
 
 WORLD_ORIGIN_UTM = (808523.0, 616356.0)  # Kwame Nkrumah Interchange ("Circle"), see README
@@ -1018,6 +1023,13 @@ def build(args):
     osm_path = os.path.join(args.slice, "osm.parquet")
     osm_rows = named_places.load_osm(osm_path) if os.path.exists(osm_path) else []
     place_rows = named_places.load_places(con, places_path) if os.path.exists(places_path) else []
+    # The landmarks the game builds (landmark_footprints.py): their footprints are left out of the buildings below,
+    # and the places the data has wrong on them set right.
+    lm_outlines = ([] if getattr(args, "keep_landmarks", False) else
+                   landmark_footprints.load(getattr(args, "landmark_footprints", landmark_footprints.FOOTPRINTS)))
+    if landmark_footprints.fix_places(place_rows, lm_outlines):
+        print("places on the landmarks set right: " + ", ".join(f["name"] for lm in landmark_footprints.LANDMARKS
+                                                                for f in lm.get("places", [])))
     to_local_ll = lambda lon, lat: tuple(np.array(to_utm.transform(lon, lat)) - (oe, on))
     shapely.prepare(clip)
     inside_clip = lambda x, z: bool(shapely.contains_xy(clip, x, z))
@@ -1067,6 +1079,9 @@ def build(args):
 
     landmark_points = [shapely.geometry.Point(*np.array(to_utm.transform(lon, lat)) - (oe, on))
                        for _, lat, lon in rules["landmarks"]]
+    # The footprints the game's landmarks stand on: not drawn, not solid, but kept clear like any building.
+    lm_match = landmark_footprints.Matcher(lm_outlines, local)
+    landmark_ground = []
 
     # Buildings, minus those a detailed look-dev version replaces.
     exclude = set()
@@ -1100,11 +1115,14 @@ def build(args):
             keep_out += [p for p in polys if isinstance(p, Polygon)]
             continue
         seen = seen_roofs.get(bid)
+        lm_osm = lm_match.match(g)
         for poly in polys:
             if not isinstance(poly, Polygon) or poly.area < 8:
                 continue
             poly = orient(poly, 1.0)
             if seen == imagery.POOL and not args.no_massing:
+                if lm_osm:
+                    continue                            # on a landmark: the game builds its ground
                 massing.pool(mesh, cell_name("Buildings", poly.centroid.x, poly.centroid.y), poly, counts)
                 continue                                # a pool, not a building: no walls, no collider
             rnd = unit_hash(bid)
@@ -1126,6 +1144,9 @@ def build(args):
             # builds it), and the building's walls stood across its lanes or through its deck.
             if on_structures and under_structure(poly, on_structures, h):
                 under["buildings"] += 1
+                continue
+            if lm_osm:
+                landmark_ground.append(poly)            # a landmark the game builds (landmark_footprints.py)
                 continue
             heights.append(h)
             c = poly.centroid
@@ -1177,7 +1198,8 @@ def build(args):
             district_roads += [(cls, l) for l in ([g] if isinstance(g, LineString) else getattr(g, "geoms", [])) if isinstance(l, LineString)]
         # Off the structures' roads where they are low (a ramp, a cut), as off a fuel station's ground.
         low = [poly for poly, off in on_structures if off < 4.0]
-        compound_walls = massing.compounds(mesh, cell_name, yards, keep_out + fuel_ground + low, district_roads, ROAD_WIDTH, counts, clip, oxford)
+        compound_walls = massing.compounds(mesh, cell_name, yards, keep_out + landmark_ground + fuel_ground + low, district_roads,
+                                           ROAD_WIDTH, counts, clip, oxford)
 
     # Roads: ribbons with mitred joints, a dashed centre line on the major classes.
     lights = []
@@ -1261,7 +1283,7 @@ def build(args):
             g = g.intersection(clip)
             pieces += [(rid, cls, name, l) for l in ([g] if isinstance(g, LineString) else list(getattr(g, "geoms", [])))
                        if isinstance(l, LineString) and l.length >= 1]
-        parked = place_parked(rules["parking"], pieces, keep_out + [p for _, p in yards] + fuel_ground, lap)
+        parked = place_parked(rules["parking"], pieces, keep_out + landmark_ground + [p for _, p in yards] + fuel_ground, lap)
         if on_structures:
             # And none where a ramp comes down onto the road (FOOT_CLEAR_M round its foot): its lanes merge there.
             ramp_feet = [Point(p["pts"][i]).buffer(FOOT_CLEAR_M) for p in elev for i in (0, -1) if abs(p["off"][i]) < 0.3]
@@ -1278,7 +1300,10 @@ def build(args):
                        if isinstance(l, LineString) and l.length >= 1]
     if under:
         print("off the structures' roads: " + ", ".join(f"{n} {k}" for k, n in under.items()))
-    hiding = hiding_places(hide_roads, keep_out + [p for _, p in yards] + [poly for poly, off in on_structures if off < 4.0], compound_walls, parked, lights,
+    if lm_match.hits:
+        print(f"landmarks the game builds: {len(landmark_ground)} footprint{'s' * (len(landmark_ground) != 1)} left out "
+              f"({', '.join(f'{k} x{n}' if n > 1 else k for k, n in sorted(lm_match.hits.items()))})")
+    hiding = hiding_places(hide_roads, keep_out + landmark_ground + [p for _, p in yards] + [poly for poly, off in on_structures if off < 4.0], compound_walls, parked, lights,
                            avoid=oxford.buffer(40) if oxford is not None else None, clip=clip)
 
     # The named places of the area, where the slice has them (read above, before the buildings).
@@ -1357,6 +1382,9 @@ def build(args):
         # The interchanges', flyovers' and footbridges' pieces in the area (scripts/elevated.py ids): relief.py gives
         # them their heights and the game builds them (circle-game src/world/interchanges.ts).
         **({"structures": [p["id"] for p in elev] + [f["id"] for f in feet]} if elev or feet else {}),
+        # The OpenStreetMap ids of the landmarks the game builds whose footprints this area left out
+        # (landmark_footprints.py), so the game need not mask them.
+        **({"landmarksLeftOut": sorted(lm_match.hits)} if lm_match.hits else {}),
         "credits": "Buildings and roads: Overture Maps Foundation (ODbL), from OpenStreetMap contributors, "
                    "Google Open Buildings and Microsoft. Heights from typology rules."
                    + (" Places, garages, fuel stations and chargers: OpenStreetMap contributors (ODbL)." if osm_rows else "")
@@ -2119,6 +2147,10 @@ def main():
                     "and its swimming pools (CC BY-NC 4.0: leave it out for a commercial build); without it, the draw")
     ap.add_argument("--no-fuel", action="store_true",
                     help="no fuel stations: their canopies extruded as buildings, walls and parked cars over their ground, as before")
+    ap.add_argument("--landmark-footprints", default=landmark_footprints.FOOTPRINTS,
+                    help="the outlines of the landmarks the game builds (landmark_footprints.py), left out of the buildings")
+    ap.add_argument("--keep-landmarks", action="store_true",
+                    help="draw the landmarks' footprints as generic massing and keep the places as the data has them, as before")
     build(ap.parse_args())
 
 
