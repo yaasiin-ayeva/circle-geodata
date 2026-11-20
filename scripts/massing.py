@@ -344,7 +344,9 @@ def building(mesh, obj, wall_mat, bid, poly, n_storeys, parapet, near_oxford, ya
             return "house"
     top = eaves + parapet
     # An unfinished storey on a finished block, away from Oxford Street.
-    if n_storeys >= 2 and not near_oxford and area >= 60 and h01(bid, "frame") < 0.1:
+    # (Not on a storey building: its waiting floor is the game's rebar on the parapet, and bare concrete columns would put
+    # M_Concrete_Raw into most cells of the old centre, a draw per pass for every tile.)
+    if n_storeys >= 2 and not near_oxford and not flat_only and area >= 60 and h01(bid, "frame") < 0.1:
         walls(mesh, obj, wall_mat, poly, 0.0, eaves, base | NO_PARAPET)
         cap(mesh, obj, "M_Roof", poly, eaves)
         counts["frame_columns"] += frame_storey(mesh, obj, poly, eaves)
@@ -679,7 +681,8 @@ def kiosk(mesh, obj, wall_mat, bid, poly, counts):
     2.5 m alone; its wall material still draws the shop opening) and a thin sheet roof falling to one side with
     a 0.5 m overhang over the counter."""
     walls(mesh, obj, wall_mat, poly, 0.0, 2.45, NO_PARAPET)
-    if shed_roof(mesh, obj, pick(SHEETS, h01(bid, "kiosk roof")), wall_mat, poly, 2.45, 4, NO_PARAPET, overhang=0.5) is None:
+    # Grey sheet, the one roof material every district draws: kiosks stand in nearly every cell.
+    if shed_roof(mesh, obj, "M_Roof", wall_mat, poly, 2.45, 4, NO_PARAPET, overhang=0.5) is None:
         cap(mesh, obj, "M_Roof", poly, 2.45)
     counts["kiosks"] += 1
     return "kiosk"
