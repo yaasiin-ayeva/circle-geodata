@@ -78,10 +78,20 @@ def compare(before_dir, after_dir, name, label=None):
     b_meta = json.load(open(os.path.join(before_dir, name + ".json")))
     a_meta = json.load(open(os.path.join(after_dir, name + ".json")))
     outlines = lf.load()
-    shapes = [o for o in local_outlines(b_meta, outlines)]
-    tight = shapely.union_all([s.buffer(1.0) for s in shapes])          # the footprint, its overhangs and fascias
+    shapes = local_outlines(b_meta, outlines)
+    buildings = [s for o, s in zip(outlines, shapes) if o["role"] == "building"]
+    car_parks = [s for o, s in zip(outlines, shapes) if o["role"] == "car park"]
+    bs = Counter(tuple(r) for r in b_meta["solid"]["buildings"])
+    as_ = Counter(tuple(r) for r in a_meta["solid"]["buildings"])
+    gone = bs - as_
+    rings = lambda r: Polygon(list(zip(r[0::2], r[1::2])))
+    # Where the landmarks' own triangles may stand: their outlines, the car parks, and the footprints that went, each
+    # with its overhangs and fascias (a hipped roof spans the footprint's best-fit rectangle, 0.5 m beyond).
+    tight = shapely.union_all([s.buffer(1.0) for s in shapes]
+                              + [rings(r).minimum_rotated_rectangle.buffer(1.0) for r in gone])
     near = shapely.union_all([s.buffer(NEAR_M) for s in shapes])
-    inner = shapely.union_all([s.buffer(-0.5) for s in shapes])
+    # The buildings' outlines, inside: a car park is no building, and its neighbours may reach onto it.
+    inner = shapely.union_all([s.buffer(-0.5) for s in buildings])
     for g in (tight, near, inner):
         shapely.prepare(g)
 
@@ -121,19 +131,22 @@ def compare(before_dir, after_dir, name, label=None):
     skip = {"stats", "solid", "places", "landmarksLeftOut", "parked", "hiding"}
     diff = [k for k in set(b_meta) | set(a_meta) if k not in skip and b_meta.get(k) != a_meta.get(k)]
     check(f"{label}: roads, lights, lap, medians, garages, fuel and the rest of the JSON the same", not diff, ", ".join(diff))
-    bs = Counter(tuple(r) for r in b_meta["solid"]["buildings"])
-    as_ = Counter(tuple(r) for r in a_meta["solid"]["buildings"])
-
     def ring_mid(r):
         return Point(sum(r[0::2]) / (len(r) // 2), sum(r[1::2]) / (len(r) // 2))
 
-    gone = bs - as_
     check(f"{label}: no solid outline added", not (as_ - bs))
-    check(f"{label}: the solid outlines taken away are the landmarks'", all(tight.contains(ring_mid(r)) for r in gone),
-          f"{sum(1 for r in gone if not tight.contains(ring_mid(r)))} elsewhere")
+    # (a shed's middle on its car park; a building's outline, or the piece of it a street cut, within the landmark's)
+    # The solid outlines are outer rings: Jubilee House's courtyards are filled in them.
+    filled = [shapely.union_all([Polygon(p.exterior) for p in getattr(s, "geoms", [s])]) for s in buildings]
+    on_outline = lambda r: any(s.contains(rings(r).representative_point()) for s in car_parks) or any(
+        rings(r).intersection(s).area > 0.9 * rings(r).area for s in filled)
+    check(f"{label}: the solid outlines taken away are the landmarks'", all(on_outline(r) for r in gone),
+          f"{sum(1 for r in gone if not on_outline(r))} elsewhere")
     check(f"{label}: no solid outline left on a landmark",
-          not any(inner.contains(ring_mid(r)) and Polygon(list(zip(r[0::2], r[1::2]))).area > 0.5 * s.area
-                  for r in as_ for s in shapes if s.contains(ring_mid(r))))
+          not any(rings(r).intersection(s).area > 0.5 * rings(r).union(s).area for r in as_ for s in buildings
+                  if s.contains(ring_mid(r))))
+    check(f"{label}: no shed left on a listed car park",
+          not any(rings(r).area <= lf.SHED_MAX_M2 and s.contains(rings(r).representative_point()) for r in as_ for s in car_parks))
     bw, aw = Counter(map(tuple, b_meta["solid"]["walls"])), Counter(map(tuple, a_meta["solid"]["walls"]))
     wdiff = list((bw - aw) + (aw - bw))
     check(f"{label}: compound walls changed only near a landmark",
