@@ -247,5 +247,47 @@ m4 = c4["shelf"][len(xs3) // 2]
 # Game's left is (tz, -tx): along +x, the left is -z; the lower road is at +z, on the right.
 check("a shelf stops short of a lower road beside it", m4[1] < 13.0 - 3.8 - 3.8 - rl.SHELF_FROM_M + 0.01 and m4[0] > want - 1.5, f"{m4}")
 
+# A zigzag at a piece's end (Graphic Road's slip road off Obetsebi Lamptey's fork): straightened from the end.
+import math as _m  # noqa: E402
+zz = piece("zz", [(0, 0), (0.6, 5.2), (-6.0, 12.0), (-10.0, 16.0), (-14.0, 20.0), (-18.0, 24.0)], [4.0, 3.9, 3.8, 3.7, 3.6, 3.5])
+el.unzig([zz])
+
+
+def max_turn(pts, upto):
+    t, s = 0.0, 0.0
+    for a, b, c in zip(pts, pts[1:], pts[2:]):
+        s += _m.dist(a, b)
+        if s > upto:
+            break
+        u, v = (b[0] - a[0], b[1] - a[1]), (c[0] - b[0], c[1] - b[1])
+        t = max(t, abs(_m.degrees(_m.atan2(u[0] * v[1] - u[1] * v[0], u[0] * v[0] + u[1] * v[1]))))
+    return t
+
+
+check("a zigzag at a piece's end is straightened, its end and OpenStreetMap's line kept",
+      max_turn(zz["pts"], el.ZIG_M) < el.ZIG_DEG and zz["pts"][0] == [0, 0] and len(zz["drawn"]) == 6
+      and len(zz["pts"]) == len(zz["off"]) == len(zz["kind"]), f"{zz['pts']}")
+
+# A slip road that leaves its road at a shallow angle bound for another level (Dr. Busia High Street's up to
+# Obetsebi Lamptey): moved aside from the start of the road leading in, its road left where it is.
+up = piece("up", [(0, -40 + 5 * k) for k in range(9)], [0.0] * 9, w=11.1)
+up["osm"] = 10
+main = piece("main", [(0.25 * k, 5 * k) for k in range(9)], [0.0] * 9, w=11.1)
+main["osm"] = 11
+ramp = piece("ramp", [(0.6 * k, 5 * k) for k in range(17)], [0.0] + [0.4 * k for k in range(1, 17)])
+ramp["osm"] = 12
+main0 = [list(q) for q in main["pts"]]
+moved = el.part_forks([up, main, ramp], [])
+gaps = [LineString(main["pts"]).distance(Point(q)) for q, o in zip(ramp["pts"], ramp["off"]) if 20 <= q[1] <= 40 and o > 0.3]
+check("a slip road over its road's lanes at another level is moved aside, from the road leading in",
+      moved == 1 and ramp["pts"][0] == up["pts"][0] and main["pts"] == main0 and min(gaps) > 11.1 / 2,
+      f"start {ramp['pts'][0]}, gaps {[round(g, 1) for g in gaps]}")
+edge = piece("edge", [(1.2 * k, 5 * k) for k in range(9)], [0.0] + [0.4 * k for k in range(1, 9)])
+edge["osm"] = 13
+main2 = piece("main2", [(0, 5 * k) for k in range(9)], [0.0] * 9, w=11.1)
+main2["osm"] = 14
+check("one that only meets its road's edge, a gore's length, is left as drawn",
+      el.part_forks([main2, edge], []) == 0)
+
 print(f"{failures} failure(s)")
 sys.exit(1 if failures else 0)

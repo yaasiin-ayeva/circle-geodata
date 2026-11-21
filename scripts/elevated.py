@@ -475,9 +475,11 @@ def build(ways, to_utm):
             continue    # a sidewalk along a deck, drawn as its own bridge: the deck carries it
         feet.append({"id": f"fb{w['id']}", "osm": w["id"], "over": sorted(set(under)), "w": 2.6,
                      "pts": [[round(x, 2), round(y, 2)] for x, y in line.coords], "h": h})
+    print(f"elevated: {unzig(pieces)} zigzags at pieces' ends straightened")
     fit_twins(pieces)
     separate_twins(pieces)
     level_merges(pieces)
+    print(f"elevated: {part_forks(pieces, [(wid, LineString([pos[v] for v in vs])) for wid, vs in wverts.items() if len(vs) >= 2])} slip roads parted from their roads")
     beside_cuts(pieces, wverts, pos, wby, sites, covered)
     return pieces, feet, sorted(flyover), sorted(tunnels)
 
@@ -802,12 +804,67 @@ def separate_twins(pieces):
     for idx, d in shift.items():
         p = pieces[idx]
         if d.any():
-            p["drawn"] = [list(q) for q in p["pts"]]     # OpenStreetMap's line, which the ground's roads are taken off by
+            p.setdefault("drawn", [list(q) for q in p["pts"]])     # OpenStreetMap's line, which the ground's roads are taken off by
         for k in range(len(p["pts"])):
             if d[k].any():
                 p["pts"][k] = [round(p["pts"][k][0] + float(d[k][0]), 2), round(p["pts"][k][1] + float(d[k][1]), 2)]
                 moved += 1
     return moved
+
+
+ZIG_DEG = 45.0          # a turn this sharp near a piece's end, which the line turns back from, is a zigzag
+ZIG_M = 15.0            # how near the end
+ZIG_BACK_DEG = 30.0     # the chord from the end may turn no more than this where it meets the line again
+
+
+def unzig(pieces):
+    """A zigzag at a piece's end straightened: OpenStreetMap draws Graphic Road's descending slip road at Obetsebi
+    Lamptey leaving the fork 77 degrees off its road for 5 m, then turning back 58 degrees (nodes 12925592342 and
+    12925592343), a turn no car takes at a fork, and a car following its line cut across the gore's parapets. Where
+    a vertex within ZIG_M of an end turns more than ZIG_DEG, the line from the end runs straight to the first vertex
+    past it where the chord meets the line within ZIG_BACK_DEG; the points between are laid along the chord every
+    STEP_M with their offsets taken along it. The vertices dropped are no other piece's (a junction stays), and
+    `drawn` keeps OpenStreetMap's line for the ground's roads. Returns the pieces straightened."""
+    def turn(a, b, c):
+        u, v = np.subtract(b, a), np.subtract(c, b)
+        if np.linalg.norm(u) < 1e-6 or np.linalg.norm(v) < 1e-6:
+            return 0.0
+        return math.degrees(math.atan2(u[0] * v[1] - u[1] * v[0], float(u @ v)))
+    shared = defaultdict(int)
+    for p in pieces:
+        for q in p["pts"]:
+            shared[(round(q[0], 1), round(q[1], 1))] += 1
+    done = 0
+    for p in pieces:
+        for end in (0, -1):
+            pts = p["pts"] if end == 0 else p["pts"][::-1]
+            off = p["off"] if end == 0 else p["off"][::-1]
+            n = len(pts)
+            s = np.concatenate([[0], np.cumsum([math.dist(pts[i], pts[i + 1]) for i in range(n - 1)])])
+            k = next((k for k in range(1, n - 1) if s[k] <= ZIG_M and abs(turn(pts[k - 1], pts[k], pts[k + 1])) > ZIG_DEG), None)
+            if k is None:
+                continue
+            j = next((j for j in range(k + 1, n - 1) if s[j] <= 2 * ZIG_M
+                      and abs(turn(pts[0], pts[j], pts[j + 1])) < ZIG_BACK_DEG
+                      and all(abs(turn(pts[0], pts[i], pts[i + 1])) < ZIG_BACK_DEG for i in [j])), None)
+            if j is None or any(shared[(round(q[0], 1), round(q[1], 1))] > 1 for q in pts[1:j]):
+                continue
+            chord = math.dist(pts[0], pts[j])
+            m = max(1, int(round(chord / STEP_M)))
+            new = [pts[0]] + [[round(pts[0][0] + (pts[j][0] - pts[0][0]) * t / m, 2),
+                               round(pts[0][1] + (pts[j][1] - pts[0][1]) * t / m, 2)] for t in range(1, m)] + list(pts[j:])
+            noff = [off[0]] + [round(float(off[0] + (off[j] - off[0]) * t / m), 2) for t in range(1, m)] + list(off[j:])
+            kind = p["kind"] if end == 0 else p["kind"][::-1]
+            nkind = kind[0] + "".join(kind[0] if kind[0] in "DT" else ("F" if o > EPS else "C" if o < -EPS else "G")
+                                      for o in noff[1:m]) + kind[j:]
+            p.setdefault("drawn", [list(q) for q in p["pts"]])
+            if end == 0:
+                p["pts"], p["off"], p["kind"] = new, noff, nkind
+            else:
+                p["pts"], p["off"], p["kind"] = new[::-1], noff[::-1], nkind[::-1]
+            done += 1
+            print(f"  unzig {p['id']} {p['name']} end {end}: {j - 1} points dropped, chord {chord:.1f} m")
+    return done
 
 
 MERGE_MAX = 0.10        # the steepest a slip road may be, coming back to its own level after running at its road's
@@ -891,6 +948,197 @@ def level_merges(pieces):
     for p in pieces:
         p["kind"] = "".join(c if c in "DT" else ("F" if o > EPS else "C" if o < -EPS else "G")
                             for c, o in zip(p["kind"], p["off"]))
+    return moved
+
+
+FORK_RATE = 0.2        # a slip road moved off its drawn line moves at most this far sideways per metre along (1 in 5)
+FORK_GAP_M = 0.5        # between two roads' asphalt at different levels, once parted
+FORK_DY_M = 0.3         # two roads this far apart in level are two surfaces, not one
+FORK_DEG = 35.0         # a fork: the two leave the point within this angle of each other
+FORK_CAR_M = 1.0        # a slip road whose asphalt at another level comes this near its road's line blocks a car on it
+FORK_COVER_M = 20.0     # ... when it still does this far from the fork (nearer, a gore's nose: the lanes part round it)
+
+
+def part_forks(pieces, ground):
+    """Where a slip road leaves its road at a fork bound for another level and OpenStreetMap draws the two at a shallow
+    angle, their asphalt overlaps for tens of metres while their levels part: Nsawam Road's connector up out of
+    Circle's underpass climbs 2 m over the trunk's lanes 30 m on, its fill's wall across them, and at Obetsebi
+    Lamptey the slip road up from Dr. Busia High Street lifted a car on the trunk onto its ramp. The slip road (the
+    narrower of the two, the shorter at equal widths), where its asphalt at another level reaches within FORK_CAR_M
+    of the line of a road beside it FORK_COVER_M or more from the fork (a car there is blocked; an overlap at the
+    road's edge, or only over a gore's length, leaves its lanes running on, and moving such a slip road off a fork's
+    short lead-in left the lanes into it more blocked: the lanes audit's headroom count rose by 28), moves sideways, away from the road it overlaps, until the two
+    lie apart by their half widths and FORK_GAP_M wherever their levels differ by more than FORK_DY_M, moving at most
+    FORK_RATE per metre from the fork (none there) and back to its line before its far end where that end is a
+    junction. Where the fork is too near for that, the slip road leaves earlier: from the start of the piece leading
+    into the fork, alongside it at its level (an extra lane, as a real diverge runs), with that piece's points. The
+    roads it may overlap are the other pieces (at their offsets) and the ground's ways (`ground`: (way id, line), at
+    the ground's level where no piece runs along them), running the same way within FORK_DEG; a move that leaves
+    more asphalt over other levels than before, counting the roads running the other way (a move into the
+    carriageway the other side), is not made; `drawn` keeps
+    OpenStreetMap's line. Returns the slip roads moved."""
+    def cum(pts):
+        return np.concatenate([[0], np.cumsum([math.dist(pts[i], pts[i + 1]) for i in range(len(pts) - 1)])])
+
+    def unit(a, b):
+        v = np.subtract(b, a, dtype=np.float64)
+        n = np.linalg.norm(v)
+        return v / n if n > 1e-9 else None
+    lines = [LineString(p["pts"]) for p in pieces]
+    ptree = shapely.STRtree(lines)
+    glines = [g for _, g in ground]
+    gtree = shapely.STRtree(glines) if glines else None
+    at = defaultdict(list)
+    for i, p in enumerate(pieces):
+        for k, q in enumerate(p["pts"]):
+            at[(round(q[0], 1), round(q[1], 1))].append((i, k))
+    cos_fork = math.cos(math.radians(FORK_DEG))
+
+    def leaving(p, k):
+        """The way a piece leaves its point k (an end) along itself."""
+        return unit(p["pts"][k], p["pts"][1 if k == 0 else -2])
+
+    def conflicts(bi, pts, off, both=False):
+        """Per point of a slip road (pts, off): how much nearer than parted the nearest road at another level runs
+        beside it, and which side (+1 left) it should move to."""
+        b = pieces[bi]
+        n = len(pts)
+        lack, side, cover = np.zeros(n), np.zeros(n), np.zeros(n, bool)
+        for k in range(n):
+            t = unit(pts[max(0, k - 1)], pts[min(n - 1, k + 1)])
+            if t is None:
+                continue
+            left = np.array([-t[1], t[0]])
+            pt = shapely.Point(pts[k])
+            cands = [("p", j) for j in ptree.query(pt.buffer(b["w"] / 2 + 12.0)) if j != bi]
+            if gtree is not None:
+                cands += [("g", j) for j in gtree.query(pt.buffer(b["w"] / 2 + 12.0))]
+            for src, j in cands:
+                if src == "p":
+                    q, line = pieces[j], lines[j]
+                    if q["osm"] == b["osm"]:
+                        continue
+                    w = q["w"]
+                else:
+                    wid, line = ground[j]
+                    if wid == b["osm"]:
+                        continue
+                    w = None
+                d = line.project(pt)
+                if d <= 0.01 or d >= line.length - 0.01:
+                    continue            # beside an end: the road it joins or leaves, not one it runs along
+                c = np.array(line.interpolate(d).coords[0])
+                u = unit(line.interpolate(max(0.0, d - 1.0)).coords[0], line.interpolate(min(line.length, d + 1.0)).coords[0])
+                if u is None or (abs(float(u @ t)) if both else float(u @ t)) < cos_fork:
+                    continue            # a road crossing it (over or under) is no overlap
+                if src == "p":
+                    qo = float(np.interp(d, cum(q["pts"]), q["off"]))
+                else:
+                    # The ground's way, where no piece runs along it (a piece carries it there, at its own level).
+                    if any(lines[i].distance(shapely.Point(c)) < 1.5 for i in ptree.query(shapely.Point(c).buffer(1.5))):
+                        continue
+                    qo, w = 0.0, 7.0
+                if abs(off[k] - qo) <= FORK_DY_M:
+                    continue
+                gap = float(np.linalg.norm(np.asarray(pts[k]) - c))
+                need = b["w"] / 2 + w / 2 + FORK_GAP_M
+                cover[k] |= gap < b["w"] / 2 + FORK_CAR_M
+                if need - gap > lack[k]:
+                    lack[k] = need - gap
+                    side[k] = 1.0 if float((np.asarray(pts[k]) - c) @ left) >= 0 else -1.0
+        return lack, side, cover
+
+    moved = 0
+    for bi, b in enumerate(pieces):
+        if not b.get("oneway") or len(b["pts"]) < 3:
+            continue
+        for e in (0, len(b["pts"]) - 1):
+            key = (round(b["pts"][e][0], 1), round(b["pts"][e][1], 1))
+            members = [(i, k) for i, k in at[key] if i != bi]
+            tb = leaving(b, e)
+            if tb is None:
+                continue
+            # The road it forks from: another piece's end there, leaving the same way, wider (longer at equal widths).
+            mains = [i for i, k in members if k in (0, len(pieces[i]["pts"]) - 1) and leaving(pieces[i], k) is not None
+                     and float(leaving(pieces[i], k) @ tb) > cos_fork
+                     and (pieces[i]["w"], lines[i].length) > (b["w"], lines[bi].length)]
+            if not mains:
+                continue
+            # The piece leading into the fork: an end there, arriving the way the fork leaves.
+            ups = [i for i, k in members if i not in mains and k in (0, len(pieces[i]["pts"]) - 1)
+                   and leaving(pieces[i], k) is not None and float(leaving(pieces[i], k) @ tb) < -cos_fork
+                   and pieces[i].get("oneway")]
+            pts = b["pts"] if e == 0 else b["pts"][::-1]
+            off = b["off"] if e == 0 else b["off"][::-1]
+            kind = b["kind"] if e == 0 else b["kind"][::-1]
+            far = (round(pts[-1][0], 1), round(pts[-1][1], 1))
+            far_joined = len(at[far]) > 1
+            lack, side, cover = conflicts(bi, pts, off)
+            s = cum(pts)
+            if not cover.any() or s[cover].max() < FORK_COVER_M:
+                continue            # beside its road's edge, or a gore's length: the lanes run on past it
+
+            def plan(lead):
+                sh = np.zeros(len(pts))
+                for k in range(len(pts)):
+                    sh[k] = max([0.0] + [lack[j] - FORK_RATE * abs(s[k] - s[j]) for j in range(len(pts)) if lack[j] > 0])
+                    sh[k] = min(sh[k], FORK_RATE * (s[k] + lead))
+                    if far_joined:
+                        sh[k] = min(sh[k], FORK_RATE * (s[-1] - s[k]))
+                return sh, float(np.max(lack - sh))
+            shift, short = plan(0.0)
+            lead = None
+            if short > 0.5 and len(ups) == 1:
+                u = pieces[ups[0]]
+                upts = u["pts"] if u["pts"][-1] == b["pts"][e] or (round(u["pts"][-1][0], 1), round(u["pts"][-1][1], 1)) == key else u["pts"][::-1]
+                uoff = u["off"] if upts is u["pts"] else u["off"][::-1]
+                ukind = u["kind"] if upts is u["pts"] else u["kind"][::-1]
+                us = cum(upts)
+                shift2, short2 = plan(float(us[-1]))
+                if short2 < short - 0.5:
+                    shift, short, lead = shift2, short2, (upts, uoff, ukind, us)
+            # Smoothed over 15 m, never past what the rate allows.
+            lead_m = float(lead[3][-1]) if lead is not None else 0.0
+            cap = FORK_RATE * (s + lead_m)
+            if far_joined:
+                cap = np.minimum(cap, FORK_RATE * (s[-1] - s))
+            shift = np.minimum(np.array([shift[np.abs(s - s[k]) <= 7.5].mean() for k in range(len(pts))]), cap)
+            sgn = np.sign(side[lack > 0].sum()) or 1.0
+            new = []
+            for k in range(len(pts)):
+                t = unit(pts[max(0, k - 1)], pts[min(len(pts) - 1, k + 1)])
+                left = np.array([-t[1], t[0]])
+                q = np.asarray(pts[k], dtype=np.float64) + left * sgn * shift[k]
+                new.append([round(float(q[0]), 2), round(float(q[1]), 2)])
+            noff, nkind = list(off), kind
+            if lead is not None:
+                upts, uoff, ukind, us = lead
+                pre = []
+                for k in range(len(upts) - 1):
+                    t = unit(upts[max(0, k - 1)], upts[k + 1])
+                    left = np.array([-t[1], t[0]])
+                    q = np.asarray(upts[k], dtype=np.float64) + left * sgn * min(FORK_RATE * us[k], shift[0] if len(shift) else 0.0)
+                    pre.append([round(float(q[0]), 2), round(float(q[1]), 2)])
+                new = pre + new
+                noff = list(uoff[:-1]) + noff
+                nkind = ukind[:-1] + nkind
+            # Only a move that leaves less asphalt over other levels: not into a road running on the other side.
+            before = conflicts(bi, pts, off, True)[0]
+            after = conflicts(bi, new, noff, True)[0]
+            if after.sum() >= before.sum() - 0.5 or after.max() > before.max() + 0.1:
+                print(f"  fork {b['id']} {b['name'] or b['cls']}: left as drawn (moving it overlaps "
+                      f"{after.sum():.1f} m against {before.sum():.1f} m)")
+                break
+            b.setdefault("drawn", [list(q) for q in b["pts"]])
+            if e == 0:
+                b["pts"], b["off"], b["kind"] = new, noff, nkind
+            else:
+                b["pts"], b["off"], b["kind"] = new[::-1], noff[::-1], nkind[::-1]
+            lines[bi] = LineString(b["pts"])
+            moved += 1
+            print(f"  fork {b['id']} {b['name'] or b['cls']}: moved up to {shift.max():.1f} m"
+                  f"{' from the start of ' + pieces[ups[0]]['id'] if lead is not None else ''}, {max(short, 0):.1f} m still short")
+            break
     return moved
 
 
