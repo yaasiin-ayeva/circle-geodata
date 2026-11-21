@@ -56,6 +56,9 @@ LANDMARKS = [
                                                     169866129, 169866130]},
     {"name": "Black Star Gate", "ways": [169866126]},
     {"name": "Independence Arch", "ways": [169866122]},
+    # Osu Castle, Fort Christiansborg (circle-game docs/osu-castle.md): the relation (tagged only building=office),
+    # outer way 557305324 round its courtyard 630806386.
+    {"name": "Osu Castle", "relations": [8776513]},
 ]
 
 # A district footprint is a listed building's when they overlap by this share of their union (intersection over
