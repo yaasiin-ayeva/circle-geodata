@@ -56,6 +56,10 @@ LANDMARKS = [
                                                     169866129, 169866130]},
     {"name": "Black Star Gate", "ways": [169866126]},
     {"name": "Independence Arch", "ways": [169866122]},
+    # Jamestown Lighthouse and James Fort (circle-game docs/jamestown-lighthouse.md): the tower (way 316143859), the
+    # keeper's house and its rear block (272612102, 777917227) and the fort (177958818). The placeholder tower
+    # build_district.py draws at the bible's point (lighthouse()) stays: the game folds it where it builds its own.
+    {"name": "Jamestown Lighthouse and James Fort", "ways": [316143859, 272612102, 777917227, 177958818]},
 ]
 
 # A district footprint is a listed building's when they overlap by this share of their union (intersection over
