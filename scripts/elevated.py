@@ -414,6 +414,7 @@ def build(ways, to_utm):
 
     # 4. Pieces: runs along each way of structure vertices, ending on the ground.
     pieces = []
+    covered = set()             # the vertices in a piece
     for wid, vs in wverts.items():
         w = wby[wid]
         t = w["tags"]
@@ -431,6 +432,7 @@ def build(ways, to_utm):
             a, b = max(0, i - 1), min(len(vs) - 1, j + 1)
             run = vs[a:b + 1]
             if len(run) >= 2:
+                covered.update(run)
                 kinds = "".join(
                     "D" if wid in flyover else "T" if wid in tunnels else
                     "F" if off.get(v, 0.0) > EPS else "C" if off.get(v, 0.0) < -EPS else "G" for v in run)
@@ -476,7 +478,84 @@ def build(ways, to_utm):
     fit_twins(pieces)
     separate_twins(pieces)
     level_merges(pieces)
+    beside_cuts(pieces, wverts, pos, wby, sites, covered)
     return pieces, feet, sorted(flyover), sorted(tunnels)
+
+
+# The ground the cuts' floors take beside them (relief.py): CUT_FLOOR_M beyond a cut's road where it is MOUTH_DEPTH_M
+# deep, its 8 m grid's node off the line and the cell over which the ground comes back up to the banks' top.
+SHELF_FLOOR_M, SHELF_MOUTH_M, SHELF_CELL_M = 12.0, 1.5, 12.0
+SHELF_DEPTH_M = 1.0     # a cut shallower than this keeps the ground beside it
+NO_SHELF = ("tetteh-quarshie", "tema")   # the sites whose cuts have none (their banks grassed; roads over tunnels)
+
+
+def beside_cuts(pieces, wverts, pos, wby, sites, covered):
+    """The roads on the ground beside a walled cut, as pieces at the ground's level (kind F, off 0, "level"): Ako
+    Adjei's roundabout and the Ring Road's service roads along its cut, 3 m from the cut's wall. The relief's 8 m grid
+    holds a cut's floor over a cell beyond its road (relief.py hold_cut_floors), so that the ground drawn between two
+    nodes never rises over its asphalt; a road on the ground nearer than that was laid on the cut's floor, 7 m under
+    the roundabout's bridges, which the car met as a wall (the director, 18 Nov 2026). The game draws these at the
+    banks' top, over a shelf it lays from the cut's wall to the ground beyond. Each run of a way's points within the
+    floor's reach of a cut at least SHELF_DEPTH_M deep, a point on: beside a cut's mouth, which comes up to the
+    ground, nothing moves. Not at a site with grassed banks (Tetteh Quarshie's), whose banks are the ground's own.
+    Returns how many pieces were added."""
+    # Nor at the Tema Motorway roundabout, whose roads run over its tunnels on the ground (relief.py leaves it there)
+    # and which the car drove without a stop as it was; there, beside its cuts, they met the tunnels' roofs and walls.
+    walled = [p for p in pieces if "C" in p["kind"] and p["style"] not in NO_SHELF and min(p["off"]) <= -SHELF_DEPTH_M]
+    if not walled:
+        return 0
+    lines = [LineString(p["pts"]) for p in walled]
+    cums = [np.concatenate([[0], np.cumsum(np.hypot(*np.diff(np.array(p["pts"], dtype=np.float64), axis=0).T))]) for p in walled]
+    tree = shapely.STRtree(lines)
+    reach_max = max(p["w"] for p in walled) / 2 + SHELF_FLOOR_M + SHELF_CELL_M
+
+    def beside(v, half):
+        pt = shapely.Point(pos[v])
+        for n in tree.query(pt.buffer(reach_max + half)):
+            line, p = lines[n], walled[n]
+            d = line.project(pt)
+            depth = -float(np.interp(d, cums[n], p["off"]))
+            if depth < SHELF_DEPTH_M:
+                continue
+            lat = line.distance(pt)
+            floor = p["w"] / 2 + SHELF_FLOOR_M * min(1.0, depth / SHELF_MOUTH_M)
+            if p["w"] / 2 + 1.0 < lat < floor + SHELF_CELL_M + half:
+                return p
+        return None
+
+    added = 0
+    for wid, vs in wverts.items():
+        t = wby[wid]["tags"]
+        half = width(t) / 2
+        # Not a point of a piece already there (a way's run on from a piece starts at its end).
+        near = [beside(v, half) if v not in covered else None for v in vs]
+        mark = [c is not None for c in near]
+        i = 0
+        while i < len(vs):
+            if not mark[i]:
+                i += 1
+                continue
+            j = i
+            while j + 1 < len(vs) and mark[j + 1]:
+                j += 1
+            a, b = max(0, i - 1), min(len(vs) - 1, j + 1)
+            run = vs[a:b + 1]
+            if len(run) >= 2:
+                cut = next(c for c in near[i:j + 1] if c is not None)
+                # On the ground (G) only where it is off the cut's reach and off another piece: an end on a bridge or a
+                # ramp is at that piece's level (relief.py gives it its height).
+                kinds = "".join("F" if near[k] is not None or vs[k] in covered else "G" for k in range(a, b + 1))
+                s = site_of(*pos[run[len(run) // 2]], sites)
+                pieces.append({
+                    "id": f"{wid}/s{i}", "osm": wid, "cls": t["highway"], "name": t.get("name", t.get("ref", "")), "w": width(t),
+                    **({"lanes": int(t["lanes"])} if t.get("lanes", "").isdigit() else {}),
+                    **({"oneway": True} if is_oneway(t) else {}),
+                    "site": s["name"] if s else cut["site"], "style": s["style"] if s else cut["style"],
+                    "pts": [[round(pos[v][0], 2), round(pos[v][1], 2)] for v in run],
+                    "off": [0.0] * len(run), "kind": kinds, "level": True})
+                added += 1
+            i = j + 1
+    return added
 
 
 def over_decks(line, pieces):

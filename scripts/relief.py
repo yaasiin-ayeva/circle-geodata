@@ -198,6 +198,7 @@ CUT_BANK_DEFAULT = 2.0
 CUT_UNDER_M = 0.5     # a cut's floor under its road: under the 8 m grid's error on a sloping road, and the ground drawn over it
 CUT_FLOOR_M = 12.0    # its floor held flat this far beyond the road's half-width: over a cell's diagonal (8 m grid)
 UNDER_M = 0.3         # the ground under a deck or a ramp, under the natural ground
+LEVEL_UNDER_M = 0.1   # under a road at the ground's level beside a cut (elevated.py beside_cuts): no gap under its edge
 MOUTH_DEPTH_M = 1.5   # a cut this deep under the natural ground is held its full CUT_FLOOR_M beyond its road
 
 
@@ -238,8 +239,9 @@ def structure_heights(pieces, natural, carved, grid):
         y = at(natural, pts) + np.array(p["off"])
         seg = np.hypot(*np.diff(pts, axis=0).T)
         s = np.concatenate([[0], np.cumsum(seg)])
-        d0 = float(at(carved, pts[:1])[0] - y[0]) if p["kind"][0] == "G" else 0.0
-        d1 = float(at(carved, pts[-1:])[0] - y[-1]) if p["kind"][-1] == "G" else 0.0
+        lv = p.get("level")         # at the natural ground till onto_shelves() gives it the ground's
+        d0 = float(at(carved, pts[:1])[0] - y[0]) if p["kind"][0] == "G" and not lv else 0.0
+        d1 = float(at(carved, pts[-1:])[0] - y[-1]) if p["kind"][-1] == "G" and not lv else 0.0
         t = s / max(s[-1], 1e-6)
         y = y + d0 * (1 - t) + d1 * t
         p["y"] = [round(float(v), 2) for v in y]
@@ -257,6 +259,8 @@ def mouths_to_ground(pieces, h, grid):
     ends moved."""
     moved = 0
     for p in pieces:
+        if p.get("level"):
+            continue            # its heights are the ground's beside the cut's shelf (onto_shelves)
         pts = np.array(p["pts"], dtype=np.float64)
         s = np.concatenate([[0], np.cumsum(np.hypot(*np.diff(pts, axis=0).T))])
         y = np.array(p["y"], dtype=np.float64)
@@ -328,13 +332,17 @@ def bridges_over_holes(pieces, h, grid, roads):
                 pts.append(np.array([cx, cz]))
         return pts or [np.array([x + ux * BRIDGE_REACH_M, z + uz * BRIDGE_REACH_M])]
 
+    ends = [(q["pts"][k][0], q["pts"][k][1], q["y"][k], n) for n, q in enumerate(pieces) for k in (0, -1)]
     carried = 0
-    for p in pieces:
+    for n, p in enumerate(pieces):
         for first in (True, False):
             e = 0 if first else len(p["pts"]) - 1     # after the start has grown
             if p["kind"][e] != "D" or abs(p["off"][e]) > 0.3:
                 continue
             x, z, y = p["pts"][e][0], p["pts"][e][1], p["y"][e]
+            # Not where another piece carries the road on (Ako Adjei's roundabout, at the ground's level beside its cut).
+            if any(m != n and math.hypot(ex - x, ez - z) < 1.5 and abs(ey - y) < 0.6 for ex, ez, ey, m in ends):
+                continue
             o = p["pts"][1 if first else -2]
             l = math.hypot(x - o[0], z - o[1]) or 1.0
             ux, uz = (x - o[0]) / l, (z - o[1]) / l
@@ -372,6 +380,256 @@ def bridges_over_holes(pieces, h, grid, roads):
                 p["pts"] += way; p["y"] += ys; p["off"] += [p["off"][-1]] * n; p["kind"] += "D" * n
             carried += 1
     return carried
+
+
+SHELF_FROM_M = 1.15    # a cut's wall and its coping beyond its asphalt (circle-game interchanges.ts CUT_WALL + 0.35)
+SHELF_MAX_M = 30.0     # the furthest a shelf reaches from the wall: over the floor held and the cell beyond it
+SHELF_STEP_M = 0.5
+SHELF_SEAM_M = 0.05    # the ground this near the banks' top meets the shelf
+SHELF_DEPTH_M = 0.6    # a cut shallower than this under the ground has no wall (interchanges.ts CUT_FROM), nor a shelf
+
+
+def cut_shelves(pieces, h, grid, roads=()):
+    """Each walled cut's shelf: per point, how far beyond its wall's coping, on its left and on its right, the ground
+    lies under the banks' top (the cut's natural ground, y - off): its floor held beyond its road (hold_cut_floors)
+    and the cell over which the 8 m grid comes back up, a pit up to 7 m deep and 25 m wide beside Ako Adjei's walls,
+    where the roundabout's and the service roads' asphalt lay (the director, 18 Nov 2026). The game lays a slab there
+    at the banks' top, which the roads beside the cut (elevated.py beside_cuts) and what stands by them stand on. Up to
+    SHELF_MAX_M; never over another piece's road lower down (the other carriageway's cut, a slip road down into it),
+    nor over a road on the ground left in the pit (one elevated.py did not carry, which would be roofed over).
+    In p["shelf"] as [left, right, left top, right top] per point, a width 0 where none; not at a site with grassed
+    banks. Returns the shelves' area in m^2."""
+    def at(x, z):
+        fi, fj = (x - grid.x0) / grid.step, (z - grid.z0) / grid.step
+        return ndimage.map_coordinates(h, [np.clip(fj, 0, grid.nz - 1), np.clip(fi, 0, grid.nx - 1)], order=1, mode="nearest")
+    lines = [LineString(p["pts"]) if len(p["pts"]) > 1 else None for p in pieces]
+    cums = [np.concatenate([[0], np.cumsum(np.hypot(*np.diff(np.array(p["pts"], dtype=np.float64), axis=0).T))]) for p in pieces]
+    tree = shapely.STRtree([l for l in lines if l is not None])
+    index = [n for n, l in enumerate(lines) if l is not None]
+    ground = [(LineString(rp), w) for cls, w, rp, *own in roads if cls not in ("cut", "under") and len(rp) > 1]
+    gtree = shapely.STRtree([l for l, _ in ground]) if ground else None
+    area = 0.0
+    for n, p in enumerate(pieces):
+        if "C" not in p["kind"] or p.get("style") in ("tetteh-quarshie", "tema"):   # elevated.py NO_SHELF
+            continue
+        P = np.array(p["pts"], dtype=np.float64)
+        y, off = np.array(p["y"]), np.array(p["off"])
+        shelf = []
+        for k in range(len(P)):
+            if -off[k] < SHELF_DEPTH_M:
+                shelf.append([0.0, 0.0, round(float(y[k] - off[k]), 2), round(float(y[k] - off[k]), 2)])
+                continue
+            a, b = P[max(0, k - 1)], P[min(len(P) - 1, k + 1)]
+            t = b - a
+            left = np.array([t[1], -t[0]]) / (np.hypot(*t) or 1.0)
+            bank = y[k] - off[k]
+            s = p["w"] / 2 + SHELF_FROM_M + np.arange(0.0, SHELF_MAX_M + 1e-6, SHELF_STEP_M)
+            # Lower roads near this line: where the walk stops before them.
+            reach = shapely.Point(P[k]).buffer(p["w"] / 2 + SHELF_FROM_M + SHELF_MAX_M + 15)
+            near = [index[m] for m in tree.query(reach)]
+            gnear = [ground[m] for m in gtree.query(reach)] if gtree is not None else []
+            pair = []
+            for side in (1.0, -1.0):
+                q = P[k] + np.outer(s * side, left)
+                g = at(q[:, 0], q[:, 1])
+                stop = len(s)
+                pts = shapely.points(q)
+                for line, w in gnear:
+                    on = np.nonzero(shapely.distance(line, pts) <= w / 2 + 0.3)[0]
+                    if len(on):
+                        stop = min(stop, int(on[0]))
+                for m in near:
+                    if m == n or pieces[m].get("level"):
+                        continue
+                    o = pieces[m]
+                    on = np.nonzero(shapely.distance(lines[m], pts) <= o["w"] / 2 + SHELF_FROM_M)[0]
+                    if not len(on):
+                        continue
+                    d = shapely.line_locate_point(lines[m], pts[on])
+                    oy = np.interp(d, cums[m], o["y"])
+                    # A road in a cut or a tunnel there (a ramp's foot that came down into the pit is lifted onto
+                    # the shelf after, onto_shelves()).
+                    kc = np.array([o["kind"][int(np.argmin(np.abs(cums[m] - v)))] in "CT" for v in d])
+                    low = on[(oy < bank - 1.0) & kc]
+                    if len(low):
+                        stop = min(stop, int(low[0]))
+                up = np.nonzero(g[:stop] >= bank - SHELF_SEAM_M)[0]
+                top = bank
+                if len(up):
+                    width = s[up[0]] - s[0] + SHELF_STEP_M if up[0] > 0 else 0.0
+                else:
+                    # The ground beyond lower than the banks' top (Circle's, in the Odaw's valley: the natural ground
+                    # smoothed over 40 m stood 1 m over the streets beside Nsawam Road's cut): the shelf at the level
+                    # the ground comes back up to, where it stops rising.
+                    flat = [c for c in range(1, stop - 4) if g[c] - g[0] > 0.5 and np.max(g[c:c + 5]) - g[c] < 0.05]
+                    if flat:
+                        top = min(bank, float(g[flat[0]]))
+                        width = s[flat[0]] - s[0] + SHELF_STEP_M
+                    else:
+                        width = max(0.0, s[stop - 1] - s[0]) if stop else 0.0
+                        if stop < len(s):
+                            width = max(0.0, width - 0.6)      # short of the other road's own wall
+                if top < g[0] + 0.3:
+                    width = 0.0                             # no pit worth a shelf
+                pair.append((round(float(width), 1), round(float(top), 2)))
+            shelf.append([pair[0][0], pair[1][0], pair[0][1], pair[1][1]])
+        # Its tops along the cut without the ground's steps: the median of five points.
+        for c in (2, 3):
+            t = np.array([e[c] for e in shelf])
+            m = ndimage.median_filter(t, size=5, mode="nearest")
+            for k, e in enumerate(shelf):
+                e[c] = round(float(min(m[k], y[k] - off[k])), 2)
+        for k in range(len(P) - 1):
+            area += (shelf[k][0] + shelf[k][1] + shelf[k + 1][0] + shelf[k + 1][1]) / 2 * float(np.hypot(*(P[k + 1] - P[k])))
+        if any(e[0] or e[1] for e in shelf):
+            p["shelf"] = shelf
+    return area
+
+
+SHELF_SINK_M = 0.03    # the shelf's top under the banks' top (interchanges.ts SHELF_SINK)
+LEVEL_OVER_M = 0.05     # a road beside a cut lowered to meet others stays this far over the ground
+SPIKE_M = 0.5          # a lone point this far off both its neighbours is a sampling's (onto_shelves)
+END_SPAN_M = 15.0      # a road beside a cut comes to its end on the ground over this
+JOIN_SPAN_M = 20.0     # a road beside a cut comes to the height of a piece it meets over this
+
+
+def shelf_ground(pieces, h, grid):
+    """The ground a road stands on beside the cuts: the relief's, or a cut's shelf over it (cut_shelves, laid as the game
+    lays it, interchanges.ts layShelves()) where that is higher. A function of (x, z) arrays."""
+    polys, tops = [], []
+    for p in pieces:
+        if "shelf" not in p:
+            continue
+        P = np.array(p["pts"], dtype=np.float64)
+        n, inner = len(P), p["w"] / 2 + SHELF_FROM_M
+        L = []
+        for i in range(n):
+            t = P[min(n - 1, i + 1)] - P[max(0, i - 1)]
+            L.append(np.array([t[1], -t[0]]) / (np.hypot(*t) or 1.0))
+        for i in range(n - 1):
+            for side, si in ((1.0, 0), (-1.0, 1)):
+                wi, wj = p["shelf"][i][si], p["shelf"][i + 1][si]
+                if wi < 0.3 and wj < 0.3:
+                    continue
+                q = [P[i] + L[i] * side * inner, P[i + 1] + L[i + 1] * side * inner,
+                     P[i + 1] + L[i + 1] * side * (inner + wj), P[i] + L[i] * side * (inner + wi)]
+                g = shapely.Polygon(q)
+                if g.is_valid and g.area > 0.01:
+                    polys.append(g)
+                    tops.append((P[i], P[i + 1], p["shelf"][i][2 + si] - SHELF_SINK_M, p["shelf"][i + 1][2 + si] - SHELF_SINK_M))
+    tree = shapely.STRtree(polys) if polys else None
+
+    def at(x, z):
+        x, z = np.atleast_1d(np.asarray(x, dtype=np.float64)), np.atleast_1d(np.asarray(z, dtype=np.float64))
+        fi, fj = (x - grid.x0) / grid.step, (z - grid.z0) / grid.step
+        g = ndimage.map_coordinates(h, [np.clip(fj, 0, grid.nz - 1), np.clip(fi, 0, grid.nx - 1)], order=1, mode="nearest").astype(np.float64)
+        if tree is None:
+            return g
+        pts = shapely.points(np.column_stack([x, z]))
+        pi, gi = tree.query(pts, predicate="intersects")
+        for k, m in zip(pi, gi):
+            a, b, ya, yb = tops[m]
+            ab = b - a
+            t = float(np.clip(((x[k] - a[0]) * ab[0] + (z[k] - a[1]) * ab[1]) / (ab @ ab or 1.0), 0, 1))
+            g[k] = max(g[k], ya + (yb - ya) * t)
+        return g
+    return at
+
+
+def onto_shelves(pieces, h, grid):
+    """The roads beside the cuts (elevated.py beside_cuts) at the ground they stand on, a shelf's top over the pit
+    (shelf_ground()), at every point; and another piece's end at the ground's level that lands on a shelf (a ramp's foot
+    beside Circle's Nsawam Road cut), brought to the shelf's top over MOUTH_SPAN_M. Without, their heights were the
+    natural ground's, spread to their feet: two of them meeting stood up to 1 m apart, and a road at the ground's level
+    met Ako Adjei's bridges 7.5 m under them. Returns how many points moved."""
+    at = shelf_ground(pieces, h, grid)
+    moved = 0
+    for p in pieces:
+        P = np.array(p["pts"], dtype=np.float64)
+        if p.get("level"):
+            g = at(P[:, 0], P[:, 1])
+            moved += int(np.sum(np.abs(g - np.array(p["y"])) > 0.05))
+            p["y"] = [round(float(v), 2) for v in g]
+            continue
+        if "C" in p["kind"] or "T" in p["kind"]:
+            continue
+        s = np.concatenate([[0], np.cumsum(np.hypot(*np.diff(P, axis=0).T))])
+        y = np.array(p["y"], dtype=np.float64)
+        for e in (0, len(P) - 1):
+            if p["kind"][e] != "G" and abs(p["off"][e]) > 0.3:
+                continue
+            g = float(at(P[e, 0], P[e, 1])[0])
+            fi, fj = (P[e, 0] - grid.x0) / grid.step, (P[e, 1] - grid.z0) / grid.step
+            bare = float(ndimage.map_coordinates(h, [[np.clip(fj, 0, grid.nz - 1)], [np.clip(fi, 0, grid.nx - 1)]], order=1, mode="nearest")[0])
+            d = g - y[e]
+            if g < bare + 0.01 or abs(d) < 0.05:
+                continue            # on no shelf: mouths_to_ground's
+            span = min(MOUTH_SPAN_M, s[-1])
+            y += d * np.clip(1 - np.abs(s - s[e]) / span, 0, 1)
+            moved += 1
+        p["y"] = [round(float(v), 2) for v in y]
+    # Where a road beside a cut meets another piece (a bridge's end, a ramp's foot), at that piece's height, the
+    # difference spread over JOIN_SPAN_M of it.
+    fixed = [(np.array(q["pts"], dtype=np.float64), np.array(q["y"])) for q in pieces if not q.get("level")]
+    for p in pieces:
+        if not p.get("level"):
+            continue
+        P = np.array(p["pts"], dtype=np.float64)
+        s = np.concatenate([[0], np.cumsum(np.hypot(*np.diff(P, axis=0).T))])
+        y = np.array(p["y"], dtype=np.float64)
+        for k in range(len(P)):
+            # The piece at its level there (a ramp's foot; not the cut under it at the same point in plan).
+            best = None
+            for Q, qy in fixed:
+                d2 = np.hypot(Q[:, 0] - P[k, 0], Q[:, 1] - P[k, 1])
+                m = int(np.argmin(d2))
+                if d2[m] < 1.0 and abs(qy[m] - y[k]) < 1.5 and (best is None or abs(qy[m] - y[k]) < abs(best - y[k])):
+                    best = float(qy[m])
+            if best is not None and abs(best - y[k]) > 0.02:
+                y += (best - y[k]) * np.clip(1 - np.abs(s - s[k]) / JOIN_SPAN_M, 0, 1)
+                moved += 1
+        # A point alone over or under both its neighbours (a shelf's edge sampled: Ring Road Central 4 m down for one
+        # point), at theirs.
+        for k in range(1, len(y) - 1):
+            a, b = y[k] - y[k - 1], y[k] - y[k + 1]
+            if a * b > 0 and min(abs(a), abs(b)) > SPIKE_M:
+                y[k] = (y[k - 1] + y[k + 1]) / 2
+        # An end on the ground off the shelf's edge (up to 0.9 m under the point before): the road comes down to it
+        # over END_SPAN_M, not in one step.
+        for e in (0, len(y) - 1):
+            if p["kind"][e] == "G" and len(y) > 2:
+                w = np.clip(np.abs(s - s[e]) / min(END_SPAN_M, s[-1]), 0, 1)
+                y = y[e] + (y - y[e]) * w
+        p["y"] = [round(float(v), 2) for v in y]
+    # Where roads beside a cut meet each other on their own (Nsawam Road's side road and two links at Circle's south
+    # corner: one 7.8 m at the end of its run along the wall, the others' next points 1.4 m under it, a hump), at the
+    # median of their next points' heights, spread over JOIN_SPAN_M of each; not where another piece meets them.
+    level = [p for p in pieces if p.get("level") and len(p["pts"]) > 1]
+    seen = set()
+    for p in level:
+        for e in (0, len(p["pts"]) - 1):
+            if (id(p), e) in seen:
+                continue
+            x, z = p["pts"][e]
+            ends = [(q, f) for q in level for f in (0, len(q["pts"]) - 1) if math.hypot(q["pts"][f][0] - x, q["pts"][f][1] - z) < 1.0]
+            for q, f in ends:
+                seen.add((id(q), f))
+            if len(ends) < 2 or any(np.min(np.hypot(Q[:, 0] - x, Q[:, 1] - z)) < 1.5 for Q, _ in fixed):
+                continue
+            target = float(np.median([q["y"][1 if f == 0 else f - 1] for q, f in ends]))
+            for q, f in ends:
+                Q = np.array(q["pts"], dtype=np.float64)
+                sq = np.concatenate([[0], np.cumsum(np.hypot(*np.diff(Q, axis=0).T))])
+                span = min(JOIN_SPAN_M, sq[-1])
+                d = target - q["y"][f]
+                if abs(d) > 0.02:
+                    yq = np.array(q["y"]) + d * np.clip(1 - np.abs(sq - sq[f]) / span, 0, 1)
+                    # Never under the ground drawn there (the relief's own, which the game draws under the shelves).
+                    fi, fj = (Q[:, 0] - grid.x0) / grid.step, (Q[:, 1] - grid.z0) / grid.step
+                    bare = ndimage.map_coordinates(h, [np.clip(fj, 0, grid.nz - 1), np.clip(fi, 0, grid.nx - 1)], order=1, mode="nearest")
+                    q["y"] = [round(float(v), 2) for v in np.maximum(yq, bare + LEVEL_OVER_M)]
+                    moved += 1
+    return moved
 
 
 def world_bounds(world):
@@ -676,7 +934,7 @@ def main():
             else:
                 # Under a deck or a ramp the ground is the natural ground, levelled a little under it so no bump of the
                 # DEM shows through the ramp's foot; the roads that pass under are laid after, and win.
-                cuts.append(("under", float(p["w"]), pts, np.array(p["y"]) - np.array(p["off"]) - UNDER_M, 6.0))
+                cuts.append(("under", float(p["w"]), pts, np.array(p["y"]) - np.array(p["off"]) - (LEVEL_UNDER_M if p.get("level") else UNDER_M), 6.0))
     carved, other = carve(h, fine, roads + cuts)
     moved = np.abs(h - raw)
     print(f"{carved} roads laid in; ground moved {np.percentile(moved, 99):.2f} m at the 99th percentile, {moved.max():.1f} m at most")
@@ -696,6 +954,8 @@ def main():
             hold()
         # Then the bridges at the ground's level carried on over what the cuts' floors and banks took.
         print(f"bridges carried on over a cut's floor: {bridges_over_holes(pieces, h, fine, roads)} ends")
+        print(f"cuts' shelves at the banks' top: {cut_shelves(pieces, h, fine, roads):.0f} m2")
+        print(f"onto the shelves: {onto_shelves(pieces, h, fine)} points of the roads beside the cuts, ends of others")
         # A footbridge's ground at its points (its deck stands its height over the highest of them). One at the
         # ground's level over a cut (Ako Adjei's, elevated.py FOOT_AT_GROUND_M) lies wholly over the cut's held floor:
         # its ground is the natural ground there, the cut's banks' top, at every point.

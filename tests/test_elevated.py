@@ -192,5 +192,60 @@ for junction in (False, True):
         check("a bridge at the ground's level is carried on over a hole beyond its end", n == 1 and b2["pts"][-1][0] > 8.0 and
               abs(b2["y"][-1] - 10.0) < 0.2, f"to x {b2['pts'][-1][0]:.1f}")
 
+# A road on the ground 12 m beside a walled cut 6 m deep (Ako Adjei's service roads): a piece at the ground's level
+# over the run the cut's floor takes, a point on; not a road 60 m off, nor the cut's road on beyond its mouth, nor
+# beside a cut with grassed banks.
+def beside(style):
+    xs5 = np.arange(0.0, 101.0, 5.0)
+    cut = piece("c", [(x, 0.0) for x in xs5], [-6.0 if x < 60 else -6.0 * (100 - x) / 40 for x in xs5])
+    cut.update(site="s", style=style)
+    pos, wverts, wby = {}, {}, {}
+    for wid, z, x0, x1 in ((1, 12.0, -100.0, 200.0), (2, 60.0, 0.0, 100.0), (3, 0.0, 100.0, 160.0)):
+        vs = []
+        for x in np.arange(x0, x1 + 0.1, 5.0):
+            v = (wid, float(x)); pos[v] = (float(x), z); vs.append(v)
+        wverts[wid] = vs
+        wby[wid] = {"tags": {"highway": "primary", "oneway": "yes", "name": f"w{wid}"}}
+    pieces = [cut]
+    n = el.beside_cuts(pieces, wverts, pos, wby, [], set())
+    return n, pieces[1:]
+n, lv = beside("ako-adjei")
+side = [p for p in lv if p["osm"] == 1]
+check("a road on the ground beside a walled cut is carried at the ground's level over the cut's floor", n == 1 and len(side) == 1 and
+      side[0]["level"] and set(side[0]["off"]) == {0.0} and side[0]["kind"].strip("G") == "F" * len(side[0]["kind"].strip("G")),
+      f"{n} pieces, {[p['kind'] for p in lv]}")
+xs_ = [q[0] for q in side[0]["pts"]] if side else [0]
+check("from a point before the cut is deep to past where it comes up", min(xs_) <= 0.0 and 90.0 <= max(xs_) <= 100.0,
+      f"x {min(xs_):.0f} to {max(xs_):.0f}")
+check("not beside a cut with grassed banks", beside("tetteh-quarshie")[0] == 0)
+
+# relief.py's shelves: a cut 6.5 m deep in flat ground at 10 m, the floor and the pit beside it at 3 m to 16 m off the
+# line (the 8 m grid back at the banks' top at 24 m): a shelf from its wall's coping to the ground, both sides; one
+# that meets a lower road (the other carriageway's cut) stops short of it.
+g3 = rl.Grid(-80.0, -40.0, 31, 11, 8.0)
+pit = np.full((g3.nz, g3.nx), 10.0, np.float32)
+pit[3:8, :] = 3.0                                     # z -16 to 16
+xs3 = np.arange(-40.0, 41.0, 5.0)
+c3 = {"pts": [[float(x), 0.0] for x in xs3], "w": 7.6, "y": [3.5] * len(xs3), "off": [-6.5] * len(xs3), "kind": "C" * len(xs3), "style": "ako-adjei"}
+rl.cut_shelves([c3], pit, g3)
+mid = c3.get("shelf", [[0, 0, 0, 0]] * len(xs3))[len(xs3) // 2]
+want = 24.0 - 3.8 - rl.SHELF_FROM_M
+check("a walled cut's shelf reaches from its coping to the ground beyond the pit", all(want - 1.5 < w < want + 1.0 for w in mid[:2]) and
+      mid[2:] == [10.0, 10.0], f"{mid}, about {want:.1f}")
+# The ground beyond 1 m under the banks' top (a valley the natural ground smooths over): the shelf at its level.
+low_pit = pit - 1.0
+low_pit[3:8, :] = 3.0
+c5 = {**c3, "pts": [[float(x), 0.0] for x in xs3]}
+rl.cut_shelves([c5], low_pit, g3)
+m5 = c5["shelf"][len(xs3) // 2]
+check("where the ground beyond lies under the banks' top, the shelf is at the ground's level", all(abs(t - 9.0) < 0.05 for t in m5[2:]) and
+      all(w < want + 1.0 for w in m5[:2]), f"{m5}")
+c4 = {**c3, "pts": [[float(x), 0.0] for x in xs3]}
+low = {"pts": [[-40.0, 13.0], [40.0, 13.0]], "w": 7.6, "y": [3.5, 3.5], "off": [-6.5, -6.5], "kind": "CC", "style": "ako-adjei"}
+rl.cut_shelves([c4, low], pit, g3)
+m4 = c4["shelf"][len(xs3) // 2]
+# Game's left is (tz, -tx): along +x, the left is -z; the lower road is at +z, on the right.
+check("a shelf stops short of a lower road beside it", m4[1] < 13.0 - 3.8 - 3.8 - rl.SHELF_FROM_M + 0.01 and m4[0] > want - 1.5, f"{m4}")
+
 print(f"{failures} failure(s)")
 sys.exit(1 if failures else 0)
