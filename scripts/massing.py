@@ -359,7 +359,7 @@ def building(mesh, obj, wall_mat, bid, poly, n_storeys, parapet, near_oxford, ya
     return "block"
 
 
-def compounds(mesh, cell_name, yards, keep_out, roads, road_width, counts, district, avoid=None):
+def compounds(mesh, cell_name, yards, keep_out, roads, road_width, counts, district, avoid=None, gates_out=None):
     """Compound walls along the residential streets, with a gate towards each yard's house.
 
     The walls follow the street frontage of the city blocks, VERGE_M back from the road edge, wherever a yard
@@ -367,7 +367,9 @@ def compounds(mesh, cell_name, yards, keep_out, roads, road_width, counts, distr
     building reaches the frontage itself, and near `avoid` (Oxford Street's line, its shops face the road).
     yards: (bid, footprint) of the buildings in compounds; keep_out: every other footprint, look-dev ones
     included; roads: (class, line); district: the district's outline.
-    Returns the walls' lines, gates included (the gates stand closed), for the game's collisions.
+    Returns the walls' lines, gates included (the gates stand closed), for the game's collisions. gates_out, a list,
+    receives each gate built as (x, y) of its middle, for the game's planting by the gates (circle-game
+    src/world/vegetation.ts).
     """
     if not yards:
         return []
@@ -423,4 +425,6 @@ def compounds(mesh, cell_name, yards, keep_out, roads, road_width, counts, distr
             for side in (-1, 1):
                 post(mesh, obj, paint, c + t * side * (GATE_W / 2 + 0.22), 0.44, 0.0, WALL_H + 0.35)
             counts["gates"] += 1
+            if gates_out is not None:
+                gates_out.append((float(c[0]), float(c[1])))
     return pieces

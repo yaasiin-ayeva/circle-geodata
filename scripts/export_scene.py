@@ -79,14 +79,14 @@ def write_chunks(scene, folder):
                 best, bd = i, d
         return best
 
-    chunks = [{"streetLights": [], "parked": [], "solid": {"buildings": [], "walls": []}, "hiding": []} for _ in tiles]
+    chunks = [{"streetLights": [], "parked": [], "solid": {"buildings": [], "walls": [], "gates": []}, "hiding": []} for _ in tiles]
     for l in scene.get("streetLights", []):
         chunks[tile_of(l["foot"][0], l["foot"][2])]["streetLights"].append(l)
     for c in scene.get("parked", []):
         chunks[tile_of(c["position"][0], c["position"][2])]["parked"].append(c)
     for h in scene.get("hiding", []):
         chunks[tile_of(h["position"][0], h["position"][2])]["hiding"].append(h)
-    for k in ("buildings", "walls"):
+    for k in ("buildings", "walls", "gates"):
         for flat in scene.get("solid", {}).get(k, []):
             chunks[tile_of(flat[0], flat[1])]["solid"][k].append(flat)
     for t, c in zip(tiles, chunks):
@@ -235,6 +235,9 @@ def main():
         # Flat lists x0, z0, x1, z1, ... with z flipped to glTF's south.
         flip = lambda flat: [v if i % 2 == 0 else round(-v, 1) + 0.0 for i, v in enumerate(flat)]
         scene["solid"] = {k: [flip(f) for f in d["solid"].get(k, [])] for k in ("buildings", "walls")}
+        # The compound walls' gates, [x, z] each, when the district has any (build_district solid_outlines).
+        if d["solid"].get("gates"):
+            scene["solid"]["gates"] = [flip(f) for f in d["solid"]["gates"]]
     # Hiding places for the heat chase: the plot's centre, the way its open front faces, its width and depth.
     if d.get("hiding"):
         scene["hiding"] = [{"kind": h["kind"], "position": g(h["x"], 0.0, h["z"]), "forward": heading(h["yaw"]),

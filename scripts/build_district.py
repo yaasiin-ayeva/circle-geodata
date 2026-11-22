@@ -1202,7 +1202,7 @@ def build(args):
             counts["landmarks"] += 1
             keep_out.append(p.buffer(4.0))
 
-    compound_walls = []
+    compound_walls, compound_gates = [], []
     if not args.no_massing:
         district_roads = []
         for _, cls, _, g in roads:
@@ -1211,7 +1211,7 @@ def build(args):
         # Off the structures' roads where they are low (a ramp, a cut), as off a fuel station's ground.
         low = [poly for poly, off in on_structures if off < 4.0]
         compound_walls = massing.compounds(mesh, cell_name, yards, keep_out + landmark_ground + lm_grounds + fuel_ground + low, district_roads,
-                                           ROAD_WIDTH, counts, clip, oxford)
+                                           ROAD_WIDTH, counts, clip, oxford, gates_out=compound_gates)
 
     # Roads: ribbons with mitred joints, a dashed centre line on the major classes.
     lights = []
@@ -1378,7 +1378,7 @@ def build(args):
         "roads": traffic_network(roads, clip, ONE_WAY_ROADS),
         # What the game's cars collide with (circle-game src/core/scene.ts addSolid).
         "solid": solid_outlines(keep_out + [p for _, p in yards], compound_walls,
-                                [(cls, g, road_width(cls, name, rid=rid)) for rid, cls, name, g in roads]),
+                                [(cls, g, road_width(cls, name, rid=rid)) for rid, cls, name, g in roads], gates=compound_gates),
         # Where the game's hiding places stand (circle-game src/world/hiding.ts).
         "hiding": hiding,
         # The named places the game's maps show, best first (scripts/places.py; circle-game src/ui/minimap-places.ts).
@@ -1747,7 +1747,7 @@ def junctions(lines, tol=0.05):
 TRAFFIC_CLASSES = ("motorway", "trunk", "primary", "secondary", "tertiary", "residential", "unclassified")
 
 
-def solid_outlines(footprints, walls, roads=(), tolerance=0.5, kerb=0.3):
+def solid_outlines(footprints, walls, roads=(), tolerance=0.5, kerb=0.3, gates=()):
     """What the game's cars collide with: the outline of every building (look-dev ones and landmarks included) and
     the compound walls with their closed gates, simplified to `tolerance` metres and rounded to 0.1 m. Each outline
     or wall is a flat list x0, z0, x1, z1, ...; an outline is a closed ring without its first point repeated.
@@ -1755,7 +1755,10 @@ def solid_outlines(footprints, walls, roads=(), tolerance=0.5, kerb=0.3):
     roads: (class, line) or (class, line, width) of the drivable network (the width by class when not given). Mapped footprints sometimes reach onto the carriageway (kiosks,
     canopies, a misplaced centreline: 23 outlines in Osu and 57 in Jamestown lie within 1 m of one), which would
     block the street the traffic and the lap drive. The part of an outline that lies on the carriageway, up to `kerb`
-    metres short of its edge, is left out, and so is what remains of the outline if under 4 m2."""
+    metres short of its edge, is left out, and so is what remains of the outline if under 4 m2.
+
+    gates: (x, y) of the compound walls' gates (massing.compounds), carried as "gates", each [x, z] rounded to 0.1 m,
+    when there are any: the game plants its shrubs either side of them (circle-game src/world/vegetation.ts)."""
     carriage = None
     # Round ends, so the corners of the junctions, where the cars cut across, are kept clear too.
     lanes = [r[1].buffer(max(0.5, (r[2] if len(r) > 2 else ROAD_WIDTH[r[0]]) / 2 - kerb))
@@ -1784,7 +1787,10 @@ def solid_outlines(footprints, walls, roads=(), tolerance=0.5, kerb=0.3):
             piece = piece.simplify(tolerance)
             if isinstance(piece, LineString) and piece.length >= 1:
                 lines.append([round(float(c), 1) for xy in piece.coords for c in xy[:2]])
-    return {"buildings": rings, "walls": lines}
+    out = {"buildings": rings, "walls": lines}
+    if gates:
+        out["gates"] = [[round(float(x), 1) + 0.0, round(float(y), 1) + 0.0] for x, y in gates]
+    return out
 
 
 # Hiding places (circle-bible bible/game-design.md, heat level 3: "a trotro station, car wash, market shed, a crew
