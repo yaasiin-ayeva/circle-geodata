@@ -149,7 +149,7 @@ gltfpack -i data/work/web/jamestown.glb -o data/work/web/jamestown.pack.glb -cc 
   - roofs from Jamestown's palette, which the survey counted as grey sheet on 93% of the roof area. Hipped roofs go on the near-rectangular houses and shed roofs on the rest, up to 3 storeys;
   - no compound walls and no yards: buildings stand on the street line;
   - walls painted ochre, mint, grey, concrete and pale blue;
-  - the lighthouse as a landmark: an octagonal tower 28 m high, white with a red band, a red gallery and a lit lantern, at the bible's point. The game builds the real one (circle-game docs/jamestown-lighthouse.md) and folds this placeholder away; OpenStreetMap's tower, the keeper's house and James Fort are in `landmark_footprints.py` `LANDMARKS`, so their generic massing is left out.
+  - the lighthouse as a landmark: an octagonal tower 28 m high, white with a red band, a red gallery and a lit lantern, at the bible's point. The game builds the real one (circle-game docs/jamestown-lighthouse.md) and folds this placeholder away; OpenStreetMap's tower, the keeper's house and James Fort are in `landmark_footprints.py` `LANDMARKS`, so their generic massing is left out. So are Ussher Fort's 17 buildings (circle-game docs/ussher-fort.md: OpenStreetMap maps no outline of the fort, only the buildings within its walls).
 - **Storeys:**
   - Footprints with OpenStreetMap levels keep them: 1,525 of the 4,345, mostly one storey. In Street View, 4 of 4 checked were right.
   - The others of 150 m² or more draw their storeys from the lap count of 82 buildings (44% one, 40% two, 9% three, 7% four or more), whatever their size. Of 7 large footprints checked, 5 were two storeys or less, so the typology rules' 3 to 6 storeys and a flat roof were wrong there.
@@ -162,7 +162,7 @@ gltfpack -i data/work/web/jamestown.glb -o data/work/web/jamestown.pack.glb -cc 
 - **Parked cars:** with no dressed block to park them, `build_district.py` parks cars parallel to the road edge (`"parking"` in `DISTRICT_RULES`, `place_parked()`). They stand within 250 m of the lap, on residential, unclassified, tertiary and secondary roads and on High Street, one place every 6.5 m on each side. A place is taken about one time in four, one in three on High Street, if it is clear of junctions, buildings, the spawn and other cars. Those chances and the paints (taxis on about 12% of places) are estimates, not counts. The 14 November build has 240 places, 25 of them taxis; `export_scene.py` writes them as the scene's `parked`, and `tests/test_parking.py` checks the rule on a synthetic street.
 - **The benchmark lap** is 1.53 km: High Street, Ga Mashie Street, Nii Tackie Tawiah Street, Okai Pesemaku Street, Nii Owoo Street, Lutterodt Street and back to High Street.
 - **In the game:** `?district=jamestown`. The district has no dressed block, so it carries no `--lookdev`.
-- **Not built yet:** James Fort, Ussher Fort, the harbour, kiosks along the street edges, timber poles with tangled wires, the white-over-blue band on long walls.
+- **Not built yet:** the harbour, kiosks along the street edges, timber poles with tangled wires, the white-over-blue band on long walls.
 
 `export_scene.py` names the scene's GLB after the district file (`jamestown.json` gives `jamestown.glb`); `--glb` overrides it.
 

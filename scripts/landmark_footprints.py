@@ -82,6 +82,12 @@ LANDMARKS = [
     # Osu Castle, Fort Christiansborg (circle-game docs/osu-castle.md): the relation (tagged only building=office),
     # outer way 557305324 round its courtyard 630806386.
     {"name": "Osu Castle", "relations": [8776513]},
+    # Ussher Fort, Fort Crèvecœur (circle-game docs/ussher-fort.md): OpenStreetMap maps no outline of the fort, only
+    # the 17 buildings within its walls (the ranges against the High Street front, the gate's passage, the cell blocks,
+    # the former chapel, the sea range, the blocks of the south-west corner); the game walls them itself.
+    {"name": "Ussher Fort", "ways": [883616363, 776059828, 776059829, 776059830, 776059839, 776059838, 776442379, 776442380,
+                                     776442381, 776442382, 883616359, 776442383, 776442378, 776442384, 883616361, 883616360,
+                                     889632301]},
 ]
 
 # A district footprint is a listed building's when they overlap by this share of their union (intersection over
