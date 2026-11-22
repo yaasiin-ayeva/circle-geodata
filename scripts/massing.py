@@ -379,7 +379,7 @@ def building(mesh, obj, wall_mat, bid, poly, n_storeys, parapet, near_oxford, ya
     return "block"
 
 
-def compounds(mesh, cell_name, yards, keep_out, roads, road_width, counts, district, avoid=None, gates_out=None, paints=None):
+def compounds(mesh, cell_name, yards, keep_out, roads, road_width, counts, district, avoid=None, gates_out=None, paints=None, gate_mat="M_Gate"):
     """Compound walls along the residential streets, with a gate towards each yard's house.
 
     The walls follow the street frontage of the city blocks, VERGE_M back from the road edge, wherever a yard
@@ -390,8 +390,8 @@ def compounds(mesh, cell_name, yards, keep_out, roads, road_width, counts, distr
     Returns the walls' lines, gates included (the gates stand closed), for the game's collisions. gates_out, a list,
     receives each gate built as (x, y) of its middle, for the game's planting by the gates (circle-game
     src/world/vegetation.ts). paints: the walls' (material, weight), BOUNDARY_PAINTS by default; a district with a paint
-    list of its own (the old centre, where only the avenue's villas stand in yards) passes its own, so its cells gain no
-    material.
+    list of its own (the old centre, where only the avenue's villas stand in yards) passes its own, and gate_mat the grey
+    sheet (M_Roof) for the gates, so its cells gain no material.
     """
     if not yards:
         return []
@@ -443,7 +443,7 @@ def compounds(mesh, cell_name, yards, keep_out, roads, road_width, counts, distr
             b = np.array(piece.interpolate(min(piece.length, s + 0.5)).coords[0])
             t = (b - a) / max(1e-6, float(np.hypot(*(b - a))))
             obj = cell_name("Buildings", c[0], c[1])
-            slab(mesh, obj, "M_Gate", c - t * GATE_W / 2, c + t * GATE_W / 2, 0.06, 0.0, GATE_H)
+            slab(mesh, obj, gate_mat, c - t * GATE_W / 2, c + t * GATE_W / 2, 0.06, 0.0, GATE_H)
             for side in (-1, 1):
                 post(mesh, obj, paint, c + t * side * (GATE_W / 2 + 0.22), 0.44, 0.0, WALL_H + 0.35)
             counts["gates"] += 1

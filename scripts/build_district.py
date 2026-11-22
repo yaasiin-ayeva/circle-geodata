@@ -1364,7 +1364,8 @@ def build(args):
         low = [poly for poly, off in on_structures if off < 4.0]
         compound_walls = massing.compounds(mesh, cell_name, yards, keep_out + landmark_ground + lm_grounds + fuel_ground + low, district_roads,
                                            ROAD_WIDTH, counts, clip, oxford, gates_out=compound_gates,
-                                           paints=None if rules["yards"] else rules["paints"])
+                                           paints=None if rules["yards"] else rules["paints"],
+                                           gate_mat="M_Gate" if rules["yards"] else "M_Roof")
 
     # Roads: ribbons with mitred joints, a dashed centre line on the major classes.
     lights = []
