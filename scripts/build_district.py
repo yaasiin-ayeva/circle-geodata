@@ -169,6 +169,14 @@ KANESHIE_LAP = {"route": [(5.561672, -0.229382), (5.576038, -0.253541)],
 LABADI = {"south": 5.5400, "north": 5.5850, "west": -0.1900, "east": -0.0980}
 LABADI_ROADS = ("La Road", "Teshie Road", "Lakpanaa Street", "Ring Road East")
 LABADI_BEACH = {"south": 5.5540, "north": 5.5670, "west": -0.1500, "east": -0.1340}
+# Osu Castle (Christiansborg) on the shore, with Castle Drive, the streets of Osu above it and 28th February Road
+# behind (circle-game docs/osu-castle.md), added to Labadi's corridor so that the castle the game builds stands on the
+# city's ground with its road side and its sea side. Its grounds (OpenStreetMap way 11827738) are 570 by 350 m; the box takes them
+# with the shore below and the streets to 28th February Road. Without it the castle lay 0.5 km outside every tile
+# (circle-reference catalogue/accra-places.md, #18). Its west edge is central's east edge (CENTRAL), so that Castle
+# Drive, 28th February Road and Nii Owuo Street, cut there, go on in central's tiles: a gap between the two left the
+# castle's streets cut off from every route.
+OSU_CASTLE_BOX = {"south": 5.5440, "north": 5.5505, "west": -0.1900, "east": -0.1800}
 # Its lap: La Road from Osu east to Labadi, Teshie Road to Teshie and back (a single carriageway mostly: "penalty" 1).
 LABADI_LAP = {"route": [(5.553498, -0.174993), (5.559395, -0.150092), (5.564775, -0.137170), (5.578105, -0.109933),
                         (5.564775, -0.137170), (5.559395, -0.150092)], "penalty": 1.0}
@@ -205,7 +213,8 @@ AREAS = {
     "kaneshie": {"corridor": {"roads": KANESHIE_ROADS, "half_width_m": 220.0, "within": KANESHIE,
                               "boxes": (KANESHIE_MARKET,)},
                  "minus": ["central"], "origin": OSU_ORIGIN, "lap": KANESHIE_LAP, "district": "ring-road"},
-    "labadi": {"corridor": {"roads": LABADI_ROADS, "half_width_m": 220.0, "within": LABADI, "boxes": (LABADI_BEACH,)},
+    "labadi": {"corridor": {"roads": LABADI_ROADS, "half_width_m": 220.0, "within": LABADI,
+                            "boxes": (LABADI_BEACH, OSU_CASTLE_BOX)},
                "minus": ["osu-poc", "ring-road", "central"], "origin": OSU_ORIGIN, "lap": LABADI_LAP, "district": "ring-road"},
 }
 

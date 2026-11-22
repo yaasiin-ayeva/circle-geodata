@@ -662,6 +662,61 @@ def smooth_profile(h, d, sigma):
     return ndimage.gaussian_filter1d(h, s, mode="nearest")
 
 
+SHORE_RAMP_M = 12.0     # Osu's shore: the ground drops from the coastline to the sea floor over this (the rocks' face)
+SHORE_EDGE_M = 0.0      # the sea floor at the band's edge, where it meets the DEM's sea
+SHORE_FLOOR_M = -2.5    # the sea floor off the rocks, under the game's sea level (circle-game labadi-beach.json sea.level 0.8)
+SHORE_BAND_M = 250.0    # how far seaward of the line the sea floor is laid: past the bare-earth filter's lift of the sea bed
+
+
+def shore_drop(h, grid, shore, origin, to_utm):
+    """Osu's rocky shore laid into the ground: seaward of the coastline (aoi/osu-shore.geojson, OpenStreetMap's, the sea
+    on its right) the ground falls from its height at the line to SHORE_FLOOR_M over SHORE_RAMP_M, and stays under the
+    sea beyond, to SHORE_BAND_M. The DEM's 30 m pixels and the bare-earth filter smooth Osu's 5 to 8 m drop at the rocks
+    into a slope of 150 m, so the sea, drawn where the ground falls under its level, began 80 to 105 m off Osu Castle's
+    walls instead of at its rocks (circle-game docs/osu-castle.md). Landward of the line nothing changes. Returns the
+    nodes lowered."""
+    lines = []
+    for f in shore["features"]:
+        c = np.array(f["geometry"]["coordinates"], dtype=np.float64)
+        e, n = to_utm.transform(c[:, 0], c[:, 1])
+        lines.append(LineString(np.column_stack([e - origin[0], origin[1] - n])))
+    lowered = 0
+    for line in lines:
+        # Seen in the world frame (z south), the line's right side is mirrored: the sea lies on its left there.
+        sea = line.buffer(SHORE_BAND_M, single_sided=True)
+        x0, z0, x1, z1 = sea.bounds
+        i0 = max(0, int((x0 - grid.x0) / grid.step)); i1 = min(grid.nx - 1, int((x1 - grid.x0) / grid.step) + 1)
+        j0 = max(0, int((z0 - grid.z0) / grid.step)); j1 = min(grid.nz - 1, int((z1 - grid.z0) / grid.step) + 1)
+        if i0 >= i1 or j0 >= j1:
+            continue
+        jj, ii = np.mgrid[j0:j1 + 1, i0:i1 + 1]
+        x = grid.x0 + ii * grid.step
+        z = grid.z0 + jj * grid.step
+        pts = shapely.points(x.ravel(), z.ravel())
+        inside = shapely.contains(sea, pts)
+        if not inside.any():
+            continue
+        pts = pts[inside]
+        d = shapely.distance(line, pts)
+        foot = shapely.line_interpolate_point(line, shapely.line_locate_point(line, pts))
+        fx = (shapely.get_x(foot) - grid.x0) / grid.step
+        fz = (shapely.get_y(foot) - grid.z0) / grid.step
+        at_line = ndimage.map_coordinates(h, [fz, fx], order=1, mode="nearest")
+        t = np.clip(d / SHORE_RAMP_M, 0.0, 1.0)
+        # The face, the sea floor, then over the band's last 60 m the floor rises to SHORE_EDGE_M, under the sea's level,
+        # to meet the DEM's sea (about 0 m) with no step at the band's edge. Within the band the natural ground is never
+        # kept above the floor: the bare-earth filter lifts the sea bed to 1 m 80 to 120 m out, over the sea's level,
+        # which showed as sand bars off the castle.
+        rise = np.clip((d - (SHORE_BAND_M - 60.0)) / 60.0, 0.0, 1.0)
+        floor = SHORE_FLOOR_M + (SHORE_EDGE_M - SHORE_FLOOR_M) * rise
+        target = at_line + (floor - at_line) * t
+        jv, iv = jj.ravel()[inside], ii.ravel()[inside]
+        old = h[jv, iv]
+        h[jv, iv] = np.minimum(old, target)
+        lowered += int((h[jv, iv] < old - 0.01).sum())
+    return lowered
+
+
 class Grid:
     """A regular grid in the world frame: node (i, j) at x = x0 + i * step, z = z0 + j * step."""
     def __init__(self, x0, z0, nx, nz, step):
@@ -865,6 +920,8 @@ def main():
     ap.add_argument("--elevated", default="data/work/elevated.json",
                     help="the interchanges and flyovers (elevated.py): their heights in structures.json, their cuts laid in")
     ap.add_argument("--preview", help="a PNG of the relief and the tiles, for a look")
+    ap.add_argument("--shore", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "aoi", "osu-shore.geojson"),
+                    help="the rocky shore laid into the ground (shore_drop); none when the file is missing")
     args = ap.parse_args()
 
     world, roads = world_roads(args.world)
@@ -972,6 +1029,10 @@ def main():
                        "credits": "Interchanges, flyovers and footbridges: OpenStreetMap contributors (ODbL)."},
                       f, separators=(",", ":"))
         print(f"structures: {len(pieces)} pieces, {sum(c[0] == 'cut' for c in cuts)} laid in as cuts, {len(feet)} footbridges")
+
+    if args.shore and os.path.exists(args.shore):
+        with open(args.shore) as f:
+            print(f"shore: {shore_drop(h, fine, json.load(f), origin, to_utm)} nodes lowered seaward of Osu's coastline")
 
     os.makedirs(os.path.join(args.out, "t"), exist_ok=True)
     total = 0

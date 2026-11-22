@@ -67,6 +67,9 @@ LANDMARKS = [
     # keeper's house and its rear block (272612102, 777917227) and the fort (177958818). The placeholder tower
     # build_district.py draws at the bible's point (lighthouse()) stays: the game folds it where it builds its own.
     {"name": "Jamestown Lighthouse and James Fort", "ways": [316143859, 272612102, 777917227, 177958818]},
+    # Osu Castle, Fort Christiansborg (circle-game docs/osu-castle.md): the relation (tagged only building=office),
+    # outer way 557305324 round its courtyard 630806386.
+    {"name": "Osu Castle", "relations": [8776513]},
 ]
 
 # A district footprint is a listed building's when they overlap by this share of their union (intersection over
