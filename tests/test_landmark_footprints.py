@@ -20,6 +20,7 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 import shapely
+import shapely.affinity
 from pyproj import Transformer
 from shapely.geometry import LineString, Point, Polygon, box
 
@@ -151,9 +152,12 @@ def compare(before_dir, after_dir, name, label=None):
     wdiff = list((bw - aw) + (aw - bw))
     check(f"{label}: compound walls changed only near a landmark",
           all(near.contains(LineString(list(zip(w[0::2], w[1::2])))) for w in wdiff), f"{len(wdiff)} changed")
+    # (A hiding place's kind is dealt in turn down the list, so one gone on a landmark's ground changes the kinds of
+    # those after it: their places are compared, not their kinds.)
     for key in ("parked", "hiding"):
-        bk = Counter(json.dumps(x, sort_keys=True) for x in b_meta.get(key, []))
-        ak = Counter(json.dumps(x, sort_keys=True) for x in a_meta.get(key, []))
+        strip = (lambda x: {k: v for k, v in x.items() if k != "kind"}) if key == "hiding" else (lambda x: x)
+        bk = Counter(json.dumps(strip(x), sort_keys=True) for x in b_meta.get(key, []))
+        ak = Counter(json.dumps(strip(x), sort_keys=True) for x in a_meta.get(key, []))
         moved = [json.loads(x) for x in list((bk - ak) + (ak - bk))]
         check(f"{label}: {key} changed only near a landmark", all(near.contains(Point(x["x"], x["z"])) for x in moved),
               f"{len(moved)} changed")
@@ -177,7 +181,7 @@ def unit_checks():
     outlines = lf.load()
     check("every listed id has its outline in aoi/landmark-footprints.geojson", set(ids) == {o["osm"] for o in outlines},
           ", ".join(sorted(set(ids) - {o["osm"] for o in outlines})))
-    check("no id listed twice", sum(len(lm.get(k, [])) for lm in lf.LANDMARKS for k in ("ways", "relations", "sheds_on")) == len(ids))
+    check("no id listed twice", sum(len(lm.get(k, [])) for lm in lf.LANDMARKS for k in ("ways", "relations", "sheds_on", "grounds")) == len(ids))
     check("the Independence Arch is way 169866122, the Black Star Gate way 169866126",
           ids.get("way/169866122", ("",))[0] == "Independence Arch" and ids.get("way/169866126", ("",))[0] == "Black Star Gate")
     check("the stadium's bowl and main stand, not its compound",
@@ -186,6 +190,20 @@ def unit_checks():
     check("each outline is a valid polygon", all(o["geom"].is_valid and o["geom"].area > 0 for o in outlines))
     jh = next((o for o in outlines if o["osm"] == "relation/7892588"), None)
     check("Jubilee House keeps its courtyards", jh is not None and sum(len(p.interiors) for p in getattr(jh["geom"], "geoms", [jh["geom"]])) == 8)
+
+    # Jubilee House's grounds: the game's own site, no building of it.
+    gr = next((o for o in outlines if o["osm"] == "way/1574990678"), None)
+    check("Jubilee House's grounds are way 1574990678, round the house", gr is not None and gr["role"] == "grounds" and jh is not None
+          and gr["geom"].contains(jh["geom"].representative_point()) and gr["geom"].area > jh["geom"].area * 3)
+    check("its grounds are kept clear (grounds()), in the area's metres", len(lf.grounds(outlines, lambda g: g)) == 1
+          and lf.grounds([{"osm": "way/9", "role": "grounds", "geom": box(0, 0, 5, 5)}], lambda g: shapely.affinity.scale(g, 2, 2))[0].area == 100)
+    m = lf.Matcher([{"osm": "way/9", "role": "grounds", "geom": box(0, 0, 400, 400)}], lambda g: g)
+    check("no building is matched to a landmark's grounds (they stay)", m.match(box(0, 0, 400, 400)) is None and m.match(box(10, 10, 20, 20)) is None)
+    # The compound walls keep off the grounds (build_district.py passes them to massing.compounds' keep_out).
+    import inspect
+    src = inspect.getsource(bd.build)
+    check("build_district keeps the compound walls, parked cars and hiding places off the grounds",
+          src.count("lm_grounds") >= 4 and "landmark_footprints.grounds(" in src)
 
     # The match, on shapes in metres.
     m = lf.Matcher([{"osm": "way/1", "role": "building", "geom": box(0, 0, 40, 20)},

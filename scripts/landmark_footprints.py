@@ -14,6 +14,9 @@ as OpenStreetMap maps it (ODbL 1.0, ../ATTRIBUTION.md), and a district footprint
 overlap by at least MATCH_IOU of their union (Overture takes OpenStreetMap's buildings as they are: the overlap is
 about 1). An entry may also name car parks ("sheds_on"): the small roofs Overture traced on them (Google's and
 Microsoft's machine-learned footprints, not on OpenStreetMap) go too, when the landmark builds its car park itself.
+An entry may also name its grounds ("grounds": ways of a walled site the game lays out itself, its own wall, lawns and
+drives): no generated compound wall, parked car or hiding place is put on them, so none stands across the game's lawns
+or the drives in from the road. The buildings on the grounds stay as they are (only the listed ones go).
 
 The file is checked in, so a build needs no network and gives the same city each time; refresh it from the Ghana
 extract after an id changes here:
@@ -34,7 +37,8 @@ FOOTPRINTS = os.path.join(HERE, "..", "aoi", "landmark-footprints.geojson")
 
 # The landmarks circle-game builds (its docs/<name>.md and src/data/<name>.json name these ids). "ways" and
 # "relations": the buildings themselves; "sheds_on": car parks (ways) whose sheds go with the landmark; "places": the
-# named places on the landmark whose category the data has wrong, set right (fix_places()).
+# named places on the landmark whose category the data has wrong, set right (fix_places()); "grounds": the site the
+# game lays out itself (ways), kept clear of the generated walls, cars and hiding places (grounds()).
 LANDMARKS = [
     # The bowl and the main stand only (circle-game docs/accra-stadium.md): the rest of compound 11526929 (its
     # offices, the gates, the hockey stadium beside it) stays generic.
@@ -43,7 +47,10 @@ LANDMARKS = [
     # eight courtyards. Overture's places also pin "The Flagstaff House" (the building's old name, OpenStreetMap's
     # alt_name) on it as lodging, which the maps drew as a hotel: it is the presidency, as Overture classes "Jubilee
     # House" itself.
-    {"name": "Jubilee House", "relations": [7892588],
+    # Its grounds, way 1574990678 (landuse=civic_admin, name=Jubilee House), are the game's (docs/jubilee-greenery.md:
+    # the perimeter wall, the lawns, the ring drive, the two drives in from Liberation Road): the generated compound
+    # walls stood along those drives and along Presidential Drive inside it, solid, where the photographs show lawn.
+    {"name": "Jubilee House", "relations": [7892588], "grounds": [1574990678],
      "places": [{"name": "The Flagstaff House", "category": "government_office"}]},
     # Accra Mall (circle-game docs/accra-mall.md): the relation, outer way 444488219, and the eight sheds Overture
     # traced on its three car parks, which the game lays out itself with its bays, lamps and palms.
@@ -56,6 +63,10 @@ LANDMARKS = [
                                                     169866129, 169866130]},
     {"name": "Black Star Gate", "ways": [169866126]},
     {"name": "Independence Arch", "ways": [169866122]},
+    # Jamestown Lighthouse and James Fort (circle-game docs/jamestown-lighthouse.md): the tower (way 316143859), the
+    # keeper's house and its rear block (272612102, 777917227) and the fort (177958818). The placeholder tower
+    # build_district.py draws at the bible's point (lighthouse()) stays: the game folds it where it builds its own.
+    {"name": "Jamestown Lighthouse and James Fort", "ways": [316143859, 272612102, 777917227, 177958818]},
     # Osu Castle, Fort Christiansborg (circle-game docs/osu-castle.md): the relation (tagged only building=office),
     # outer way 557305324 round its courtyard 630806386.
     {"name": "Osu Castle", "relations": [8776513]},
@@ -81,7 +92,15 @@ def osm_ids():
             out[f"relation/{r}"] = (lm["name"], "building")
         for w in lm.get("sheds_on", []):
             out[f"way/{w}"] = (lm["name"], "car park")
+        for w in lm.get("grounds", []):
+            out[f"way/{w}"] = (lm["name"], "grounds")
     return out
+
+
+def grounds(outlines, local):
+    """The landmarks' grounds (load()'s outlines of role "grounds") in the area's metres: what the generated compound
+    walls, parked cars and hiding places keep off. No building is matched to them (Matcher)."""
+    return [g for g in (local(o["geom"]) for o in outlines if o["role"] == "grounds") if not g.is_empty]
 
 
 def load(path=FOOTPRINTS):
@@ -108,7 +127,7 @@ class Matcher:
 
     def __init__(self, outlines, local):
         """outlines: load()'s list; local: WGS84 geometry -> the area's metres."""
-        self.items = [(o["osm"], o["role"], local(o["geom"])) for o in outlines]
+        self.items = [(o["osm"], o["role"], local(o["geom"])) for o in outlines if o["role"] != "grounds"]
         self.tree = shapely.STRtree([g for _, _, g in self.items]) if self.items else None
         self.hits = {}                                   # osm id -> footprints matched
 
