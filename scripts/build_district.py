@@ -28,6 +28,7 @@ House, Accra Mall...) are left out of every district: no massing and no solid ou
 keep compound walls, parked cars and hiding places off their ground. --keep-landmarks builds them as before.
 """
 import argparse
+import csv
 import hashlib
 from collections import Counter
 import json
@@ -53,6 +54,7 @@ from shapely.geometry.polygon import orient
 from shapely.ops import substring
 
 import landmark_footprints
+import avenue_kit
 import massing
 import typology
 
@@ -1024,6 +1026,66 @@ def typology_building(mesh, obj, wall, bid, poly, n, height, floors, parapet, ne
     return kind
 
 
+# The avenue kit's wall paints for the civic and office types (avenue_kit.py): render, grey and pale blue, as the
+# Ministries' and Ridge's offices; taken only where the district already paints with them (no material new to a cell).
+OFFICE_PAINTS = [("M_Wall_Concrete", 0.5), ("M_Wall_Grey", 0.25), ("M_Wall_PaleBlue", 0.25)]
+
+
+def avenue_building(mesh, obj, wall, bid, poly, n, height, floors, parapet, src, cls, place_index, fronts, avenue,
+                    counts, rows, district, rules):
+    """Builds a footprint of Independence Avenue's corridor by its typology (avenue_kit.py) and returns it, or None for
+    the generic massing (the typologies of later stages, the modelled sites, the small machine-learnt footprints).
+    rows receives one line per footprint of the corridor for the build's record (avenue-kit.csv)."""
+    places = place_index.inside(poly)
+    named = avenue.named_of(poly)
+    lot = avenue.lot_of(poly)
+    seg = avenue.segment(poly)
+    mapped = floors or (max(1, round(float(height) / STOREY_M)) if height else None)
+    ml = src != "OpenStreetMap"
+    kind = avenue_kit.choose(poly.area, mapped, cls, places, lot, named, seg, ml)
+    c = poly.centroid
+    row = {"id": bid, "source": src, "x": round(c.x, 1), "y": round(c.y, 1), "area_m2": round(poly.area), "segment": seg, "lot": (named or lot or {}).get("lot"),
+           "class": cls or "", "kind": kind or "generic", "storeys": "", "estimated": ""}
+    rows.append(row)
+    if kind is None:
+        counts["avenue generic"] += 1
+        return None
+    est = n if n is not None else (mapped or 1)
+    k = avenue_kit.storeys_for(kind, est, mapped)
+    row["storeys"], row["estimated"] = k, "" if mapped else "yes"
+    if kind in ("T2", "T4", "T5", "T7", "T12", "T13", "T14", "VOL"):
+        have = {m for m, _ in (rules["paints"] or [(w, 1) for w in WALLS])}
+        mix = [(m, w) for m, w in OFFICE_PAINTS if m in have] or [(wall, 1.0)]
+        wall = massing.pick(mix, unit_hash(bid, "office paint") * sum(w for _, w in mix))
+    facing = typology.facing(fronts, poly)
+    if kind == "T1":
+        massing.villa(mesh, obj, wall, bid, poly, k, parapet, counts, massing.ROOF_PALETTES.get(district))
+    elif kind in ("T2", "T12"):
+        massing.office(mesh, obj, wall, bid, poly, k, counts, facing, porte=kind == "T12")
+    elif kind == "T4":
+        massing.bank(mesh, obj, wall, bid, poly, k, counts, facing)
+    elif kind == "T5":
+        massing.ministry(mesh, obj, wall, bid, poly, k, counts)
+    elif kind in ("T6", "T14"):
+        massing.veranda_block(mesh, obj, wall, bid, poly, k, counts, kind, facing)
+    elif kind == "T7":
+        massing.low_block(mesh, obj, wall, bid, poly, k, counts)
+    elif kind == "T8":
+        massing.building(mesh, obj, wall, bid, poly, k, parapet, False, False, counts, "osu", None, massing.BALCONIES)
+    elif kind == "T9":
+        massing.building(mesh, obj, wall, bid, poly, k, parapet, False, False, counts, "osu", None, massing.SHOPFRONT)
+    elif kind == "T10":
+        massing.kiosk(mesh, obj, wall, bid, poly, counts)
+    elif kind == "T11":
+        massing.church(mesh, obj, wall, bid, poly, counts)
+    elif kind == "T13":
+        massing.car_park(mesh, obj, wall, bid, poly, k, counts)
+    elif kind == "VOL":
+        massing.volume(mesh, obj, wall, bid, poly, k, counts)
+    counts[f"avenue {kind}"] += 1
+    return kind
+
+
 def build(args):
     area = AREAS[args.name]
     rules = DISTRICT_RULES.get(area.get("district", "osu"), DISTRICT_RULES["osu"])
@@ -1165,16 +1227,25 @@ def build(args):
     yards, keep_out = [], []
     counts = Counter()
     # The typologies (typology.py): the places inside each footprint, the roads it fronts, the office districts.
-    kit2 = not args.no_typologies and not args.no_massing
-    if kit2:
+    # City-wide they are paused (20 Nov 2026) and opt-in (--typologies); the avenue's kit (--avenue-kit) uses their
+    # builders on Independence Avenue's corridor alone.
+    kit2 = getattr(args, "typologies", False) and not args.no_massing
+    avenue = None
+    if getattr(args, "avenue_kit", None) and not args.no_massing:
+        avenue = avenue_kit.Avenue(avenue_kit.load(args.avenue_kit), local)
+        if not avenue.touches(clip):
+            avenue = None
+    avenue_rows = []
+    if kit2 or avenue is not None:
         place_index = typology.Places(typology.slice_places(args.slice, local, con))
         fronts = typology.front_index([(cls, g) for _, cls, _, g in roads], lambda c: ROAD_WIDTH[c])
         zones = [local(area_box(z)) for z in TOWER_ZONES.values()]
     names = []
-    cols = "id, source, height, num_floors" + (", class, name" if kit2 else "")
+    named_cols = kit2 or avenue is not None
+    cols = "id, source, height, num_floors" + (", class, name" if named_cols else "")
     for row in load(con, os.path.join(args.slice, "buildings.parquet"), cols):
         bid, src, height, floors, blob = row[:4] + row[-1:]
-        bcls, bname = row[4:6] if kit2 else (None, None)
+        bcls, bname = row[4:6] if named_cols else (None, None)
         g = shapely.from_wkb(bytes(blob))
         c = g.centroid
         if not lonlat_box.contains(c) or any(m.contains(c) for m in minus):
@@ -1231,6 +1302,14 @@ def build(args):
             obj = cell_name("Buildings", c.x, c.y)
             wall = (massing.pick(rules["paints"], unit_hash(bid, "paint")) if rules["paints"]
                     else WALLS[int(unit_hash(bid, "paint") * len(WALLS))])
+            if avenue is not None and avenue.inside(poly):
+                kind = avenue_building(mesh, obj, wall, bid, poly, n, height, floors, parapet, src, bcls, place_index,
+                                       fronts, avenue, counts, avenue_rows, area.get("district", "osu"), rules)
+                if kind:
+                    # Villas and the sensitive sites stand behind their walls (compounds()); the rest keep them out.
+                    (yards.append((bid, poly)) if kind in ("T1", "VOL") else keep_out.append(poly))
+                    nb += 1
+                    continue
             if kit2:
                 kind = typology_building(mesh, obj, wall, bid, poly, n, height, floors, parapet, near, bcls, bname,
                                          place_index, fronts, zones, args.name, counts, names)
@@ -1284,7 +1363,8 @@ def build(args):
         # Off the structures' roads where they are low (a ramp, a cut), as off a fuel station's ground.
         low = [poly for poly, off in on_structures if off < 4.0]
         compound_walls = massing.compounds(mesh, cell_name, yards, keep_out + landmark_ground + lm_grounds + fuel_ground + low, district_roads,
-                                           ROAD_WIDTH, counts, clip, oxford, gates_out=compound_gates)
+                                           ROAD_WIDTH, counts, clip, oxford, gates_out=compound_gates,
+                                           paints=None if rules["yards"] else rules["paints"])
 
     # Roads: ribbons with mitred joints, a dashed centre line on the major classes.
     lights = []
@@ -1481,6 +1561,15 @@ def build(args):
     }
     with open(base + ".json", "w") as f:
         json.dump(meta, f, indent=1)
+    if avenue_rows:
+        # The avenue kit's record: one line per footprint of the corridor, its typology or "generic", for the plan.
+        with open(os.path.join(args.out, "avenue-kit.csv"), "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(avenue_rows[0]))
+            w.writeheader()
+            w.writerows(avenue_rows)
+        by = Counter(r["kind"] for r in avenue_rows)
+        print(f"avenue kit: {len(avenue_rows)} footprints in the corridor: "
+              + ", ".join(f"{k} {by[k]}" for k in sorted(by, key=lambda k: (k[0] != "T", len(k), k))))
     preview(base + "-preview.png", roads, clip, mesh, lights, lap)
     print(json.dumps(meta["stats"]))
     if rules.get("parking"):
@@ -2229,9 +2318,14 @@ def main():
     ap.add_argument("--name", default="osu-poc", choices=sorted(AREAS))
     ap.add_argument("--out", default="data/work/osu-poc")
     ap.add_argument("--exclude", help="file of building ids to leave out (from build_lookdev.py)")
-    ap.add_argument("--no-typologies", action="store_true",
-                    help="build every footprint with the generic modules, as before typology.py (churches, mosques, "
-                         "towers, flats, storey buildings, warehouses and kiosks drawn as plain blocks and houses)")
+    ap.add_argument("--typologies", action="store_true",
+                    help="the city-wide typologies of typology.py (churches, mosques, towers, flats, storey buildings, "
+                         "warehouses and kiosks), paused since 20 Nov 2026: without it every footprint outside the "
+                         "avenue's corridor takes the generic modules, as on main")
+    ap.add_argument("--avenue-kit", nargs="?", const=avenue_kit.DATA, default=None, metavar="JSON",
+                    help="Independence Avenue's kit (avenue_kit.py; circle-game docs/independence-avenue-plan.md, "
+                         "stage 2): the typologies T1 to T16 on the corridor's generic buildings, from "
+                         "aoi/independence-avenue-kit.json by default; without it they are built as before")
     ap.add_argument("--elevated", default=ELEVATED,
                     help="the interchanges and flyovers (scripts/elevated.py); without the file every road is on the ground")
     ap.add_argument("--no-massing", action="store_true",
