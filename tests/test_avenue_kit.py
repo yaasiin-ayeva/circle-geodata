@@ -142,16 +142,32 @@ cnt = Counter()
 
 m = Mesh()
 massing.villa(m, "o", "M_Wall_Ochre", "v1", orient(box(0, 0, 14, 10), 1.0), 2, 0.6, cnt)
-check("villa: walls carry HOME and YARD", all(f & massing.HOME and f & massing.YARD for f in flags(m)), flags(m))
+kind_of = lambda f: f & (7 * 1024)
+check("villa: the house's walls carry HOME, YARD and the villa's kind",
+      any(f & massing.HOME and f & massing.YARD and kind_of(f) == massing.KIND_VILLA for f in flags(m))
+      and all(kind_of(f) in (0, massing.KIND_VILLA) for f in flags(m)), flags(m))
 check("villa: a pitched roof on a near-rectangle", m.materials() & {"M_RoofTile_Red", "M_Roof", "M_RoofSheet_Rust"} != set()
       and cnt["villa hipped"] + cnt["villa flat"] == 1)
 check("villa: district materials only", m.materials() <= DISTRICT_MATS, m.materials())
+cnt = Counter()
+m = Mesh()
+massing.villa(m, "o", "M_Wall_Ochre", "v7", orient(box(0, 0, 16, 10), 1.0), 2, 0.6, cnt, None, "M_RoofTile_Red", np.array([0.0, -1.0]))
+check("villa: a porch towards the road (its posts out of the footprint)", cnt["villa porches"] == 1
+      and any(min(p[1] for p in t[:3]) < -2.0 for t in m.tris()), dict(cnt))
 
 m = Mesh()
 massing.office(m, "o", "M_Wall_Concrete", "o1", slab_foot, 5, cnt, facing=np.array([0.0, -1.0]))
 check("office: every storey's wall an OFFICE wall", any(f & massing.OFFICE for f in flags(m)))
+check("office: a framed or a glass kind", any(kind_of(f) in (massing.KIND_OFFICE, massing.KIND_GLASS) for f in flags(m)))
 check("office: no shops' flags", not any(f & (massing.SHOPFRONT | massing.YARD) for f in flags(m)))
-check("office: five storeys and a parapet", 5 * 3.2 + 1.0 < top(m) < 5 * 3.2 + 4.0, f"{top(m):.1f}")
+check("office: five storeys and a parapet", 5 * 3.2 + 0.2 < top(m) < 5 * 3.2 + 4.0, f"{top(m):.1f}")
+cnt = Counter()
+m = Mesh()
+massing.office(m, "o", "M_Wall_Concrete", "big", orient(box(0, 0, 40, 30), 1.0), 7, cnt, facing=np.array([0.0, -1.0]))
+check("office: on a large footprint a podium, a slab set back on it and a recessed top floor",
+      cnt["office podiums"] == 1 and cnt["office recessed tops"] == 1, dict(cnt))
+xs_at = lambda z: [p[0] for t in m.tris("M_Wall_*") for p in t[:3] if abs(p[2] - z) < 0.05]
+check("office: the slab narrower than the podium", min(xs_at(6 * 3.2)) > min(xs_at(0.0)) + 2.5)
 check("office: an entrance canopy stands out of the footprint", any(min(p[1] for p in t[:3]) < -0.5 for t in m.tris()))
 check("office: district materials only", m.materials() <= DISTRICT_MATS, m.materials())
 banded = sum(1 for i in range(40) if massing.h01(f"b{i}", "bands") < 0.4)
@@ -166,15 +182,21 @@ massing.bank(m, "o", "M_Wall_Concrete", "b1", orient(box(0, 0, 20, 12), 1.0), 2,
 check("bank: a glazed ground floor (CURTAIN) under an OFFICE storey", any(f & massing.CURTAIN for f in flags(m))
       and any(f & massing.OFFICE for f in flags(m)))
 check("bank: its canopy on the road's side", any(max(p[1] for p in t[:3]) > 13.0 for t in m.tris()))
+check("bank: a panelled storey (its kind) and a glazed corner proud of the walls",
+      any(kind_of(f) == massing.KIND_BANK for f in flags(m)) and any(max(p[1] for p in t[:3]) > 12.05 and
+      t[3] and int(t[3][0][1] // 1000) & massing.CURTAIN and max(p[2] for p in t[:3]) > 4.0 for t in m.tris("M_Wall_*")))
 
 m = Mesh()
 cnt = Counter()
 massing.ministry(m, "o", "M_Wall_Concrete", "m1", orient(box(0, 0, 60, 16), 1.0), 5, cnt)
 check("ministry: sun-breakers every 1.5 m", cnt["ministry fins"] >= 2 * (60 // 1.5) - 4, cnt["ministry fins"])
+check("ministry: a slab edge at every floor line and pilotis", cnt["ministry slab edges"] >= 4 * 2 and cnt["ministry pilotis"] >= 20, dict(cnt))
+check("ministry: its kind on the walls", any(kind_of(f) == massing.KIND_MINISTRY for f in flags(m)))
+check("ministry: a roof slab overhanging 1.2 m", min(p[1] for t in m.tris("M_Roof") for p in t[:3]) < -1.0)
 check("ministry: the fins carry no openings", any(f & massing.NO_OPENINGS for f in flags(m)))
 check("ministry: OFFICE walls", any(f & massing.OFFICE for f in flags(m)))
 check("ministry: district materials only", m.materials() <= DISTRICT_MATS, m.materials())
-check("ministry: under 3,000 triangles for a 60 m block", len(m.tris()) < 3000, len(m.tris()))
+check("ministry: under 5,000 triangles for a 60 m block", len(m.tris()) < 5000, len(m.tris()))
 
 m = Mesh()
 cnt = Counter()
@@ -198,13 +220,29 @@ check("hospital block: long and low under a pitched sheet roof", cnt["low blocks
 m = Mesh()
 cnt = Counter()
 massing.car_park(m, "o", "M_Wall_Grey", "cp", orient(box(0, 0, 60, 40), 1.0), 6, cnt)
-check("car park: six open decks, no window walls", top(m) >= 18.0 and not any(f & massing.OFFICE for f in flags(m))
-      and all(f & massing.NO_OPENINGS for f in flags(m) if f), flags(m))
+check("car park: six open decks, no window walls", top(m) >= 18.0 and all(f & massing.NO_OPENINGS for f in flags(m) if f), flags(m))
+check("the civic types' solid parts carry their kind (the game paints them as the building)",
+      all(kind_of(f) == massing.KIND_OFFICE for f in flags(m)))
 check("car park: columns inside", cnt["car park columns"] >= 20, cnt["car park columns"])
 
 m = Mesh()
 massing.volume(m, "o", "M_Wall_Concrete", "e1", orient(box(0, 0, 25, 18), 1.0), 3, Counter())
 check("volume: plain, no shops, in a yard (its wall built round it)", any(f & massing.OFFICE and f & massing.YARD for f in flags(m)))
+check("volume: its kind", any(kind_of(f) == massing.KIND_VOLUME for f in flags(m)))
+
+m = Mesh()
+cnt = Counter()
+massing.veranda_block(m, "o", "M_Wall_Ochre", "w1", orient(box(0, 0, 40, 10), 1.0), 1, cnt, "T7", facing=np.array([0.0, 1.0]))
+check("hospital block: a veranda on posts and the institution's kind", cnt["hospital blocks"] == 1 and cnt["veranda posts"] >= 10
+      and any(kind_of(f) == massing.KIND_INSTITUTION for f in flags(m)), dict(cnt))
+m = Mesh()
+cnt = Counter()
+blocks = [orient(box(0, 0, 30, 10), 1.0), orient(box(0, 18, 30, 28), 1.0), orient(box(80, 0, 100, 10), 1.0)]
+n_walks = massing.covered_walks(m, lambda p, x, y: "c", "M_Wall_Ochre", blocks, cnt)
+check("covered walks: the two neighbours joined, the far block not", n_walks == 1 and len(m.tris("M_Roof")) > 0, n_walks)
+check("covered walks: under the roof at 2.7 m", abs(max(p[2] for t in m.tris("M_Roof") for p in t[:3]) - 2.82) < 0.05)
+check("the kinds are distinct codes above HOME", len({massing.KIND_OFFICE, massing.KIND_GLASS, massing.KIND_BANK, massing.KIND_MINISTRY,
+      massing.KIND_INSTITUTION, massing.KIND_VILLA, massing.KIND_VOLUME}) == 7 and massing.KIND_OFFICE > massing.HOME)
 
 check("the avenue's flags sit above kit2's", massing.OFFICE > massing.HALL and massing.BANDS > massing.OFFICE
       and massing.HOME > massing.BANDS and len({massing.OFFICE, massing.BANDS, massing.HOME}) == 3)
@@ -217,6 +255,11 @@ massing.compounds(m, lambda p, x, y: "c", yards, [], [("residential", road)], {"
                   box(-60, -40, 120, 60), paints=[("M_Wall_Ochre", 1.0)])
 walls_m = {mm for mm in m.materials() if mm.startswith("M_Wall_")}
 check("compounds: walls in the district's paints only", walls_m == {"M_Wall_Ochre"}, walls_m)
+m = Mesh()
+cnt = Counter()
+massing.compounds(m, lambda p, x, y: "c", yards, [], [("residential", road)], {"residential": 6.0}, cnt,
+                  box(-60, -40, 120, 60), fancy=[p for _, p in yards])
+check("compounds: a villa's wall coped, its gates on pillars with lamps", cnt["coped wall m"] > 5 and cnt["gate lamps"] >= 2, dict(cnt))
 
 print("avenue kit: " + ("all checks passed" if not failures else f"{failures} FAILED"))
 sys.exit(1 if failures else 0)

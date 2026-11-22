@@ -1032,7 +1032,7 @@ OFFICE_PAINTS = [("M_Wall_Concrete", 0.5), ("M_Wall_Grey", 0.25), ("M_Wall_PaleB
 
 
 def avenue_building(mesh, obj, wall, bid, poly, n, height, floors, parapet, src, cls, place_index, fronts, avenue,
-                    counts, rows, district, rules):
+                    counts, rows, district, rules, institutions):
     """Builds a footprint of Independence Avenue's corridor by its typology (avenue_kit.py) and returns it, or None for
     the generic massing (the typologies of later stages, the modelled sites, the small machine-learnt footprints).
     rows receives one line per footprint of the corridor for the build's record (avenue-kit.csv)."""
@@ -1053,23 +1053,23 @@ def avenue_building(mesh, obj, wall, bid, poly, n, height, floors, parapet, src,
     est = n if n is not None else (mapped or 1)
     k = avenue_kit.storeys_for(kind, est, mapped)
     row["storeys"], row["estimated"] = k, "" if mapped else "yes"
-    if kind in ("T2", "T4", "T5", "T7", "T12", "T13", "T14", "VOL"):
+    if kind in ("T2", "T4", "T5", "T6", "T7", "T12", "T13", "T14", "VOL"):
+        # The civic types are painted by the game in their kind's paint; their material only picks the wall finish's
+        # grain, so the plain render's where the district has it (not the grey's stained concrete).
         have = {m for m, _ in (rules["paints"] or [(w, 1) for w in WALLS])}
         mix = [(m, w) for m, w in OFFICE_PAINTS if m in have] or [(wall, 1.0)]
-        wall = massing.pick(mix, unit_hash(bid, "office paint") * sum(w for _, w in mix))
+        wall = "M_Wall_Concrete" if "M_Wall_Concrete" in have else massing.pick(mix, unit_hash(bid, "office paint"))
     facing = typology.facing(fronts, poly)
     if kind == "T1":
-        massing.villa(mesh, obj, wall, bid, poly, k, parapet, counts, massing.ROOF_PALETTES.get(district))
+        massing.villa(mesh, obj, wall, bid, poly, k, parapet, counts, massing.ROOF_PALETTES.get(district), None, facing)
     elif kind in ("T2", "T12"):
         massing.office(mesh, obj, wall, bid, poly, k, counts, facing, porte=kind == "T12")
     elif kind == "T4":
         massing.bank(mesh, obj, wall, bid, poly, k, counts, facing)
     elif kind == "T5":
         massing.ministry(mesh, obj, wall, bid, poly, k, counts)
-    elif kind in ("T6", "T14"):
+    elif kind in ("T6", "T7", "T14"):
         massing.veranda_block(mesh, obj, wall, bid, poly, k, counts, kind, facing)
-    elif kind == "T7":
-        massing.low_block(mesh, obj, wall, bid, poly, k, counts)
     elif kind == "T8":
         massing.building(mesh, obj, wall, bid, poly, k, parapet, False, False, counts, "osu", None, massing.BALCONIES)
     elif kind == "T9":
@@ -1083,6 +1083,8 @@ def avenue_building(mesh, obj, wall, bid, poly, n, height, floors, parapet, src,
     elif kind == "VOL":
         massing.volume(mesh, obj, wall, bid, poly, k, counts)
     counts[f"avenue {kind}"] += 1
+    if kind in ("T7", "T14"):
+        institutions.append((poly, wall))
     return kind
 
 
@@ -1235,7 +1237,7 @@ def build(args):
         avenue = avenue_kit.Avenue(avenue_kit.load(args.avenue_kit), local)
         if not avenue.touches(clip):
             avenue = None
-    avenue_rows = []
+    avenue_rows, institutions, fancy_yards = [], [], []
     if kit2 or avenue is not None:
         place_index = typology.Places(typology.slice_places(args.slice, local, con))
         fronts = typology.front_index([(cls, g) for _, cls, _, g in roads], lambda c: ROAD_WIDTH[c])
@@ -1304,10 +1306,13 @@ def build(args):
                     else WALLS[int(unit_hash(bid, "paint") * len(WALLS))])
             if avenue is not None and avenue.inside(poly):
                 kind = avenue_building(mesh, obj, wall, bid, poly, n, height, floors, parapet, src, bcls, place_index,
-                                       fronts, avenue, counts, avenue_rows, area.get("district", "osu"), rules)
+                                       fronts, avenue, counts, avenue_rows, area.get("district", "osu"), rules,
+                                       institutions)
                 if kind:
                     # Villas and the sensitive sites stand behind their walls (compounds()); the rest keep them out.
                     (yards.append((bid, poly)) if kind in ("T1", "VOL") else keep_out.append(poly))
+                    if kind == "T1":
+                        fancy_yards.append(poly)
                     nb += 1
                     continue
             if kit2:
@@ -1365,7 +1370,11 @@ def build(args):
         compound_walls = massing.compounds(mesh, cell_name, yards, keep_out + landmark_ground + lm_grounds + fuel_ground + low, district_roads,
                                            ROAD_WIDTH, counts, clip, oxford, gates_out=compound_gates,
                                            paints=None if rules["yards"] else rules["paints"],
-                                           gate_mat="M_Gate" if rules["yards"] else "M_Roof")
+                                           gate_mat="M_Gate" if rules["yards"] else "M_Roof", fancy=fancy_yards or None)
+        if institutions:
+            # The avenue's hospital and school blocks joined by covered walks (massing.covered_walks()).
+            massing.covered_walks(mesh, cell_name, institutions[0][1], [p for p, _ in institutions], counts,
+                                  avoid=[p for p in keep_out + [y for _, y in yards] if all(p is not q for q, _ in institutions)])
 
     # Roads: ribbons with mitred joints, a dashed centre line on the major classes.
     lights = []

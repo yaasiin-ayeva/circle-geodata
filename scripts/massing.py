@@ -50,8 +50,13 @@ SHOPFRONT, CURTAIN, BALCONIES, HALL = 8, 16, 32, 64
 #   OFFICE     an office, ministry, bank, hospital or school wall: punched windows, no shop bays, no laundry or balconies;
 #   BANDS      tinted ribbon glazing, a glass band along each floor between opaque spandrels (the office slabs' variant);
 #   HOME       a villa or bungalow in its walled compound: the survey's few shops (15 %), barred windows.
+#   KIND_*     the avenue kit's type of facade, a code in the three bits from 1024 (the game's own paint, window grid
+#              and dressing for each; circle-game render/windows.ts KIND): a concrete-framed office, a glass office, a
+#              bank's panelled storey, a ministry's painted concrete, an institution's cream (hospitals, schools,
+#              bungalows), a villa's render, a plain volume.
 # A wall with none of the bits from 8 up is read by the game exactly as before (its legacy reading).
 OFFICE, BANDS, HOME = 128, 256, 512
+KIND_OFFICE, KIND_GLASS, KIND_BANK, KIND_MINISTRY, KIND_INSTITUTION, KIND_VILLA, KIND_VOLUME = (k * 1024 for k in range(1, 8))
 
 # Compound wall paints (street survey: white or cream, coral-red, ochre, dark grey on newer villas), as the
 # district's wall materials; circle-game repaints them in the surveyed palette.
@@ -379,7 +384,7 @@ def building(mesh, obj, wall_mat, bid, poly, n_storeys, parapet, near_oxford, ya
     return "block"
 
 
-def compounds(mesh, cell_name, yards, keep_out, roads, road_width, counts, district, avoid=None, gates_out=None, paints=None, gate_mat="M_Gate"):
+def compounds(mesh, cell_name, yards, keep_out, roads, road_width, counts, district, avoid=None, gates_out=None, paints=None, gate_mat="M_Gate", fancy=None):
     """Compound walls along the residential streets, with a gate towards each yard's house.
 
     The walls follow the street frontage of the city blocks, VERGE_M back from the road edge, wherever a yard
@@ -391,7 +396,8 @@ def compounds(mesh, cell_name, yards, keep_out, roads, road_width, counts, distr
     receives each gate built as (x, y) of its middle, for the game's planting by the gates (circle-game
     src/world/vegetation.ts). paints: the walls' (material, weight), BOUNDARY_PAINTS by default; a district with a paint
     list of its own (the old centre, where only the avenue's villas stand in yards) passes its own, and gate_mat the grey
-    sheet (M_Roof) for the gates, so its cells gain no material.
+    sheet (M_Roof) for the gates, so its cells gain no material. fancy: the footprints of yards whose walls and gates
+    are a villa's (the avenue's kit): a coping along the wall's top, and gate pillars with a cap and a lamp on it.
     """
     if not yards:
         return []
@@ -411,6 +417,9 @@ def compounds(mesh, cell_name, yards, keep_out, roads, road_width, counts, distr
     network = MultiLineString(pieces)
     # Gates: the frontage point nearest each yard house, at most 30 m away, no two within 8 m.
     gates = []
+    fancy_zone = shapely.union_all(list(fancy)).buffer(30.0) if fancy else None
+    if fancy_zone is not None:
+        shapely.prepare(fancy_zone)
     for bid, foot in yards:
         g = shapely.ops.nearest_points(network, foot.centroid)[0]
         if g.distance(foot) > 30.0 or any(g.distance(o) < 8.0 for o in gates):
@@ -436,6 +445,10 @@ def compounds(mesh, cell_name, yards, keep_out, roads, road_width, counts, distr
                 obj = cell_name("Buildings", (p[0] + q[0]) / 2, (p[1] + q[1]) / 2)
                 first, last = k == 0, k == len(pts) - 2
                 slab(mesh, obj, paint, p, q, 0.25, 0.0, WALL_H, NO_OPENINGS, ends=(first, last))
+                if fancy_zone is not None and fancy_zone.contains(Point((p[0] + q[0]) / 2, (p[1] + q[1]) / 2)):
+                    # A villa's wall: a coping 0.12 m proud each side along its top.
+                    slab(mesh, obj, paint, p, q, 0.49, WALL_H, WALL_H + 0.1, NO_OPENINGS, ends=(first, last))
+                    counts["coped wall m"] += float(np.hypot(*(q - p)))
             counts["compound_wall_m"] += a1 - a0
         for s in cuts:
             c = np.array(piece.interpolate(s).coords[0])
@@ -446,6 +459,14 @@ def compounds(mesh, cell_name, yards, keep_out, roads, road_width, counts, distr
             slab(mesh, obj, gate_mat, c - t * GATE_W / 2, c + t * GATE_W / 2, 0.06, 0.0, GATE_H)
             for side in (-1, 1):
                 post(mesh, obj, paint, c + t * side * (GATE_W / 2 + 0.22), 0.44, 0.0, WALL_H + 0.35)
+                if fancy_zone is not None and fancy_zone.contains(Point(*c)):
+                    # A villa's gate pillar: wider, a cap, and a lamp on the cap (a lantern on a short post).
+                    pc = c + t * side * (GATE_W / 2 + 0.22)
+                    post(mesh, obj, paint, pc, 0.62, 0.0, WALL_H + 0.55)
+                    post(mesh, obj, paint, pc, 0.78, WALL_H + 0.55, WALL_H + 0.67)
+                    post(mesh, obj, "M_Roof", pc, 0.08, WALL_H + 0.67, WALL_H + 0.95)
+                    post(mesh, obj, paint, pc, 0.26, WALL_H + 0.95, WALL_H + 1.3, NO_OPENINGS)
+                    counts["gate lamps"] += 1
             counts["gates"] += 1
             if gates_out is not None:
                 gates_out.append((float(c[0]), float(c[1])))
@@ -721,36 +742,92 @@ def _front(axes, facing):
     return 1 if float(np.dot(v, facing)) >= 0 else -1
 
 
-def _canopy(mesh, obj, mat, o, u, v, side, half_v, width, depth, z, posts=2, post_mat=None):
+def _canopy(mesh, obj, mat, o, u, v, side, half_v, width, depth, z, posts=2, post_mat=None, flag=NO_OPENINGS):
     """A flat concrete canopy slab on the long side `side` (along v) at height z, `width` along u and `depth` out from
     the wall, 0.2 m thick, on `posts` square posts at its outer edge (0 for a cantilever)."""
     foot = _rect(o, u, v, -width / 2, width / 2, *sorted((side * half_v, side * (half_v + depth))))
-    walls(mesh, obj, mat, foot, z, z + 0.2, NO_OPENINGS | NO_PARAPET)
+    walls(mesh, obj, mat, foot, z, z + 0.2, flag | NO_PARAPET)
     cap(mesh, obj, mat, foot, z + 0.2)
     cap(mesh, obj, mat, foot, z, down=True)
     for k in range(posts):
         a = -width / 2 + 0.3 + (width - 0.6) * (k / max(1, posts - 1))
-        post(mesh, obj, post_mat or mat, o + u * a + v * side * (half_v + depth - 0.3), 0.35, 0.0, z)
+        post(mesh, obj, post_mat or mat, o + u * a + v * side * (half_v + depth - 0.3), 0.35, 0.0, z, flag)
 
 
-def villa(mesh, obj, wall_mat, bid, poly, n, parapet, counts, palette=None, seen=None):
-    """T1, a villa behind its wall: one or two storeys under a hipped roof of tile or sheet where the footprint is near a
-    rectangle (the district's palette, or the roof the satellite saw), a low single-slope sheet over the rest, a modern
-    flat roof behind a parapet on one in five. The walls carry HOME and YARD; the caller puts it among the yards, so the
-    compound wall and gate along the street are built round it (compounds())."""
-    flags = YARD | HOME
+def _corner_glass(mesh, obj, mat, o, u, v, Lu, Lv, side, top, size=4.5):
+    """A glazed corner: a box of curtain wall (CURTAIN) at the corner of the footprint's best-fit rectangle on the side
+    `side`, 0.12 m proud of the walls, from the ground to `top`: the corner of a bank branch on its street."""
+    a0, a1 = Lu / 2 - size, Lu / 2 + 0.12
+    b0, b1 = sorted((side * (Lv / 2 - size), side * (Lv / 2 + 0.12)))
+    foot = _rect(o, u, v, a0, a1, b0, b1)
+    walls(mesh, obj, mat, foot, 0.0, top, CURTAIN | NO_PARAPET)
+    cap(mesh, obj, "M_Roof", foot, top)
+
+
+def _overhang(mesh, obj, mat, poly, z, out=1.2, thick=0.35, flag=NO_OPENINGS):
+    """A flat roof slab overhanging the walls by `out`: its top, soffit and edge (no openings)."""
+    roof = poly.buffer(out, join_style="mitre", mitre_limit=2.0).simplify(0.1)
+    if not isinstance(roof, Polygon) or roof.is_empty:
+        return
+    roof = shapely.geometry.polygon.orient(roof, 1.0)
+    walls(mesh, obj, mat, roof, z, z + thick, flag | NO_PARAPET)
+    cap(mesh, obj, "M_Roof", roof, z + thick)
+    cap(mesh, obj, mat, roof, z, down=True)
+
+
+def _coping(mesh, obj, mat, poly, z, out=0.25, thick=0.18, flag=NO_OPENINGS):
+    """A coping: a thin slab a little wider than the walls along the top of a parapet."""
+    _overhang(mesh, obj, mat, poly, z, out, thick, flag)
+
+
+def _solid(kind):
+    """The flags of a building's solid parts (parapets, copings, canopies, fins, posts): no openings, and the building's
+    kind, so the game paints them in its paint rather than Accra's vivid ones."""
+    return NO_OPENINGS | OFFICE | kind
+
+
+def _porch(mesh, obj, wall_mat, roof_mat, o, u, v, Lv, side, width=2.8, depth=3.2, z=2.9):
+    """A villa's porch on the side `side`: a small gable roof over two posts, its ridge running out from the wall."""
+    b0, b1 = sorted((side * Lv / 2, side * (Lv / 2 + depth)))
+    foot = _rect(o, u, v, -width / 2, width / 2, b0, b1)
+    for k in (-1, 1):
+        post(mesh, obj, wall_mat, o + u * k * (width / 2 - 0.2) + v * side * (Lv / 2 + depth - 0.2), 0.3, 0.0, z)
+    # Deeper than wide, so gable_roof's ridge (along the long side) runs out from the wall and the gable faces the road.
+    gable_roof(mesh, obj, roof_mat, wall_mat, foot, z, 30, overhang=0.25, max_rise=1.6)
+
+
+def villa(mesh, obj, wall_mat, bid, poly, n, parapet, counts, palette=None, seen=None, facing=None):
+    """T1, a villa behind its wall: one or two storeys under a hipped roof of tile or sheet (the district's palette, or
+    the roof the satellite saw), with a gabled porch towards the road on a near-rectangle, a hip-and-gable on larger
+    ones (a cross gable over the front half); a low sheet over irregular footprints; a modern flat roof behind a
+    coped parapet on one in five. Walls: HOME, YARD and the villa's kind (its own render, fewer and larger windows).
+    The caller puts it among the yards: compounds() walls it, gates it with pillars and lamps."""
+    flags = YARD | HOME | KIND_VILLA
     n = max(1, min(2, n))
     eaves = n * STOREY_M
     axes = frame_axes(poly)
     fit = poly.area / axes[5].area if axes else 0.0
     modern = h01(bid, "villa flat") < 0.2 and seen not in PITCHED_ROOFS
     if axes and not modern and fit >= 0.75 and 4.0 <= axes[4] <= 18.0 and axes[3] <= 45.0:
+        o, u, v, Lu, Lv, rect = axes
         roof = seen or pick((palette or {}).get("mix") or [("M_RoofTile_Red", 0.45), ("M_Roof", 0.35), ("M_RoofSheet_Rust", 0.2)],
                             h01(bid, "roof"))
         if roof == "M_RoofSheet_Painted":
             roof = "M_RoofTile_Red"                     # painted sheet: few cells draw it (kit2's lesson)
         walls(mesh, obj, wall_mat, poly, 0.0, eaves, flags | NO_PARAPET)
-        hip_roof(mesh, obj, roof, wall_mat, poly, eaves, 28 if roof == "M_RoofTile_Red" else 20, overhang=0.7)
+        pitch = 28 if roof == "M_RoofTile_Red" else 20
+        hip_roof(mesh, obj, roof, wall_mat, poly, eaves, pitch, overhang=0.7)
+        side = _front(axes, facing)
+        if Lu >= 12.0 and Lv >= 7.0 and h01(bid, "cross gable") < 0.6:
+            # Hip and gable: a gabled wing across the front half, its ridge up to the hip's, its gable to the road.
+            # Narrower than deep, so its ridge runs out to the road, across the hip's.
+            half = min(Lu * 0.18, Lv * 0.2)
+            wing = _rect(o, u, v, -half, half, *sorted((0.0, side * (Lv / 2 + 0.3))))
+            gable_roof(mesh, obj, roof, wall_mat, wing, eaves, pitch, overhang=0.35, max_rise=2.4)
+            counts["villa hip and gable"] += 1
+        if Lu >= 8.0:
+            _porch(mesh, obj, wall_mat, roof, o + u * (Lu * 0.22 if Lu >= 12.0 else 0.0), u, v, Lv, side)
+            counts["villa porches"] += 1
         counts["villa hipped"] += 1
         return "T1"
     if axes and not modern and poly.area >= 12:
@@ -761,97 +838,149 @@ def villa(mesh, obj, wall_mat, bid, poly, n, parapet, counts, palette=None, seen
     top = eaves + parapet
     walls(mesh, obj, wall_mat, poly, 0.0, top, flags)
     cap(mesh, obj, "M_Roof", poly, top)
+    _coping(mesh, obj, wall_mat, poly, top, out=0.12, thick=0.12)
     counts["villa flat"] += 1
     return "T1"
 
 
 def office(mesh, obj, wall_mat, bid, poly, n, counts, facing=None, porte=False):
-    """T2 (and T12 with porte=True), an office or hotel slab: three to eight storeys, a flat roof behind a 1.1 m parapet
-    with a plant room, punched windows (OFFICE) or, on two in five, tinted ribbon glazing (BANDS); an entrance canopy
-    on the side towards the road (a hotel's porte-cochere: 8 by 6 m on four posts)."""
+    """T2 (and T12 with porte=True), an office or hotel slab of three to eight storeys. On 500 m2 or more and four
+    storeys or more: a two-storey podium on the whole footprint, the slab above it 3 m in from the podium's edge, and
+    its top floor recessed 1.5 m more behind a terrace; smaller ones a plain slab. The facade: a concrete frame on a
+    1.5 m module with glass and spandrels (KIND_OFFICE), or, on two in five offices, glass from floor to floor
+    (KIND_GLASS); a hotel the frame. A coping on each roof edge, a plant room, and an entrance canopy on posts
+    towards the road (a hotel's porte-cochere, 8 by 6 m)."""
+    glass = not porte and h01(bid, "glass office") < 0.4
+    kind = OFFICE | (KIND_GLASS if glass else KIND_OFFICE)
+    sol = _solid(KIND_OFFICE)
     top = n * STOREY_M
-    banded = not porte and h01(bid, "bands") < 0.4
-    flags = OFFICE | (BANDS if banded else 0)
-    walls(mesh, obj, wall_mat, poly, 0.0, top, flags)
-    walls(mesh, obj, wall_mat, poly, top, top + 1.1, NO_OPENINGS)
-    cap(mesh, obj, "M_Roof", poly, top + 1.1)
-    bulkhead(mesh, obj, wall_mat, "M_Roof", poly, top + 1.1, h01(bid, "corner"), NO_OPENINGS | NO_PARAPET)
     axes = frame_axes(poly)
+    shaft, z0 = poly, 0.0
+    if n >= 4 and poly.area >= 500:
+        upper = poly.buffer(-3.0, join_style="mitre")
+        if isinstance(upper, Polygon) and not upper.is_empty and upper.area >= 0.4 * poly.area:
+            z0 = 2 * STOREY_M
+            walls(mesh, obj, wall_mat, poly, 0.0, z0, kind)
+            walls(mesh, obj, wall_mat, poly, z0, z0 + 0.9, sol)
+            cap(mesh, obj, "M_Roof", poly, z0 + 0.9)
+            _coping(mesh, obj, wall_mat, poly, z0 + 0.9, flag=sol)
+            shaft = shapely.geometry.polygon.orient(upper.simplify(0.1), 1.0)
+            counts["office podiums"] += 1
+    recess = None
+    if n >= 5:
+        r = shaft.buffer(-1.5, join_style="mitre")
+        if isinstance(r, Polygon) and not r.is_empty and r.area >= 0.5 * shaft.area:
+            recess = shapely.geometry.polygon.orient(r.simplify(0.1), 1.0)
+    body_top = top - (STOREY_M if recess is not None else 0.0)
+    walls(mesh, obj, wall_mat, shaft, z0, body_top, kind)
+    if recess is not None:
+        walls(mesh, obj, wall_mat, shaft, body_top, body_top + 1.1, sol)
+        cap(mesh, obj, "M_Roof", shaft, body_top + 1.1)
+        _coping(mesh, obj, wall_mat, shaft, body_top + 1.1, flag=sol)
+        walls(mesh, obj, wall_mat, recess, body_top, top, OFFICE | KIND_GLASS | NO_PARAPET)
+        _overhang(mesh, obj, wall_mat, recess, top, out=1.0, thick=0.3, flag=sol)
+        counts["office recessed tops"] += 1
+        roof_poly, roof_z = recess, top + 0.3
+    else:
+        walls(mesh, obj, wall_mat, shaft, body_top, body_top + 1.1, sol)
+        cap(mesh, obj, "M_Roof", shaft, body_top + 1.1)
+        _coping(mesh, obj, wall_mat, shaft, body_top + 1.1, flag=sol)
+        roof_poly, roof_z = shaft, body_top + 1.1
+    bulkhead(mesh, obj, wall_mat, "M_Roof", roof_poly, roof_z, h01(bid, "corner"), sol | NO_PARAPET)
     if axes and axes[3] >= 10:
         o, u, v, Lu, Lv, _ = axes
         side = _front(axes, facing)
         if porte:
-            _canopy(mesh, obj, wall_mat, o, u, v, side, Lv / 2, min(8.0, Lu * 0.6), 6.0, 4.2, posts=2)
+            _canopy(mesh, obj, wall_mat, o, u, v, side, Lv / 2, min(8.0, Lu * 0.6), 6.0, 4.2, posts=2, flag=sol)
         else:
-            _canopy(mesh, obj, wall_mat, o, u, v, side, Lv / 2, min(6.0, Lu * 0.4), 2.5, 3.3, posts=2)
-    counts["office banded" if banded else "office"] += 1
+            _canopy(mesh, obj, wall_mat, o, u, v, side, Lv / 2, min(6.0, Lu * 0.4), 2.5, 3.3, posts=2, flag=sol)
+    counts["office glass" if glass else "office framed"] += 1
     return "T12" if porte else "T2"
 
 
 def bank(mesh, obj, wall_mat, bid, poly, n, counts, facing=None):
-    """T4, a bank branch: one or two storeys, the ground floor glazed (CURTAIN, to 3.6 m), an office storey over it
-    (OFFICE), a flat roof behind a parapet, and a canopy along the whole front towards the road."""
+    """T4, a bank branch: one or two storeys, the ground floor glazed (CURTAIN, to 3.6 m) under a panelled storey
+    (KIND_BANK: composite or stone panels, a strip window), a glazed corner towards the road from the ground to the
+    parapet, a coped parapet, and a canopy along the front."""
     n = max(1, min(2, n))
+    sol = _solid(KIND_BANK)
     top = max(4.2, n * STOREY_M + 0.6)
     walls(mesh, obj, wall_mat, poly, 0.0, 3.6, CURTAIN | NO_PARAPET)
-    walls(mesh, obj, wall_mat, poly, 3.6, top, OFFICE)
-    walls(mesh, obj, wall_mat, poly, top, top + 0.9, NO_OPENINGS)
+    walls(mesh, obj, wall_mat, poly, 3.6, top, OFFICE | KIND_BANK)
+    walls(mesh, obj, wall_mat, poly, top, top + 0.9, sol)
     cap(mesh, obj, "M_Roof", poly, top + 0.9)
+    _coping(mesh, obj, wall_mat, poly, top + 0.9, flag=sol)
     axes = frame_axes(poly)
     if axes:
         o, u, v, Lu, Lv, _ = axes
-        _canopy(mesh, obj, wall_mat, o, u, v, _front(axes, facing), Lv / 2, Lu * 0.9, 1.8, 3.6, posts=0)
+        side = _front(axes, facing)
+        _canopy(mesh, obj, wall_mat, o, u, v, side, Lv / 2, Lu * 0.7, 1.8, 3.6, posts=0, flag=sol)
+        if Lu >= 9.0 and Lv >= 7.0:
+            _corner_glass(mesh, obj, wall_mat, o, u, v, Lu, Lv, side, top + 0.9, size=min(4.5, Lv * 0.45))
+            counts["bank glazed corners"] += 1
     counts["banks"] += 1
     return "T4"
 
 
 def ministry(mesh, obj, wall_mat, bid, poly, n, counts):
-    """T5, a ministry block of the 1950s to 1970s: three to six storeys of punched windows (OFFICE) behind vertical
-    sun-breakers every 1.5 m (0.15 m thick, 0.6 m deep, from the first floor to the roof), over a ground floor set
-    back 1.8 m behind a colonnade on a near-rectangular footprint; a flat roof behind a deep fascia."""
+    """T5, a ministry block of the 1950s to 1970s: a slab of three to six storeys of painted concrete (KIND_MINISTRY:
+    narrow windows on a 1.5 m module in deep reveals) on pilotis: the ground floor open under the slab, its core set
+    back behind a ring of columns; the facades an egg-crate brise-soleil of vertical fins every 1.5 m and a slab edge
+    at every floor standing 0.6 m out; and a flat roof slab overhanging 1.2 m."""
     top = n * STOREY_M
-    inner = poly.buffer(-1.8, join_style="mitre")
-    colonnade = isinstance(inner, Polygon) and not inner.is_empty and inner.area >= 0.5 * poly.area and h01(bid, "pilotis") < 0.7
-    if colonnade:
-        inner = shapely.geometry.polygon.orient(inner.simplify(0.1), 1.0)
-        walls(mesh, obj, wall_mat, inner, 0.0, STOREY_M, OFFICE | NO_PARAPET)
+    kind = OFFICE | KIND_MINISTRY
+    sol = _solid(KIND_MINISTRY)
+    axes = frame_axes(poly)
+    setback = min(4.0, (axes[4] if axes else 10.0) * 0.28)
+    core = poly.buffer(-setback, join_style="mitre")
+    pilotis = isinstance(core, Polygon) and not core.is_empty and core.area >= 0.25 * poly.area and h01(bid, "pilotis") < 0.85
+    if pilotis:
+        core = shapely.geometry.polygon.orient(core.simplify(0.1), 1.0)
+        walls(mesh, obj, wall_mat, core, 0.0, STOREY_M, kind | NO_PARAPET)
         cap(mesh, obj, wall_mat, poly, STOREY_M, down=True)
-        ring = np.array(list(poly.buffer(-0.35, join_style="mitre").exterior.coords)[:-1])
+        ring = np.array(list(poly.buffer(-0.45, join_style="mitre").exterior.coords)[:-1])
         for i in range(len(ring)):
             a, b = ring[i], ring[(i + 1) % len(ring)]
             L = float(np.hypot(*(b - a)))
-            for s in range(max(1, int(round(L / 4.5)))):
-                post(mesh, obj, wall_mat, a + (b - a) * s / max(1, int(round(L / 4.5))), 0.45, 0.0, STOREY_M)
-                counts["ministry columns"] += 1
-        walls(mesh, obj, wall_mat, poly, STOREY_M, top, OFFICE)
+            k = max(1, int(round(L / 4.5)))
+            for s in range(k):
+                post(mesh, obj, wall_mat, a + (b - a) * s / k, 0.55, 0.0, STOREY_M, sol)
+                counts["ministry pilotis"] += 1
+        walls(mesh, obj, wall_mat, poly, STOREY_M, top, kind)
     else:
-        walls(mesh, obj, wall_mat, poly, 0.0, top, OFFICE)
-    walls(mesh, obj, wall_mat, poly, top, top + 1.4, NO_OPENINGS)
-    cap(mesh, obj, "M_Roof", poly, top + 1.4)
-    # The sun-breakers, standing out from every wall of 6 m or more, from the first floor to the fascia.
-    for ring in [poly.exterior]:
-        pts = list(ring.coords)[:-1]
-        for i in range(len(pts)):
-            a, b = np.array(pts[i]), np.array(pts[(i + 1) % len(pts)])
-            L = float(np.hypot(*(b - a)))
-            if L < 6.0:
-                continue
-            t = (b - a) / L
-            out = np.array([t[1], -t[0]])                 # outward on a counter-clockwise ring
-            for s in np.arange(0.75, L - 0.5, 1.5):
-                p = a + t * s
-                slab(mesh, obj, wall_mat, p + out * 0.02, p + out * 0.62, 0.15, STOREY_M, top + 1.4, NO_OPENINGS)
-                counts["ministry fins"] += 1
+        walls(mesh, obj, wall_mat, poly, 0.0, top, kind)
+    walls(mesh, obj, wall_mat, poly, top, top + 0.9, sol | NO_PARAPET)
+    _overhang(mesh, obj, wall_mat, poly, top + 0.9, out=1.2, thick=0.4, flag=sol)
+    # The brise-soleil: fins every 1.5 m and a slab edge at every floor, on every wall of 6 m or more.
+    z_first = STOREY_M
+    pts = list(poly.exterior.coords)[:-1]
+    for i in range(len(pts)):
+        a, b = np.array(pts[i]), np.array(pts[(i + 1) % len(pts)])
+        L = float(np.hypot(*(b - a)))
+        if L < 6.0:
+            continue
+        t = (b - a) / L
+        out = np.array([t[1], -t[0]])                     # outward on a counter-clockwise ring
+        for s in np.arange(0.75, L - 0.5, 1.5):
+            p = a + t * s
+            slab(mesh, obj, wall_mat, p + out * 0.02, p + out * 0.62, 0.15, z_first, top + 0.9, sol)
+            counts["ministry fins"] += 1
+        for f in range(1, n):
+            z = f * STOREY_M
+            slab(mesh, obj, wall_mat, a + out * 0.32, b + out * 0.32, 0.6, z - 0.12, z + 0.12, sol)
+            counts["ministry slab edges"] += 1
     counts["ministries"] += 1
     return "T5"
 
 
 def veranda_block(mesh, obj, wall_mat, bid, poly, n, counts, kind, facing=None):
-    """T6 (a colonial bungalow: a veranda all round, a hipped roof of red tile or rusted sheet) and T14 (a school's
-    classroom block: a veranda along the long side towards the road, a hipped or gable sheet roof): the walls stand
-    2.4 m in from the footprint where the veranda runs, the roof covers the whole footprint, posts carry its edge.
-    Footprints too small or too irregular for it are low blocks (T7's builder)."""
-    n = max(1, min(2, n))
+    """T6 (a colonial bungalow: a veranda all round, a hipped roof of red tile or rusted sheet), T14 (a school's
+    classroom block) and T7 (a hospital ward or a barracks block; both with a veranda along the long side towards the
+    road, under a hipped or, on long blocks, gable sheet roof): the walls stand 2.4 m in where the veranda runs, the
+    roof covers the whole footprint, posts carry its edge. The walls: an institution's cream (KIND_INSTITUTION, long
+    louvre windows under concrete hoods in the game). Footprints too small or too irregular are low blocks."""
+    flags = OFFICE | KIND_INSTITUTION
+    n = max(1, min(2 if kind != "T7" else 3, n))
     axes = frame_axes(poly)
     if not axes or poly.area / axes[5].area < 0.75 or axes[4] < 8.0:
         return low_block(mesh, obj, wall_mat, bid, poly, n, counts, kind)
@@ -865,13 +994,12 @@ def veranda_block(mesh, obj, wall_mat, bid, poly, n, counts, kind, facing=None):
         b0, b1 = (-Lv / 2, Lv / 2 - 2.4) if side > 0 else (-Lv / 2 + 2.4, Lv / 2)
         body = _rect(o, u, v, -Lu / 2, Lu / 2, b0, b1)
         roof = pick(SHEETS, h01(bid, "roof"))
-    walls(mesh, obj, wall_mat, body, 0.0, eaves, OFFICE | NO_PARAPET)
+    walls(mesh, obj, wall_mat, body, 0.0, eaves, flags | NO_PARAPET)
     cap(mesh, obj, wall_mat, rect, eaves, down=True)
     if kind == "T6" or Lu <= 40.0:
         hip_roof(mesh, obj, roof, wall_mat, rect, eaves, 26 if roof == "M_RoofTile_Red" else 18, overhang=0.4)
     else:
         gable_roof(mesh, obj, roof, wall_mat, rect, eaves, 15, overhang=0.4, max_rise=2.5)
-    # Posts along the veranda's edge, every 3 m.
     edge = rect.exterior.difference(body.buffer(0.5))
     for line in getattr(edge, "geoms", [edge]):
         if not isinstance(line, LineString) or line.length < 1.0:
@@ -880,34 +1008,86 @@ def veranda_block(mesh, obj, wall_mat, bid, poly, n, counts, kind, facing=None):
         for s in range(k + 1):
             p = np.array(line.interpolate(s * line.length / k).coords[0])
             p = p + (o - p) / max(1e-6, float(np.hypot(*(o - p)))) * 0.25
-            post(mesh, obj, wall_mat, p, 0.25, 0.0, eaves)
+            post(mesh, obj, wall_mat, p, 0.25, 0.0, eaves, _solid(KIND_INSTITUTION))
             counts["veranda posts"] += 1
-    counts["bungalows" if kind == "T6" else "school blocks"] += 1
+    counts[{"T6": "bungalows", "T7": "hospital blocks"}.get(kind, "school blocks")] += 1
     return kind
 
 
 def low_block(mesh, obj, wall_mat, bid, poly, n, counts, kind="T7"):
-    """T7, a hospital or barracks low block (and the fallback of T6 and T14): one to three storeys of punched windows
-    and no shops (OFFICE) under a hipped sheet roof where the footprint is near a rectangle, a low gable on long ones,
-    a flat roof behind a parapet on the rest."""
+    """A hospital, barracks or school block that no veranda fits (and the fallback of T6 and T14): one to three
+    storeys of the institution's cream (KIND_INSTITUTION) under a hipped sheet roof where the footprint is near a
+    rectangle, a low gable on long ones, a flat roof behind a coped parapet on the rest."""
+    flags = OFFICE | KIND_INSTITUTION
     n = max(1, min(3, n))
     eaves = n * STOREY_M
     axes = frame_axes(poly)
     fit = poly.area / axes[5].area if axes else 0.0
     roof = pick(SHEETS, h01(bid, "roof"))
     if axes and fit >= 0.75 and 4.0 <= axes[4] <= 20.0:
-        walls(mesh, obj, wall_mat, poly, 0.0, eaves, OFFICE | NO_PARAPET)
+        walls(mesh, obj, wall_mat, poly, 0.0, eaves, flags | NO_PARAPET)
         if axes[3] <= 45.0:
-            hip_roof(mesh, obj, roof, wall_mat, poly, eaves, 18, overhang=0.6)
+            hip_roof(mesh, obj, roof, wall_mat, poly, eaves, 18, overhang=0.8)
         else:
-            gable_roof(mesh, obj, roof, wall_mat, poly, eaves, 14, overhang=0.6, max_rise=2.5)
+            gable_roof(mesh, obj, roof, wall_mat, poly, eaves, 14, overhang=0.8, max_rise=2.5)
         counts["low blocks pitched"] += 1
         return kind
     top = eaves + 0.6
-    walls(mesh, obj, wall_mat, poly, 0.0, top, OFFICE)
+    walls(mesh, obj, wall_mat, poly, 0.0, top, flags)
     cap(mesh, obj, "M_Roof", poly, top)
+    _coping(mesh, obj, wall_mat, poly, top, flag=_solid(KIND_INSTITUTION))
     counts["low blocks flat"] += 1
     return kind
+
+
+def covered_walks(mesh, cell_name, mat, blocks, counts, avoid=(), reach=15.0, width=2.6, height=2.7):
+    """Covered walks between neighbouring hospital or school blocks (blocks: their footprints): from each block to its
+    nearest neighbour within `reach`, where the walk crosses no other building (avoid): a flat sheet roof (M_Roof) on
+    posts every 3 m each side, in the wall paint `mat`. Returns how many it built."""
+    if len(blocks) < 2:
+        return 0
+    tree = shapely.STRtree(blocks)
+    others = shapely.union_all(list(avoid)) if avoid else None
+    done, built = set(), 0
+    for i, a in enumerate(blocks):
+        best = None
+        for j in tree.query(a, predicate="dwithin", distance=reach):
+            if j == i:
+                continue
+            d = a.distance(blocks[j])
+            if 2.0 <= d <= reach and (best is None or d < best[0]):
+                best = (d, j)
+        if best is None or (min(i, best[1]), max(i, best[1])) in done:
+            continue
+        j = best[1]
+        done.add((min(i, j), max(i, j)))
+        p, q = shapely.ops.nearest_points(a, blocks[j])
+        line = LineString([p, q])
+        path = line.buffer(width / 2, cap_style="flat")
+        if others is not None and path.buffer(-0.3).intersects(others):
+            continue
+        if any(k not in (i, j) and blocks[k].intersects(path.buffer(-0.3)) for k in tree.query(path)):
+            continue
+        roof = shapely.geometry.polygon.orient(path, 1.0)
+        if not isinstance(roof, Polygon) or roof.is_empty:
+            continue
+        c = roof.centroid
+        obj = cell_name("Buildings", c.x, c.y)
+        cap(mesh, obj, "M_Roof", roof, height + 0.12)
+        cap(mesh, obj, mat, roof, height, down=True)
+        walls(mesh, obj, mat, roof, height, height + 0.12, _solid(KIND_INSTITUTION) | NO_PARAPET)
+        d = np.array(q.coords[0]) - np.array(p.coords[0])
+        L = float(np.hypot(*d))
+        t = d / max(L, 1e-6)
+        nrm = np.array([-t[1], t[0]])
+        k = max(1, int(L // 3.0))
+        for s in range(k + 1):
+            m = np.array(p.coords[0]) + t * (L * s / k)
+            for side in (-1, 1):
+                post(mesh, obj, mat, m + nrm * side * (width / 2 - 0.15), 0.16, 0.0, height, _solid(KIND_INSTITUTION))
+        built += 1
+    counts["covered walks"] += built
+    return built
 
 
 def car_park(mesh, obj, wall_mat, bid, poly, n, counts):
@@ -919,27 +1099,28 @@ def car_park(mesh, obj, wall_mat, bid, poly, n, counts):
         z = k * 3.0
         cap(mesh, obj, "M_Roof", deck, z)
         cap(mesh, obj, wall_mat, deck, z - 0.3, down=True)
-        walls(mesh, obj, wall_mat, deck, z - 0.3, z, NO_OPENINGS | NO_PARAPET)
-        walls(mesh, obj, wall_mat, deck, z, z + 1.1, NO_OPENINGS | NO_PARAPET)
+        walls(mesh, obj, wall_mat, deck, z - 0.3, z, _solid(KIND_OFFICE) | NO_PARAPET)
+        walls(mesh, obj, wall_mat, deck, z, z + 1.1, _solid(KIND_OFFICE) | NO_PARAPET)
     minx, miny, maxx, maxy = deck.bounds
     inner = deck.buffer(-0.5)
     for x in np.arange(minx + 3.0, maxx, 7.5):
         for y in np.arange(miny + 3.0, maxy, 7.5):
             if inner.contains(Point(x, y)):
-                post(mesh, obj, wall_mat, (x, y), 0.5, 0.0, n * 3.0 - 0.3)
+                post(mesh, obj, wall_mat, (x, y), 0.5, 0.0, n * 3.0 - 0.3, _solid(KIND_OFFICE))
                 counts["car park columns"] += 1
-    bulkhead(mesh, obj, wall_mat, "M_Roof", deck, n * 3.0, h01(bid, "corner"), NO_OPENINGS | NO_PARAPET)
+    bulkhead(mesh, obj, wall_mat, "M_Roof", deck, n * 3.0, h01(bid, "corner"), _solid(KIND_OFFICE) | NO_PARAPET)
     counts["car parks"] += 1
     return "T13"
 
 
 def volume(mesh, obj, wall_mat, bid, poly, n, counts):
     """VOL, the sensitive sites' plain volume (embassies, the military sites; the director, 22 Nov 2026: only what road
-    photographs show): the outline extruded to its storeys, punched windows and no shops (OFFICE), a flat roof behind
-    a parapet; the caller puts it among the yards, so a wall and gate stand along the street."""
+    photographs show): the outline extruded to its storeys, plain painted walls with punched windows and no shops
+    (KIND_VOLUME), a coped parapet; the caller puts it among the yards, so a wall and gate stand along the street."""
     top = n * STOREY_M
-    walls(mesh, obj, wall_mat, poly, 0.0, top, OFFICE | YARD)
-    walls(mesh, obj, wall_mat, poly, top, top + 0.8, NO_OPENINGS)
+    walls(mesh, obj, wall_mat, poly, 0.0, top, OFFICE | YARD | KIND_VOLUME)
+    walls(mesh, obj, wall_mat, poly, top, top + 0.8, _solid(KIND_VOLUME))
     cap(mesh, obj, "M_Roof", poly, top + 0.8)
+    _coping(mesh, obj, wall_mat, poly, top + 0.8, flag=_solid(KIND_VOLUME))
     counts["volumes"] += 1
     return "VOL"
