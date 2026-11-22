@@ -16,7 +16,8 @@ about 1). An entry may also name car parks ("sheds_on"): the small roofs Overtur
 Microsoft's machine-learned footprints, not on OpenStreetMap) go too, when the landmark builds its car park itself.
 An entry may also name its grounds ("grounds": ways of a walled site the game lays out itself, its own wall, lawns and
 drives): no generated compound wall, parked car or hiding place is put on them, so none stands across the game's lawns
-or the drives in from the road. The buildings on the grounds stay as they are (only the listed ones go).
+or the drives in from the road. The buildings on the grounds stay as they are (only the listed ones go). "grounds_out"
+grows an entry's grounds by that many metres, for a plot whose generated walls stand just outside its mapped edge.
 
 The file is checked in, so a build needs no network and gives the same city each time; refresh it from the Ghana
 extract after an id changes here:
@@ -55,8 +56,19 @@ LANDMARKS = [
     # Accra Mall (circle-game docs/accra-mall.md): the relation, outer way 444488219, and the eight sheds Overture
     # traced on its three car parks, which the game lays out itself with its bays, lamps and palms.
     {"name": "Accra Mall", "relations": [8418096], "sheds_on": [20918723, 1337970097, 1337970096]},
-    # The Signature Apartments, 80 Spintex Road (circle-game docs/signature-apartments.md): its two towers.
-    {"name": "The Signature Apartments", "ways": [1124774602, 1124774603]},
+    # The Signature Apartments, 80 Spintex Road (circle-game docs/signature-apartments.md): its two towers. Its plot,
+    # way 1124774601 (landuse=residential), is the game's forecourt (docs/mall-surroundings.md: the wall and railing on
+    # Nii Opey Street, the steel fence, the kiosk, open at two gates): the generated compound walls stood along its
+    # boundary, from 2.1 m inside it to 3.7 m outside, one across each gate. Grown 1.5 m ("grounds_out"), with the
+    # 3 m the walls keep off any grounds, those go; the neighbours' walls 6 m and more out stay.
+    {"name": "The Signature Apartments", "ways": [1124774602, 1124774603], "grounds": [1124774601], "grounds_out": 1.5},
+    # Accra Mall's surroundings by the Tetteh Quarshie Interchange (circle-game docs/mall-surroundings.md): the
+    # Villaggio Vista towers (Alto 608141167, Azure 608141164 and its strip 608141163, its wing 608141162, Aqua
+    # 608141169; their building:part ways are not buildings), City Galleria (1137453837), the African Regent Hotel
+    # (512899518), The Gallery (741876793) and the commercial block on Tetteh Quarshie Road (628661574). The Accra Mall
+    # Bus Terminal's yard (300519834, amenity=bus_station) is the game's too: its islands, lanes and trotros.
+    {"name": "Accra Mall's surroundings", "ways": [608141167, 608141164, 608141163, 608141162, 608141169, 1137453837,
+                                                   512899518, 741876793, 628661574], "grounds": [300519834]},
     # Black Star Square (circle-game docs/black-star-square.md): its stands (building=grandstand), its gate, and the
     # Independence Arch at the seaward end (docs/independence-arch.md: way 169866122, not the gate).
     {"name": "Black Star Square's stands", "ways": [169866121, 169866123, 169866124, 169866125, 169866127, 169866128,
@@ -99,8 +111,20 @@ def osm_ids():
 
 def grounds(outlines, local):
     """The landmarks' grounds (load()'s outlines of role "grounds") in the area's metres: what the generated compound
-    walls, parked cars and hiding places keep off. No building is matched to them (Matcher)."""
-    return [g for g in (local(o["geom"]) for o in outlines if o["role"] == "grounds") if not g.is_empty]
+    walls, parked cars and hiding places keep off, each grown by its landmark's "grounds_out" (m, none by default). No
+    building is matched to them (Matcher)."""
+    out_m = {lm["name"]: float(lm.get("grounds_out", 0.0)) for lm in LANDMARKS}
+    out = []
+    for o in outlines:
+        if o["role"] != "grounds":
+            continue
+        g = local(o["geom"])
+        d = out_m.get(o.get("landmark"), 0.0)
+        if d > 0 and not g.is_empty:
+            g = g.buffer(d, join_style="mitre", mitre_limit=3.0)
+        if not g.is_empty:
+            out.append(g)
+    return out
 
 
 def load(path=FOOTPRINTS):
