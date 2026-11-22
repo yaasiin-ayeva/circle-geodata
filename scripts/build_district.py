@@ -1082,6 +1082,9 @@ def build(args):
     # The footprints the game's landmarks stand on: not drawn, not solid, but kept clear like any building.
     lm_match = landmark_footprints.Matcher(lm_outlines, local)
     landmark_ground = []
+    # The grounds the game lays out itself (landmark_footprints.py "grounds"): no compound wall, parked car or hiding
+    # place on them; their buildings stay.
+    lm_grounds = landmark_footprints.grounds(lm_outlines, local)
 
     # Buildings, minus those a detailed look-dev version replaces.
     exclude = set()
@@ -1198,7 +1201,7 @@ def build(args):
             district_roads += [(cls, l) for l in ([g] if isinstance(g, LineString) else getattr(g, "geoms", [])) if isinstance(l, LineString)]
         # Off the structures' roads where they are low (a ramp, a cut), as off a fuel station's ground.
         low = [poly for poly, off in on_structures if off < 4.0]
-        compound_walls = massing.compounds(mesh, cell_name, yards, keep_out + landmark_ground + fuel_ground + low, district_roads,
+        compound_walls = massing.compounds(mesh, cell_name, yards, keep_out + landmark_ground + lm_grounds + fuel_ground + low, district_roads,
                                            ROAD_WIDTH, counts, clip, oxford)
 
     # Roads: ribbons with mitred joints, a dashed centre line on the major classes.
@@ -1283,7 +1286,7 @@ def build(args):
             g = g.intersection(clip)
             pieces += [(rid, cls, name, l) for l in ([g] if isinstance(g, LineString) else list(getattr(g, "geoms", [])))
                        if isinstance(l, LineString) and l.length >= 1]
-        parked = place_parked(rules["parking"], pieces, keep_out + landmark_ground + [p for _, p in yards] + fuel_ground, lap)
+        parked = place_parked(rules["parking"], pieces, keep_out + landmark_ground + lm_grounds + [p for _, p in yards] + fuel_ground, lap)
         if on_structures:
             # And none where a ramp comes down onto the road (FOOT_CLEAR_M round its foot): its lanes merge there.
             ramp_feet = [Point(p["pts"][i]).buffer(FOOT_CLEAR_M) for p in elev for i in (0, -1) if abs(p["off"][i]) < 0.3]
@@ -1303,7 +1306,7 @@ def build(args):
     if lm_match.hits:
         print(f"landmarks the game builds: {len(landmark_ground)} footprint{'s' * (len(landmark_ground) != 1)} left out "
               f"({', '.join(f'{k} x{n}' if n > 1 else k for k, n in sorted(lm_match.hits.items()))})")
-    hiding = hiding_places(hide_roads, keep_out + landmark_ground + [p for _, p in yards] + [poly for poly, off in on_structures if off < 4.0], compound_walls, parked, lights,
+    hiding = hiding_places(hide_roads, keep_out + landmark_ground + lm_grounds + [p for _, p in yards] + [poly for poly, off in on_structures if off < 4.0], compound_walls, parked, lights,
                            avoid=oxford.buffer(40) if oxford is not None else None, clip=clip)
 
     # The named places of the area, where the slice has them (read above, before the buildings).
