@@ -41,6 +41,9 @@ walls = out["walls"]
 check("the wall is one line", len(walls) == 1)
 check("the wall keeps its ends and loses its 0.1 m wobble", walls[0][:2] == [0.0, -5.0] and len(walls[0]) // 2 == 2,
       str(walls[0]))
+check("no gates, no gates key", "gates" not in out)
+gated = bd.solid_outlines([house], [wall], gates=[(3.04, -5.06), (9.0, -5.0)])
+check("the gates carried as [x, z] rounded to 0.1 m", gated.get("gates") == [[3.0, -5.1], [9.0, -5.0]], str(gated.get("gates")))
 check("nothing at all gives empty lists", bd.solid_outlines([], []) == {"buildings": [], "walls": []})
 
 # A residential street (6 m wide) along z = 20: a kiosk mapped on it goes, a house reaching 1 m onto it is cut back to

@@ -106,7 +106,9 @@ for i, x in enumerate(range(-80, 81, 20)):
 shop = orient(box(-6, -10, 6, -4.3), 1.0)            # a shop right on the south frontage
 m, counts = Mesh(), Counter()
 district = box(-120, -60, 120, 60)
-massing.compounds(m, lambda p, e, n: "cell", yards, [shop], [("residential", street)], {"residential": 6.0}, counts, district)
+gates_out = []
+massing.compounds(m, lambda p, e, n: "cell", yards, [shop], [("residential", street)], {"residential": 6.0}, counts, district,
+                  gates_out=gates_out)
 check("street: compound walls built", counts["compound_wall_m"] > 250, f"{counts['compound_wall_m']:.0f} m")
 check("street: a gate per house or so", 10 <= counts["gates"] <= len(yards), f"{counts['gates']} gates for {len(yards)} houses")
 edge = 6.0 / 2 + massing.VERGE_M      # the frontage line; walls and gate posts are centred on it (0.44 m at most)
@@ -118,6 +120,12 @@ check("street: no wall inside a building", not inside, f"{len(inside)} vertices 
 near_shop = [p for p in wall_pts if shop.buffer(2.5).contains(Point(p[0], p[1]))]
 check("street: no wall in front of the shop", not near_shop, f"{len(near_shop)} vertices")
 f = Counter(flags_of(t) for (o, mat), ts in m.groups.items() if mat != "M_Gate" for t in ts if t[3])
+check("street: every gate built is given back", len(gates_out) == counts["gates"], f"{len(gates_out)} of {counts['gates']}")
+check("street: the gates given back stand on the frontage", all(abs(abs(y) - edge) < 0.05 for _, y in gates_out),
+      str(sorted({round(abs(y), 2) for _, y in gates_out})))
+gate_pts = [p for (o, mat), ts in m.groups.items() if mat == "M_Gate" for t in ts for p in t[:3]]
+check("street: each gate given back is a gate drawn", all(any(abs(p[0] - x) < massing.GATE_W / 2 + 0.01 and abs(p[1] - y) < 0.1
+      for p in gate_pts) for x, y in gates_out))
 check("street: compound walls flagged NO_OPENINGS", set(f) == {massing.NO_OPENINGS}, dict(f))
 
 # District roof palettes: the same houses get the district's mix and pitch.
