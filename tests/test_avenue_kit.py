@@ -49,7 +49,8 @@ class Mesh:
 
 
 def flags(m):
-    return {int(t[3][0][1] // 1000) for t in m.tris("M_Wall_*") if t[3]}
+    """The walls' flags as the game reads them: v's thousands, and the kind from u's (massing._uv)."""
+    return {int(t[3][0][1] // 1000) | (int(round(t[3][0][0] / 1000)) << 10) for t in m.tris("M_Wall_*") if t[3]}
 
 
 def top(m):

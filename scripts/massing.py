@@ -50,8 +50,9 @@ SHOPFRONT, CURTAIN, BALCONIES, HALL = 8, 16, 32, 64
 #   OFFICE     an office, ministry, bank, hospital or school wall: punched windows, no shop bays, no laundry or balconies;
 #   BANDS      tinted ribbon glazing, a glass band along each floor between opaque spandrels (the office slabs' variant);
 #   HOME       a villa or bungalow in its walled compound: the survey's few shops (15 %), barred windows.
-#   KIND_*     the avenue kit's type of facade, a code in the three bits from 1024 (the game's own paint, window grid
-#              and dressing for each; circle-game render/windows.ts KIND): a concrete-framed office, a glass office, a
+#   KIND_*     the avenue kit's type of facade, a code in the three bits from 1024, written into u as kind * 1000 (see
+#              _uv; the game's own paint, window grid and dressing for each; circle-game render/windows.ts KIND): a
+#              concrete-framed office, a glass office, a
 #              bank's panelled storey, a ministry's painted concrete, an institution's cream (hospitals, schools,
 #              bungalows), a villa's render, a plain volume.
 # A wall with none of the bits from 8 up is read by the game exactly as before (its legacy reading).
@@ -108,9 +109,12 @@ def pick(choices, r):
 
 def _uv(length, z0, z1, flag):
     """The four corners' texture coordinates: the flags only, the same at every corner. District walls have no
-    texture, and constant values weld and compress to almost nothing (gltfpack -kv keeps them)."""
-    f = 1000.0 * flag
-    return ((0, f), (0, f), (0, f), (0, f))
+    texture, and constant values weld and compress to almost nothing (gltfpack -kv keeps them). The avenue kit's kind
+    (the bits from 1024) goes in u instead, as kind * 1000: the packed tiles keep about 11 bits of mantissa, so a v of
+    millions came back a thousand or two off; every other wall keeps u = 0, as before."""
+    f = 1000.0 * (flag & 1023)
+    k = 1000.0 * (flag >> 10)
+    return ((k, f), (k, f), (k, f), (k, f))
 
 
 def walls(mesh, obj, mat, poly, z0, z1, flag=0):
