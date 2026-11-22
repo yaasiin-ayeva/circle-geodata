@@ -195,8 +195,26 @@ def unit_checks():
     gr = next((o for o in outlines if o["osm"] == "way/1574990678"), None)
     check("Jubilee House's grounds are way 1574990678, round the house", gr is not None and gr["role"] == "grounds" and jh is not None
           and gr["geom"].contains(jh["geom"].representative_point()) and gr["geom"].area > jh["geom"].area * 3)
-    check("its grounds are kept clear (grounds()), in the area's metres", len(lf.grounds(outlines, lambda g: g)) == 1
+    check("its grounds are kept clear (grounds()), in the area's metres", len(lf.grounds(outlines, lambda g: g)) == sum(len(lm.get("grounds", [])) for lm in lf.LANDMARKS)
           and lf.grounds([{"osm": "way/9", "role": "grounds", "geom": box(0, 0, 5, 5)}], lambda g: shapely.affinity.scale(g, 2, 2))[0].area == 100)
+    # Accra Mall's surroundings (circle-game docs/mall-surroundings.md): the buildings the game builds, the terminal's
+    # yard and The Signature's plot as grounds, the plot grown 1.5 m (its generated walls stood up to 3.7 m outside).
+    sur = {k for k, v in ids.items() if v[0] == "Accra Mall's surroundings"}
+    check("Accra Mall's surroundings: nine buildings (the towers, City Galleria, the Regent, The Gallery, the commercial block) and the terminal's yard",
+          {k for k in sur if ids[k][1] == "building"} == {f"way/{w}" for w in (608141167, 608141164, 608141163, 608141162, 608141169, 1137453837, 512899518, 741876793, 628661574)}
+          and {k for k in sur if ids[k][1] == "grounds"} == {"way/300519834"})
+    plot = next((o for o in outlines if o["osm"] == "way/1124774601"), None)
+    towers = [o for o in outlines if o["osm"] in ("way/1124774602", "way/1124774603")]
+    check("The Signature's plot (way 1124774601) is its grounds, round both towers", plot is not None and plot["role"] == "grounds"
+          and plot["landmark"] == "The Signature Apartments" and len(towers) == 2 and all(plot["geom"].contains(t["geom"].representative_point()) for t in towers))
+    grown = lf.grounds([{"osm": "way/9", "role": "grounds", "landmark": "The Signature Apartments", "geom": box(0, 0, 10, 10)}], lambda g: g)[0]
+    check("a landmark's grounds_out grows its grounds (The Signature's by 1.5 m: 13 m square, the corners kept)",
+          abs(grown.area - 169.0) < 1e-6 and grown.contains(Point(-1.4, -1.4)))
+    walls = shapely.MultiLineString([[(-3.7, -5), (-3.7, 15)], [(-6.0, -5), (-6.0, 15)], [(5, -2.1), (5, 12)]])
+    kept = walls.difference(grown.buffer(3.0))
+    check("with the walls' 3 m, the generated walls up to 4.5 m out of the plot go and those 6 m out stay",
+          kept.intersection(box(-4.0, -1.5, 11.5, 11.5)).length == 0 and abs(kept.intersection(box(-6.5, -6, -5.5, 16)).length - 20.0) < 1e-6,
+          f"{kept.length:.1f} m kept")
     m = lf.Matcher([{"osm": "way/9", "role": "grounds", "geom": box(0, 0, 400, 400)}], lambda g: g)
     check("no building is matched to a landmark's grounds (they stay)", m.match(box(0, 0, 400, 400)) is None and m.match(box(10, 10, 20, 20)) is None)
     # The compound walls keep off the grounds (build_district.py passes them to massing.compounds' keep_out).
