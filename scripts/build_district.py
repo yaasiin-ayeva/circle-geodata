@@ -54,6 +54,7 @@ from shapely.ops import substring
 
 import landmark_footprints
 import massing
+import typology
 
 WORLD_ORIGIN_UTM = (808523.0, 616356.0)  # Kwame Nkrumah Interchange ("Circle"), see README
 
@@ -217,6 +218,15 @@ AREAS = {
                             "boxes": (LABADI_BEACH, OSU_CASTLE_BOX)},
                "minus": ["osu-poc", "ring-road", "central"], "origin": OSU_ORIGIN, "lap": LABADI_LAP, "district": "ring-road"},
 }
+
+# The office districts (typology.py "tower"): footprints of 700 m2 or more with no mapped floors stand as glass towers
+# of 6 to 12 storeys, where OpenStreetMap maps the towers' outlines but hardly ever their floors (9 of Airport City's
+# 814 footprints carry levels, 15 of Ridge's 2,485). Airport City between the airport's fence and Liberation Road's
+# junction with the Airport Bypass, and Ridge from Independence Avenue to the Kanda Highway (lat, lon boxes); the
+# airport's terminals (class roof, transportation) and anything named a terminal are left out by typology.classify().
+TOWER_ZONES = {"airport-city": {"south": 5.5985, "north": 5.6075, "west": -0.1790, "east": -0.1690},
+               "ridge": {"south": 5.5600, "north": 5.5720, "west": -0.2010, "east": -0.1900}}
+TOWER_STOREYS = [(6, 0.30), (8, 0.30), (10, 0.25), (12, 0.15)]
 
 # What changes from one district to the next (circle-reference district cards, catalogue/*-identity-survey.md).
 #   yards: houses stand in walled compounds with gates (Osu); in the old town buildings stand on the street line.
@@ -968,6 +978,52 @@ def under_structure(geom, ground, top):
     return any(off < top + 2.0 and poly.intersects(geom) for poly, off in ground)
 
 
+def typology_building(mesh, obj, wall, bid, poly, n, height, floors, parapet, near, cls, name, place_index, fronts,
+                      zones, area_name, counts, names):
+    """Builds a footprint by its typology (typology.py) when it has one, and returns its kind; None for the generic
+    massing (massing.building() or the plain extrusion), left to the caller. n: its storeys (None when only a height
+    is mapped); the look-dev Oxford Street's neighbours (near) keep the generic rules."""
+    if near:
+        return None
+    tagged = bool(height or floors)
+    storeys_n = n if n is not None else max(1, round(float(height) / STOREY_M))
+    places = place_index.inside(poly)
+    zone = not tagged and any(z.contains(poly.centroid) for z in zones)
+    if zone and (cls in ("roof", "transportation") or any("terminal" in (x or "").lower() for x in [name] + [p[1] for p in places])):
+        zone = False
+    kind = typology.classify(bid, poly.area, storeys_n, tagged, height, cls, name, places,
+                             typology.frontage(fronts, poly), area_name, zone)
+    counts[f"kind {kind}"] += 1
+    label = None
+    if kind == "church":
+        label = typology.worship_name(name, places)
+        massing.church(mesh, obj, wall, bid, poly, counts)
+    elif kind == "mosque":
+        label = typology.worship_name(name, places)
+        massing.mosque(mesh, obj, wall, bid, poly, storeys_n, parapet, counts)
+    elif kind == "warehouse":
+        massing.warehouse(mesh, obj, wall, bid, poly, cls, counts)
+    elif kind == "tower":
+        drawn = storeys_n if tagged else massing.pick(TOWER_STOREYS, unit_hash(bid, "tower storeys"))
+        massing.tower(mesh, obj, wall, bid, poly, drawn, counts)
+    elif kind == "apartments":
+        massing.building(mesh, obj, wall, bid, poly, storeys_n, parapet, False, False, counts, "osu", None, massing.BALCONIES)
+    elif kind == "storey":
+        label = typology.shop_name(name, places)
+        massing.building(mesh, obj, wall, bid, poly, storeys_n, parapet, False, False, counts, "osu", None, massing.SHOPFRONT)
+    elif kind == "kiosk":
+        massing.kiosk(mesh, obj, wall, bid, poly, counts)
+    else:
+        return None
+    if label:
+        f = typology.facing(fronts, poly)
+        if f is not None:
+            c = poly.centroid
+            names.append({"name": label, "kind": kind, "x": round(c.x, 1), "z": round(c.y, 1),
+                          "nx": round(float(f[0]), 3), "nz": round(float(f[1]), 3)})
+    return kind
+
+
 def build(args):
     area = AREAS[args.name]
     rules = DISTRICT_RULES.get(area.get("district", "osu"), DISTRICT_RULES["osu"])
@@ -1108,7 +1164,17 @@ def build(args):
     # Building modules (massing.py): who stands in a walled compound, and what keeps the walls out.
     yards, keep_out = [], []
     counts = Counter()
-    for bid, src, height, floors, blob in load(con, os.path.join(args.slice, "buildings.parquet"), "id, source, height, num_floors"):
+    # The typologies (typology.py): the places inside each footprint, the roads it fronts, the office districts.
+    kit2 = not args.no_typologies and not args.no_massing
+    if kit2:
+        place_index = typology.Places(typology.slice_places(args.slice, local, con))
+        fronts = typology.front_index([(cls, g) for _, cls, _, g in roads], lambda c: ROAD_WIDTH[c])
+        zones = [local(area_box(z)) for z in TOWER_ZONES.values()]
+    names = []
+    cols = "id, source, height, num_floors" + (", class, name" if kit2 else "")
+    for row in load(con, os.path.join(args.slice, "buildings.parquet"), cols):
+        bid, src, height, floors, blob = row[:4] + row[-1:]
+        bcls, bname = row[4:6] if kit2 else (None, None)
         g = shapely.from_wkb(bytes(blob))
         c = g.centroid
         if not lonlat_box.contains(c) or any(m.contains(c) for m in minus):
@@ -1165,6 +1231,13 @@ def build(args):
             obj = cell_name("Buildings", c.x, c.y)
             wall = (massing.pick(rules["paints"], unit_hash(bid, "paint")) if rules["paints"]
                     else WALLS[int(unit_hash(bid, "paint") * len(WALLS))])
+            if kit2:
+                kind = typology_building(mesh, obj, wall, bid, poly, n, height, floors, parapet, near, bcls, bname,
+                                         place_index, fronts, zones, args.name, counts, names)
+                if kind:
+                    keep_out.append(poly)
+                    nb += 1
+                    continue
             if not args.no_massing and n is not None:
                 # Houses and small blocks off Oxford Street stand in walled yards.
                 yard = rules["yards"] and not near and n <= 3 and poly.area < 600
@@ -1381,6 +1454,9 @@ def build(args):
                                 [(cls, g, road_width(cls, name, rid=rid)) for rid, cls, name, g in roads], gates=compound_gates),
         # Where the game's hiding places stand (circle-game src/world/hiding.ts).
         "hiding": hiding,
+        # The real names the typologies' buildings carry (typology.py): churches and mosques, storey buildings' name
+        # bands; from OpenStreetMap and Overture, as text only.
+        **({"names": names} if names else {}),
         # The named places the game's maps show, best first (scripts/places.py; circle-game src/ui/minimap-places.ts).
         "places": spots,
         # The central reservations of the dual carriageways, cut at the crossings (find_medians()).
@@ -2153,6 +2229,9 @@ def main():
     ap.add_argument("--name", default="osu-poc", choices=sorted(AREAS))
     ap.add_argument("--out", default="data/work/osu-poc")
     ap.add_argument("--exclude", help="file of building ids to leave out (from build_lookdev.py)")
+    ap.add_argument("--no-typologies", action="store_true",
+                    help="build every footprint with the generic modules, as before typology.py (churches, mosques, "
+                         "towers, flats, storey buildings, warehouses and kiosks drawn as plain blocks and houses)")
     ap.add_argument("--elevated", default=ELEVATED,
                     help="the interchanges and flyovers (scripts/elevated.py); without the file every road is on the ground")
     ap.add_argument("--no-massing", action="store_true",

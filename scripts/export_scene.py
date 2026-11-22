@@ -149,6 +149,11 @@ def main():
         scene["signs"] = [{"name": sg["name"], "from": [sg["x"], -sg["z"]],
                            "toward": [round(math.sin(math.radians(sg["bearing"])), 4), round(-math.cos(math.radians(sg["bearing"])), 4)]}
                           for sg in d["signs"]]
+    # The real names of the typologies' buildings (build_district.py "names": churches, mosques, storey buildings'
+    # bands): the footprint's middle and the plan direction to the road its named facade faces, in glTF axes.
+    if d.get("names"):
+        scene["names"] = [{"name": nm["name"], "kind": nm["kind"], "at": [nm["x"], round(-nm["z"], 1) + 0.0],
+                           "toward": [nm["nx"], round(-nm["nz"], 3) + 0.0]} for nm in d["names"]]
     # The drivable network, for traffic: polylines in glTF axes with their class, width and name, and "oneway" on the
     # pieces driven one way only, which run the way the traffic goes; "lanes" where OSM counts them (build_district.py
     # LANES: each way's count on a carriageway, the total on a two-way road).
