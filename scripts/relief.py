@@ -663,8 +663,9 @@ def smooth_profile(h, d, sigma):
 
 
 SHORE_RAMP_M = 12.0     # Osu's shore: the ground drops from the coastline to the sea floor over this (the rocks' face)
+SHORE_EDGE_M = 0.0      # the sea floor at the band's edge, where it meets the DEM's sea
 SHORE_FLOOR_M = -2.5    # the sea floor off the rocks, under the game's sea level (circle-game labadi-beach.json sea.level 0.8)
-SHORE_BAND_M = 80.0     # how far seaward of the line the drop is laid
+SHORE_BAND_M = 250.0    # how far seaward of the line the sea floor is laid: past the bare-earth filter's lift of the sea bed
 
 
 def shore_drop(h, grid, shore, origin, to_utm):
@@ -702,10 +703,13 @@ def shore_drop(h, grid, shore, origin, to_utm):
         fz = (shapely.get_y(foot) - grid.z0) / grid.step
         at_line = ndimage.map_coordinates(h, [fz, fx], order=1, mode="nearest")
         t = np.clip(d / SHORE_RAMP_M, 0.0, 1.0)
-        # The face, the sea floor, then over the band's last 30 m the floor rises back above the natural sea bed, so
-        # the drop meets the DEM's sea (about 0 m) with no step at the band's edge.
-        rise = np.clip((d - (SHORE_BAND_M - 30.0)) / 30.0, 0.0, 1.0) * 4.0
-        target = at_line + (SHORE_FLOOR_M - at_line) * t + rise
+        # The face, the sea floor, then over the band's last 60 m the floor rises to SHORE_EDGE_M, under the sea's level,
+        # to meet the DEM's sea (about 0 m) with no step at the band's edge. Within the band the natural ground is never
+        # kept above the floor: the bare-earth filter lifts the sea bed to 1 m 80 to 120 m out, over the sea's level,
+        # which showed as sand bars off the castle.
+        rise = np.clip((d - (SHORE_BAND_M - 60.0)) / 60.0, 0.0, 1.0)
+        floor = SHORE_FLOOR_M + (SHORE_EDGE_M - SHORE_FLOOR_M) * rise
+        target = at_line + (floor - at_line) * t
         jv, iv = jj.ravel()[inside], ii.ravel()[inside]
         old = h[jv, iv]
         h[jv, iv] = np.minimum(old, target)
