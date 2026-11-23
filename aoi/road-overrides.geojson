@@ -1,0 +1,5 @@
+{"type": "FeatureCollection",
+ "description": "Lines of the roads drawn otherwise than their tags say (scripts/road_overrides.py). OpenStreetMap contributors, ODbL 1.0.",
+ "features": [
+{"type":"Feature","properties":{"osm":"way/1230501216","version":3,"highway":"residential"},"geometry":{"type":"LineString","coordinates":[[-0.1710686,5.6257007],[-0.1710961,5.6257677],[-0.1713006,5.626266],[-0.171307,5.6262723],[-0.1713211,5.626274],[-0.1718404,5.6260698],[-0.1718436,5.6260666],[-0.1718458,5.6260606],[-0.1717375,5.625554],[-0.1717104,5.6254718]]}}
+]}
