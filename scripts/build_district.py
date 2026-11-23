@@ -26,6 +26,9 @@ mapbox_earcut, networkx and Pillow (requirements-district.txt).
 The landmarks circle-game builds itself (landmark_footprints.py LANDMARKS: Black Star Square, the stadium, Jubilee
 House, Accra Mall...) are left out of every district: no massing and no solid outline on their footprints, which still
 keep compound walls, parked cars and hiding places off their ground. --keep-landmarks builds them as before.
+
+The roads OpenStreetMap tags for the public street they are not (road_overrides.py OVERRIDES: The Gallery's compound
+drive) are drawn in the class and at the width listed there. --no-road-overrides draws them by their tags, as before.
 """
 import argparse
 import csv
@@ -54,6 +57,7 @@ from shapely.geometry.polygon import orient
 from shapely.ops import substring
 
 import landmark_footprints
+import road_overrides
 import avenue_kit
 import massing
 import typology
@@ -328,6 +332,9 @@ NAMED_WIDTH = {"Danquah Circle": 9.5}
 # Road, the Spintex and Airport roads) are mapped in OpenStreetMap as one one-way road per carriageway, each drawn the
 # way its traffic runs; drawn at their class's width (18 m for a trunk) two of them covered the median.
 CARRIAGEWAY_W = {}
+# The roads drawn otherwise than OpenStreetMap tags them (road_overrides.py OVERRIDES): road id -> width (m), their
+# class already changed in build()'s roads. Filled by build() for the area it builds; road_width() reads it first.
+OVERRIDE_W = {}
 # road id -> the median distance (m) centre to centre to its opposite carriageway, from find_carriageways(): a width
 # from the lane count is capped so that a median of at least MEDIAN_MIN_M stays between the two.
 CARRIAGEWAY_GAP = {}
@@ -582,6 +589,8 @@ def road_width(cls, name="", widths=None, rid=None):
     """The carriageway's width (m): by class, except the Ring Road's surveyed main carriageways and Danquah Circle,
     and the carriageways find_carriageways() found (by road id)."""
     widths = widths or ROAD_WIDTH
+    if rid is not None and rid in OVERRIDE_W:
+        return OVERRIDE_W[rid]
     if cls in MAJOR_CLASSES and name == SURVEYED_CARRIAGEWAY:
         return CARRIAGEWAY_M
     if rid is not None and rid in LANES and cls in LANE_M:
@@ -1120,6 +1129,16 @@ def build(args):
         if not g.intersects(lonlat_box):
             continue
         roads.append((rid, cls, name, local(g)))
+    # The roads drawn otherwise than their tags say (road_overrides.py): their class and width, by OpenStreetMap way.
+    OVERRIDE_W.clear()
+    if not getattr(args, "no_road_overrides", False):
+        over = road_overrides.match(roads, road_overrides.load(getattr(args, "road_overrides", road_overrides.LINES)), local)
+        roads = [(rid, over[rid][0] if rid in over else cls, name, g) for rid, cls, name, g in roads]
+        OVERRIDE_W.update({rid: o[1] for rid, o in over.items()})
+        if over:
+            print("roads drawn by road_overrides.py: " + ", ".join(
+                f"way {w} as {c} {wd:g} m ({sum(1 for o in over.values() if o[2] == w)} segments)"
+                for w, c, wd in sorted({(o[2], o[0], o[1]) for o in over.values()})))
     # The interchanges and flyovers: their pieces leave the ground's roads (the game builds them at their levels).
     elev, feet = load_elevated(args.elevated, oe, on)
     on_structures, under = [], Counter()
@@ -2350,6 +2369,10 @@ def main():
                     help="no fuel stations: their canopies extruded as buildings, walls and parked cars over their ground, as before")
     ap.add_argument("--landmark-footprints", default=landmark_footprints.FOOTPRINTS,
                     help="the outlines of the landmarks the game builds (landmark_footprints.py), left out of the buildings")
+    ap.add_argument("--road-overrides", default=road_overrides.LINES,
+                    help="the lines of the roads drawn in another class and width (road_overrides.py)")
+    ap.add_argument("--no-road-overrides", action="store_true",
+                    help="draw every road by its OpenStreetMap class, as before road_overrides.py")
     ap.add_argument("--keep-landmarks", action="store_true",
                     help="draw the landmarks' footprints as generic massing and keep the places as the data has them, as before")
     build(ap.parse_args())
