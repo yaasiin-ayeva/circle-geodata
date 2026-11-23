@@ -26,7 +26,7 @@ Checked 12 November 2026, from the landscape research in `circle-bible/research/
 
 ## Google imagery
 
-Street View, Google imagery, Google Earth and Google Photorealistic 3D Tiles may be used as sources, including for facades and street dressing, by the team's decision of 13 November 2026 ([DECISIONS.md](https://github.com/yaasiin-ayeva/circle-bible/blob/main/DECISIONS.md)). Google's terms say otherwise, and the team accepts that risk: the Google Maps Platform Terms of Service (§3.2.3, last modified 26 August 2026) forbid scraping, bulk downloads, caching and creating content from Google Maps content, and the Street View brand rules forbid screenshots, tracing, extracting information and stitching views. Real brands are removed from anything taken from them, as from every other source.
+Google Maps, Street View, Google Earth, the satellite view and Google Photorealistic 3D Tiles may be used, as sources and in the game, including for facades and street dressing, by the team's decisions of 13 and 23 November 2026 ([DECISIONS.md](https://github.com/yaasiin-ayeva/circle-bible/blob/main/DECISIONS.md)). Real brands are removed from anything taken from them, as from every other source.
 
 ## Licence limits
 
