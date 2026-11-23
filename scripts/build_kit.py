@@ -452,4 +452,6 @@ def main():
         print(f"wrote {preview_path}")
 
 
-main()
+# Blender runs a -P script as __main__; build_kit2.py imports the parts' helpers from here without building this kit.
+if __name__ == "__main__":
+    main()
