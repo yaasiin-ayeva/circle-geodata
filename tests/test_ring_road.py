@@ -155,6 +155,21 @@ V = np.array([[-1200.0, 0.0, 300.0], [-1210.0, 0.0, 310.0], [-1190.0, 3.0, 320.0
 check("cells go to the tile that holds them", export_glb.tile_of("Buildings_-3_1", [], V, 500) == (-2, 0) and
       export_glb.tile_of("Roads_2_-3", [], V, 500) == (1, -2))
 check("an object without a cell goes by its vertices", export_glb.tile_of("Landmarks", [(1, 0, 0), (2, 0, 0), (3, 0, 0)], V, 500) == (2, 0))
+# A tile too small to stand alone joins its neighbour's primitives: each of its groups into the nearest cell there of
+# the same kind that draws its material; a material that cell kind lacks keeps its own object.
+f = [(1, 0, 0)] * 3
+groups = {("Buildings_-4_-7", "M_Wall_Grey"): f * 2, ("Buildings_-3_-8", "M_Wall_Grey"): f, ("Roads_-4_-7", "M_Asphalt"): f,
+          ("Buildings_-5_-7", "M_Wall_Grey"): f, ("Buildings_-5_-8", "M_Roof"): f, ("Roads_-5_-7", "M_Asphalt"): f,
+          ("Ground_-5_-7", "M_Ground"): f}
+near = [("Buildings_-4_-7", "M_Wall_Grey"), ("Buildings_-3_-8", "M_Wall_Grey"), ("Roads_-4_-7", "M_Asphalt")]
+small = [("Buildings_-5_-7", "M_Wall_Grey"), ("Buildings_-5_-8", "M_Roof"), ("Roads_-5_-7", "M_Asphalt"),
+         ("Ground_-5_-7", "M_Ground")]
+left = export_glb.fold_into(small, near, groups)
+check("a small tile's cells fold into its neighbour's primitives of the same kind and material",
+      left == [("Buildings_-5_-8", "M_Roof"), ("Ground_-5_-7", "M_Ground")]
+      and len(groups[("Buildings_-4_-7", "M_Wall_Grey")]) == 9 and len(groups[("Buildings_-3_-8", "M_Wall_Grey")]) == 3
+      and len(groups[("Roads_-4_-7", "M_Asphalt")]) == 6 and ("Buildings_-5_-7", "M_Wall_Grey") not in groups,
+      str(left))
 
 print("ring road: " + ("all checks passed" if not failures else f"{failures} failed"))
 sys.exit(1 if failures else 0)

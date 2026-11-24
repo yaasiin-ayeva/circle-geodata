@@ -331,6 +331,35 @@ def tile_of(obj, corners, V, tile_m):
     return int(math.floor(e / tile_m)), int(math.floor(n / tile_m))
 
 
+CELL_NAME = re.compile(r"^(.*)_(-?\d+)_(-?\d+)$")
+
+
+def fold_into(small, keys, groups):
+    """A small tile's (object, material) groups joining the tile of keys: each goes into the nearest cell there of the
+    same kind (Buildings_, Roads_, Ground_...) that already draws its material, so the tile gains no primitive (a draw
+    each where shown) for cells that came only because their own tile was too small (Starlets '91 Road's east end,
+    24 Nov 2026: Labadi's tile -3 -4, left under MIN_TILE_TRIANGLES by the kit, added three cells' ten primitives to
+    -2 -4). The same faces, material and attributes: only the object they are listed under changes, which the game
+    reads by its prefix alone. A group with no such cell keeps its own object. Returns the groups left to add."""
+    have = {}
+    for obj, mtl in keys:
+        m = CELL_NAME.match(obj)
+        if m:
+            have.setdefault((m.group(1), mtl), []).append((int(m.group(2)), int(m.group(3)), obj))
+    left = []
+    for key in small:
+        obj, mtl = key
+        m = CELL_NAME.match(obj)
+        into = have.get((m.group(1), mtl)) if m else None
+        if not into:
+            left.append(key)
+            continue
+        i, j = int(m.group(2)), int(m.group(3))
+        target = min(into, key=lambda c: ((c[0] - i) ** 2 + (c[1] - j) ** 2, c[2]))[2]
+        groups[(target, mtl)] = groups[(target, mtl)] + groups.pop(key)
+    return left
+
+
 def pack(gltfpack, src, dst):
     """gltfpack with the district's flags (README): meshopt geometry, names and materials kept, the walls' texture
     coordinates kept (-kv) for the building modules' flags."""
@@ -355,13 +384,14 @@ def export(obj_path, look_path, tex_roots, out_path, max_tex, uv_on=None, tile_m
         tiles = {}
         for key in order:
             tiles.setdefault(tile_of(key[0], groups[key], V, tile_m), []).append(key)
-        # A tile of a few triangles (a sliver of ground margin) is not worth a request: it joins the nearest tile.
+        # A tile of a few triangles (a sliver of ground margin) is not worth a request: it joins the nearest tile,
+        # its cells into that tile's primitives (fold_into).
         size = {t: sum(len(groups[k]) for k in keys) // 3 for t, keys in tiles.items()}
         for t in sorted(tiles, key=lambda t: size[t]):
             others = [o for o in tiles if o != t and size[o] >= MIN_TILE_TRIANGLES]
             if size[t] < MIN_TILE_TRIANGLES and others:
                 near = min(others, key=lambda o: (o[0] - t[0]) ** 2 + (o[1] - t[1]) ** 2)
-                tiles[near] += tiles.pop(t)
+                tiles[near] += fold_into(tiles.pop(t), tiles[near], groups)
                 size[near] += size.pop(t)
         listing = []
         for (i, j), keys in sorted(tiles.items()):
