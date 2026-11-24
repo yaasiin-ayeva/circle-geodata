@@ -1,9 +1,10 @@
 """The Independence Avenue kit: the typology each generic building of the avenue's corridor gets (circle-game
 docs/independence-avenue-plan.md, stage 2, the director's decisions of 22 Nov 2026).
 
-Used by build_district.py --avenue-kit. The corridor, the avenue's reference line and segments, the plan's OSM lots
-with their tags, and the buildings the plan names with their typology are in aoi/independence-avenue-kit.json (from the
-plan's survey of 22 Nov 2026). Only footprints with a point in the corridor (or that the plan names) change; everything else is built
+Used by build_district.py --avenue-kit, and by --starlets-kit for Starlets '91 Road's corridor (its data in
+aoi/starlets-91-kit.json, scripts/starlets_kit_data.py; the avenue's corridor first where they meet). The corridor,
+the avenue's reference line and segments, the plan's OSM lots with their tags, and the buildings the plan names with
+their typology are in aoi/independence-avenue-kit.json (from the plan's survey of 22 Nov 2026). Only footprints with a point in the corridor (or that the plan names) change; everything else is built
 as before, so the other districts do not change.
 
 The typologies are the plan's (Appendix C): T1 villa behind a wall, T2 office slab, T3 glass office tower, T4 bank
@@ -21,9 +22,11 @@ yard, T16 filling station; and VOL, the plain volume behind a wall of the sensit
      shop blocks (T9). On Jubilee House's grounds: None.
   4. By the uses OpenStreetMap and Overture give the footprint (its class, the places inside it) and its lot's tags:
      an embassy, a military site: VOL; a hospital: T7; a place of worship: T11; a school or college: T14; a hotel:
-     T12; a government office: T5; under 40 m2: T10; a bank or an ATM: T4 (T2 from 1,200 m2); nine levels or more:
-     None (T3); flats outside Tudu: T8; on a car park's or a park's lot, under 100 m2: T10; in segment F (the
-     Ministries to Tudu): T9; offices, commerce, three levels or more or 700 m2 or more: T2; else T1.
+     T12; a government office, or a ministry's grounds (a lot the plan types T5): T5 (its sheds under 40 m2 T10); a
+     lot the plan types T10 (the kiosks and sheds of a compound): T10; under 40 m2: T10; a bank or an ATM: T4 (T2
+     from 1,200 m2); nine levels or more: None (T3); flats outside the shop segments: T8; on a car park's or a
+     park's lot, under 100 m2: T10; in the corridor's shop segments (the avenue's F, the Ministries to Tudu;
+     Starlets '91 Road's A and D): T9; offices, commerce, three levels or more or 700 m2 or more: T2; else T1.
 
 The storeys: OpenStreetMap's (or Overture's) where mapped; otherwise the district's rule by area, held to the
 typology's range (STOREYS) and said to be estimated.
@@ -31,10 +34,14 @@ typology's range (STOREYS) and said to be estimated.
 import json
 import os
 
+import numpy as np
 import shapely
 from shapely.geometry import LineString, Point, Polygon
 
 DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "aoi", "independence-avenue-kit.json")
+# Starlets '91 Road's kit (circle-game docs/starlets-91-plan.md, stage 2): the same rules on its corridor, from its data
+# (scripts/starlets_kit_data.py). Where the two corridors meet, at the road's west end, the avenue's comes first.
+STARLETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "aoi", "starlets-91-kit.json")
 
 NAMES = {"T1": "villa behind a wall", "T2": "office slab", "T3": "glass office tower", "T4": "bank branch",
          "T5": "ministry block", "T6": "colonial bungalow", "T7": "hospital or barracks low block",
@@ -65,13 +72,14 @@ def uses(cls, places):
     return " ".join([cls or ""] + [t for t, _ in places]).lower()
 
 
-def choose(area, levels, cls, places, lot=None, named=None, segment=None, ml=False):
+def choose(area, levels, cls, places, lot=None, named=None, segment=None, ml=False, shop=("F",)):
     """The typology of one footprint (see the module's docstring), or None to keep the generic massing.
 
     area: m2; levels: mapped storeys or None; cls: its building class (OSM's building=*, through Overture) or None;
     places: ("key=value", name) of the places inside it (osm.parquet's "amenity=bank", places.parquet's "category=");
     lot: the plan's OSM lot it stands in ({"treat", "tags"}) or None; named: the plan's entry for this very building
-    ({"treat"}) or None; segment: "A" to "F" by chainage; ml: a machine-learnt footprint (Google, Microsoft)."""
+    ({"treat"}) or None; segment: "A" to "F" by chainage; ml: a machine-learnt footprint (Google, Microsoft); shop: the
+    segments whose blocks are shop and office blocks (T9) by segment (the avenue's F, Tudu; Starlets '91 Road's D)."""
     if named is not None:
         t = named.get("treat")
         return t if t in BUILT else None
@@ -98,17 +106,24 @@ def choose(area, levels, cls, places, lot=None, named=None, segment=None, ml=Fal
         return "T12"
     if any(k in u for k in GOVERNMENT) or lt.get("government") or lt.get("office") == "government":
         return "T5"
+    if lot_treat == "T5":
+        # A ministry's grounds (Starlets '91 Road's Ministries, OSM landuse=civic_admin): its blocks are ministry blocks,
+        # its small outlines below are kiosks.
+        return "T10" if area < 40 else "T5"
+    if lot_treat == "T10":
+        # A lot whose buildings the plan types kiosks and sheds (Starlets '91 Road's stadium compound, its model apart).
+        return "T10"
     if area < 40:
         return "T10"
     if "bank" in u or "atm" in u:
         return "T4" if area < 1200 else "T2"
     if (levels or 0) >= 9:
         return None
-    if "apartments" in u and segment != "F":
+    if "apartments" in u and segment not in shop:
         return "T8"
     if (lt.get("amenity") == "parking" or lt.get("leisure") in ("park", "garden")) and area < 100:
         return "T10"
-    if segment == "F":
+    if segment in shop:
         return "T9"
     if any(k in u for k in ("commercial", "office", "retail")) or (levels or 0) >= 3 or area >= 700:
         return "T2"
@@ -126,11 +141,18 @@ def storeys_for(kind, estimate, mapped):
 class Avenue:
     """The kit's data in the area's metres: local(geom) turns a lon/lat geometry into them."""
 
-    def __init__(self, data, local):
+    def __init__(self, data, local, name="avenue"):
         self.data = data
+        self.name = name
+        self.shop = tuple(data.get("shop_segments", ["F"]))
         self.corridor = shapely.union_all([local(Polygon(r)) for r in data["corridor"]])
         shapely.prepare(self.corridor)
         self.line = local(LineString(data["line"]))
+        # Which walls of a ministry block carry its brise-soleil (massing.ministry): every one (the avenue's), or, with
+        # the data's "fins" ({"reach_m"}), those facing the road's line within that reach (Starlets '91 Road's: its
+        # ministries are many and deep in their grounds; the walls a driver does not see go without).
+        fins = data.get("fins")
+        self.fin_wall = None if not fins else self._facing_road(float(fins["reach_m"]))
         self.segments = data["segments"]
         self.lots = []
         for lot in data["lots"]:
@@ -140,6 +162,17 @@ class Avenue:
         self.lot_tree = shapely.STRtree([g for g, _ in self.lots]) if self.lots else None
         self.named = [(local(Point(b["at"])), b) for b in data["buildings"]]
         self.named_tree = shapely.STRtree([p for p, _ in self.named]) if self.named else None
+
+    def _facing_road(self, reach):
+        line = self.line
+
+        def seen(a, b, out):
+            m = Point((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+            q = line.interpolate(line.project(m))
+            d = np.array([q.x - m.x, q.y - m.y])
+            dist = float(np.hypot(*d))
+            return dist <= reach and float(np.dot(out, d)) > 0.0
+        return seen
 
     def touches(self, region):
         return self.corridor.intersects(region)
