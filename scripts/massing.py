@@ -84,6 +84,11 @@ ROOF_PALETTES = {
     # Spintex, about 125 roofs: of the 101 not flat or beige, red 40, grey 34, brown 16, painted 11.
     "spintex": {"mix": [("M_Roof", 0.33), ("M_RoofSheet_Rust", 0.16), ("M_RoofTile_Red", 0.40),
                         ("M_RoofSheet_Painted", 0.11)], "pitched": 0.85, "pitch": 18},
+    # Adabraka (circle-reference adabraka-identity-survey.md, Street View 24 Nov 2026): sheet on nearly every roof,
+    # much of it rusted brown on the old grid, grey or maroon on newer buildings, one painted blue; red clay rare;
+    # flat concrete only on the commercial blocks. Low pitches. Not counted from above: estimated, not measured.
+    "adabraka": {"mix": [("M_Roof", 0.45), ("M_RoofSheet_Rust", 0.40), ("M_RoofTile_Red", 0.05),
+                         ("M_RoofSheet_Painted", 0.10)], "pitched": 0.9, "pitch": 12},
 }
 
 WALL_H = 2.25                         # a boundary wall, coping included
