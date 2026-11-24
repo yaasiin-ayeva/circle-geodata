@@ -228,7 +228,7 @@ For the vertical slice's drives on the Ring Road (circle-bible `bible/game-desig
   - 2,420 solid outlines and 649 wall pieces;
   - massing: 1,080 hipped roofs, 286 bulkheads, 59 frame storeys, 15 set-backs, and 44.2 km of compound wall with 1,151 gates.
 - **Tiles:** `export_glb.py --tile-m 500` groups the 250 m cells in squares of 500 m: 17 tiles, 1.72 MB packed (14 to 244 KB each, 35 primitives on average).
-  - A tile of fewer than 200 triangles (a sliver of ground margin) joins its nearest neighbour.
+  - A tile of fewer than 200 triangles (a sliver of ground margin) joins its nearest neighbour, into its primitives: each of its cells' groups goes into the nearest cell there of the same kind (`Buildings_`, `Roads_`, `Ground_`) that draws its material, so the neighbour gains no draw (`fold_into`; since 24 Nov 2026, when Starlets '91 Road's kit left Labadi's tile -3 -4 under the line and its three cells added ten primitives to -2 -4). A material the neighbour's cells lack keeps its own object. The game reads the objects by their prefix only.
   - `tiles.json` lists each tile's file, ground bounds in glTF x and z, triangles and sizes, and `export_scene.py --tiles` copies the list into the scene.
   - The scene is 400 KB, 102 KB gzipped.
 - **The world:** `export_world.py` writes `osu-world.json`, osu-poc first (home) and the Ring Road after it, with each area's offset from home's origin.
