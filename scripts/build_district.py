@@ -195,6 +195,16 @@ STARLETS_EAST_BOX = {"south": 5.5505, "north": 5.5545, "west": -0.1900, "east": 
 LABADI_LAP = {"route": [(5.553498, -0.174993), (5.559395, -0.150092), (5.564775, -0.137170), (5.578105, -0.109933),
                         (5.564775, -0.137170), (5.559395, -0.150092)], "penalty": 1.0}
 
+# Milestone 2 (aoi/slices.geojson "milestone-2"; slice in data/work/slice-m2): the city between Circle and the
+# vertical slice taken whole — Adabraka, Asylum Down and Kokomlemle north of the Ring Road, Ridge's offices, and the
+# pockets the corridors leave inside the vertical slice — less the areas already built, which it meets along their
+# edges ("minus"). Its corridor's own roads only seed the region; the whole box is taken as a district ("boxes").
+MILESTONE2 = {"south": 5.5420, "north": 5.5750, "west": -0.2200, "east": -0.1370}
+# Its lap: from Circle through Adabraka on Farrar Avenue, up the Kanda Highway, and back west on the Ring Road
+# Central to Circle (lat, lon, each near a vertex of the road).
+ADABRAKA_LAP = {"route": [(5.5660, -0.2138), (5.5650, -0.2070), (5.5745, -0.1986), (5.5710, -0.2120)],
+                "one_way": ONE_WAY_ROADS}
+
 AREAS = {
     # About 1.3 km2 of Osu: Danquah Circle, the north half of Oxford Street, Ring Road East.
     "osu-poc": {"south": 5.5575, "north": 5.5695, "west": -0.1870, "east": -0.1780,
@@ -230,6 +240,10 @@ AREAS = {
     "labadi": {"corridor": {"roads": LABADI_ROADS, "half_width_m": 220.0, "within": LABADI,
                             "boxes": (LABADI_BEACH, OSU_CASTLE_BOX, STARLETS_EAST_BOX)},
                "minus": ["osu-poc", "ring-road", "central"], "origin": OSU_ORIGIN, "lap": LABADI_LAP, "district": "ring-road"},
+    "adabraka": {"corridor": {"roads": RING_ROADS, "half_width_m": 250.0, "within": MILESTONE2,
+                              "boxes": (MILESTONE2,)},
+                 "minus": ["osu-poc", "ring-road", "liberation", "central", "kaneshie", "labadi"],
+                 "origin": OSU_ORIGIN, "lap": ADABRAKA_LAP, "district": "adabraka"},
 }
 
 # The office districts (typology.py "tower"): footprints of 700 m2 or more with no mapped floors stand as glass towers
@@ -313,6 +327,32 @@ DISTRICT_RULES = {
                               "junction_m": 12.0, "building_m": 1.5, "spawn_m": 6.0, "gap_m": 5.5,
                               "colours": [("grey", 0.20), ("black", 0.20), ("silver", 0.18), ("white", 0.16),
                                           ("red", 0.08), ("blue", 0.06), ("taxi", 0.12)]}},
+    # Adabraka, Asylum Down and Kokomlemle (AREAS "adabraka"), surveyed on Street View at 40 points along the lap on
+    # 24 Nov 2026 (circle-reference adabraka-identity-survey.md, obs-adabraka-*). Walled yards as in Osu; facades
+    # painted cream first, then salmon, light blue, mint and weathered grey (the survey's palette, mapped to the wall
+    # materials); cars parked along the side streets as on the Ring Road corridor.
+    "adabraka": {"yards": True,
+                 "paints": [("M_Wall_Concrete", 0.35), ("M_Wall_Terracotta", 0.20), ("M_Wall_PaleBlue", 0.15),
+                            ("M_Wall_Mint", 0.15), ("M_Wall_Grey", 0.15)],
+                 "landmarks": [],
+                 # Storeys of footprints of 150 m2 or more without mapped floors, drawn whatever their size: the lap
+                 # count of 34 buildings (35% one storey, 38% two, 18% three, 9% four or more, median 2;
+                 # circle-reference obs-adabraka-storeys-lap-001). The tallest stand on Ring Road Central and lower
+                 # Farrar Avenue; the old grid between is almost all 1-2 storeys.
+                 "storeys": [(1, 0.35), (2, 0.38), (3, 0.18), (4, 0.06), (5, 0.03)], "storeys_from_m2": 150,
+                 # The shop signs read in full along the lap (circle-reference texts.csv txt-adabraka-lap-001, 004,
+                 # 006 and 002), by name: the Street View point they were read from and the bearing to their
+                 # building's centroid from it (computed on the slice's footprints, 12-16 m away).
+                 "signs": [("DALEX FINANCE", 5.5660552, -0.2106789, 141),
+                           ("VERRLLEN'S JOINT", 5.5718122, -0.2110045, 264),
+                           ("KLASS", 5.5658246, -0.2092089, 197),
+                           ("IMPERIAL GENERAL ASSURANCE", 5.5725211, -0.2038974, 298)],
+                 "parking": {"classes": ["residential", "unclassified", "tertiary"], "take": 0.2,
+                             "streets": {}, "lap_m": None, "step_m": 6.5,
+                             "inset_m": 1.0, "wide_inset_m": 1.1, "narrow_m": 7.0,
+                             "junction_m": 12.0, "building_m": 1.5, "spawn_m": 6.0, "gap_m": 5.5,
+                             "colours": [("grey", 0.20), ("black", 0.20), ("silver", 0.18), ("white", 0.16),
+                                         ("red", 0.08), ("blue", 0.06), ("taxi", 0.12)]}},
 }
 # The old centre shares Jamestown's paints and its read shop signs (they stand in Jamestown, inside its box).
 DISTRICT_RULES["central"].update(paints=DISTRICT_RULES["jamestown"]["paints"], signs=DISTRICT_RULES["jamestown"]["signs"])
