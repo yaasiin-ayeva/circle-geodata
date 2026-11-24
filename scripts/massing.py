@@ -931,11 +931,12 @@ def bank(mesh, obj, wall_mat, bid, poly, n, counts, facing=None):
     return "T4"
 
 
-def ministry(mesh, obj, wall_mat, bid, poly, n, counts):
+def ministry(mesh, obj, wall_mat, bid, poly, n, counts, fin_wall=None):
     """T5, a ministry block of the 1950s to 1970s: a slab of three to six storeys of painted concrete (KIND_MINISTRY:
     narrow windows on a 1.5 m module in deep reveals) on pilotis: the ground floor open under the slab, its core set
     back behind a ring of columns; the facades an egg-crate brise-soleil of vertical fins every 1.5 m and a slab edge
-    at every floor standing 0.6 m out; and a flat roof slab overhanging 1.2 m."""
+    at every floor standing 0.6 m out; and a flat roof slab overhanging 1.2 m. fin_wall(a, b, out), when given, says
+    which walls carry the brise-soleil (Starlets '91 Road's: those seen from the road); without it, every wall."""
     top = n * STOREY_M
     kind = OFFICE | KIND_MINISTRY
     sol = _solid(KIND_MINISTRY)
@@ -970,6 +971,9 @@ def ministry(mesh, obj, wall_mat, bid, poly, n, counts):
             continue
         t = (b - a) / L
         out = np.array([t[1], -t[0]])                     # outward on a counter-clockwise ring
+        if fin_wall is not None and not fin_wall(a, b, out):
+            counts["ministry walls without fins"] += 1
+            continue
         for s in np.arange(0.75, L - 0.5, 1.5):
             p = a + t * s
             slab(mesh, obj, wall_mat, p + out * 0.02, p + out * 0.62, 0.15, z_first, top + 0.9, sol)

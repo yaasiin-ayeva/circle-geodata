@@ -1110,13 +1110,13 @@ def avenue_building(mesh, obj, wall, bid, poly, n, height, floors, parapet, src,
     seg = avenue.segment(poly)
     mapped = floors or (max(1, round(float(height) / STOREY_M)) if height else None)
     ml = src != "OpenStreetMap"
-    kind = avenue_kit.choose(poly.area, mapped, cls, places, lot, named, seg, ml)
+    kind = avenue_kit.choose(poly.area, mapped, cls, places, lot, named, seg, ml, avenue.shop)
     c = poly.centroid
     row = {"id": bid, "source": src, "x": round(c.x, 1), "y": round(c.y, 1), "area_m2": round(poly.area), "segment": seg, "lot": (named or lot or {}).get("lot"),
            "class": cls or "", "kind": kind or "generic", "storeys": "", "estimated": ""}
     rows.append(row)
     if kind is None:
-        counts["avenue generic"] += 1
+        counts[f"{avenue.name} generic"] += 1
         return None
     est = n if n is not None else (mapped or 1)
     k = avenue_kit.storeys_for(kind, est, mapped)
@@ -1135,7 +1135,7 @@ def avenue_building(mesh, obj, wall, bid, poly, n, height, floors, parapet, src,
     elif kind == "T4":
         massing.bank(mesh, obj, wall, bid, poly, k, counts, facing)
     elif kind == "T5":
-        massing.ministry(mesh, obj, wall, bid, poly, k, counts)
+        massing.ministry(mesh, obj, wall, bid, poly, k, counts, avenue.fin_wall)
     elif kind in ("T6", "T7", "T14"):
         massing.veranda_block(mesh, obj, wall, bid, poly, k, counts, kind, facing)
     elif kind == "T8":
@@ -1150,7 +1150,7 @@ def avenue_building(mesh, obj, wall, bid, poly, n, height, floors, parapet, src,
         massing.car_park(mesh, obj, wall, bid, poly, k, counts)
     elif kind == "VOL":
         massing.volume(mesh, obj, wall, bid, poly, k, counts)
-    counts[f"avenue {kind}"] += 1
+    counts[f"{avenue.name} {kind}"] += 1
     if kind in ("T7", "T14"):
         institutions.append((poly, wall))
     return kind
@@ -1320,12 +1320,17 @@ def build(args):
     # City-wide they are paused (20 Nov 2026) and opt-in (--typologies); the avenue's kit (--avenue-kit) uses their
     # builders on Independence Avenue's corridor alone.
     kit2 = getattr(args, "typologies", False) and not args.no_massing
-    avenue = None
-    if getattr(args, "avenue_kit", None) and not args.no_massing:
-        avenue = avenue_kit.Avenue(avenue_kit.load(args.avenue_kit), local)
-        if not avenue.touches(clip):
-            avenue = None
-    avenue_rows, institutions, fancy_yards = [], [], []
+    # Starlets '91 Road's kit (--starlets-kit; circle-game docs/starlets-91-plan.md, stage 2): the same rules on its
+    # corridor; where the two meet (the road's west end) the avenue's comes first.
+    kits = []
+    for opt, name in (("avenue_kit", "avenue"), ("starlets_kit", "starlets")):
+        if getattr(args, opt, None) and not args.no_massing:
+            k = avenue_kit.Avenue(avenue_kit.load(getattr(args, opt)), local, name)
+            if k.touches(clip):
+                kits.append(k)
+    avenue = kits[0] if kits else None
+    kit_rows = {k.name: [] for k in kits}
+    institutions, fancy_yards = [], []
     if kit2 or avenue is not None:
         place_index = typology.Places(typology.slice_places(args.slice, local, con))
         fronts = typology.front_index([(cls, g) for _, cls, _, g in roads], lambda c: ROAD_WIDTH[c])
@@ -1392,9 +1397,10 @@ def build(args):
             obj = cell_name("Buildings", c.x, c.y)
             wall = (massing.pick(rules["paints"], unit_hash(bid, "paint")) if rules["paints"]
                     else WALLS[int(unit_hash(bid, "paint") * len(WALLS))])
-            if avenue is not None and avenue.inside(poly):
+            kit = next((k for k in kits if k.inside(poly)), None)
+            if kit is not None:
                 kind = avenue_building(mesh, obj, wall, bid, poly, n, height, floors, parapet, src, bcls, place_index,
-                                       fronts, avenue, counts, avenue_rows, area.get("district", "osu"), rules,
+                                       fronts, kit, counts, kit_rows[kit.name], area.get("district", "osu"), rules,
                                        institutions)
                 if kind:
                     # Villas and the sensitive sites stand behind their walls (compounds()); the rest keep them out.
@@ -1659,14 +1665,17 @@ def build(args):
     }
     with open(base + ".json", "w") as f:
         json.dump(meta, f, indent=1)
-    if avenue_rows:
-        # The avenue kit's record: one line per footprint of the corridor, its typology or "generic", for the plan.
-        with open(os.path.join(args.out, "avenue-kit.csv"), "w", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=list(avenue_rows[0]))
+    for name, kit_list in kit_rows.items():
+        if not kit_list:
+            continue
+        # The kit's record: one line per footprint of the corridor, its typology or "generic", for the plan
+        # (avenue-kit.csv, starlets-kit.csv).
+        with open(os.path.join(args.out, f"{name}-kit.csv"), "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(kit_list[0]))
             w.writeheader()
-            w.writerows(avenue_rows)
-        by = Counter(r["kind"] for r in avenue_rows)
-        print(f"avenue kit: {len(avenue_rows)} footprints in the corridor: "
+            w.writerows(kit_list)
+        by = Counter(r["kind"] for r in kit_list)
+        print(f"{name} kit: {len(kit_list)} footprints in the corridor: "
               + ", ".join(f"{k} {by[k]}" for k in sorted(by, key=lambda k: (k[0] != "T", len(k), k))))
     preview(base + "-preview.png", roads, clip, mesh, lights, lap)
     print(json.dumps(meta["stats"]))
@@ -2134,24 +2143,50 @@ def traffic_network(roads, clip, one_way=()):
     width and name of the road it lies on, simplified to 0.5 m. Points are x east, z north, as the rest of the file.
     A piece of a road named in one_way is driven one way only: it runs the way its road's geometry runs and carries
     "oneway": true (the Ring Road's carriageways and Danquah Circle, ONE_WAY_ROADS, and every carriageway
-    find_carriageways() found)."""
-    src = []
+    find_carriageways() found).
+
+    Slivers (under 2 m clipped, under 1 m noded) are left out, except a road's last piece up to the district's edge,
+    one end on the edge and the other on the rest of the network: the road goes on in the area next door, whose own
+    piece starts at that point of the edge, and without it the two areas' roads stop a metre or two apart (Ogbamey
+    Street, Nii Nortey Manko Close and Angola Avenue at osu-poc's edge with adabraka, 0.9 to 1.8 m)."""
+    edge = clip.boundary
+    shapely.prepare(edge)
+    on_edge = lambda p: edge.distance(Point(p)) < 0.05
+    # A short piece's (line, the end off the edge), when it reaches the edge with one end only.
+    def edge_tail(line):
+        a, b = line.coords[0], line.coords[-1]
+        if on_edge(a) != on_edge(b):
+            return b if on_edge(a) else a
+        return None
+    src, tails = [], []
     for rid, cls, name, g in roads:
         if cls not in TRAFFIC_CLASSES:
             continue
         g = g.intersection(clip)
         for line in ([g] if isinstance(g, LineString) else list(getattr(g, "geoms", []))):
-            if isinstance(line, LineString) and line.length >= 2:
+            if not isinstance(line, LineString) or line.length <= 0:
+                continue
+            if line.length >= 2:
                 src.append((cls, name, line, rid))
+            elif (inner := edge_tail(line)) is not None:
+                tails.append(((cls, name, line, rid), inner))
+    # The edge pieces kept are those whose inner end is on a road kept.
+    if src and tails:
+        kept = shapely.STRtree([l for _, _, l, _ in src])
+        src += [t for t, inner in tails if len(kept.query(Point(inner), predicate="dwithin", distance=0.05))]
     if not src:
         return []
     tree = shapely.STRtree([l for _, _, l, _ in src])
     noded = shapely.union_all([l for _, _, l, _ in src])
     pieces = [noded] if isinstance(noded, LineString) else list(getattr(noded, "geoms", []))
+    pieces = [p for p in pieces if isinstance(p, LineString) and p.length > 0]
+    ends = Counter((round(c[0], 2), round(c[1], 2)) for p in pieces for c in (p.coords[0], p.coords[-1]))
     out = []
     for piece in pieces:
-        if not isinstance(piece, LineString) or piece.length < 1.0:
-            continue
+        if piece.length < 1.0:
+            inner = edge_tail(piece)
+            if inner is None or ends[(round(inner[0], 2), round(inner[1], 2))] < 2:
+                continue
         mid = piece.interpolate(0.5, normalized=True)
         cls, name, line, rid = src[int(tree.nearest(mid))]
         pts = list(piece.simplify(0.5).coords)
@@ -2424,6 +2459,10 @@ def main():
                     help="Independence Avenue's kit (avenue_kit.py; circle-game docs/independence-avenue-plan.md, "
                          "stage 2): the typologies T1 to T16 on the corridor's generic buildings, from "
                          "aoi/independence-avenue-kit.json by default; without it they are built as before")
+    ap.add_argument("--starlets-kit", nargs="?", const=avenue_kit.STARLETS, default=None, metavar="JSON",
+                    help="Starlets '91 Road's kit (avenue_kit.py's rules; circle-game docs/starlets-91-plan.md, stage 2) "
+                         "on its corridor's generic buildings, from aoi/starlets-91-kit.json by default; the avenue's "
+                         "corridor comes first where they meet; without it they are built as before")
     ap.add_argument("--elevated", default=ELEVATED,
                     help="the interchanges and flyovers (scripts/elevated.py); without the file every road is on the ground")
     ap.add_argument("--no-massing", action="store_true",
