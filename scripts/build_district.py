@@ -1173,7 +1173,10 @@ def build(args):
     road_rows = [(rid, cls, name or "", shapely.from_wkb(bytes(blob)))
                  for rid, cls, name, blob in load(con, os.path.join(args.slice, "roads.parquet"), "id, class, name")]
     LINKS.clear()
-    LINKS.update(rid for rid, sub, _ in load(con, os.path.join(args.slice, "roads.parquet"), "id, subclass") if sub == "link")
+    roads_pq = os.path.join(args.slice, "roads.parquet")
+    # Overture's subclass; a slice without the column (the tests' small ones) has no slip roads marked.
+    if "subclass" in {r[0] for r in con.execute(f"DESCRIBE SELECT * FROM '{roads_pq}'").fetchall()}:
+        LINKS.update(rid for rid, sub, _ in load(con, roads_pq, "id, subclass") if sub == "link")
     clip, region, minus = area_outline(area, road_rows, local, lonlat)
     # Buildings belong to the area whose box (or corridor, less the boxes it leaves out) holds their centroid.
     lonlat_box = area_box(area) if "corridor" not in area else lonlat(region)
