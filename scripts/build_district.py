@@ -2121,24 +2121,50 @@ def traffic_network(roads, clip, one_way=()):
     width and name of the road it lies on, simplified to 0.5 m. Points are x east, z north, as the rest of the file.
     A piece of a road named in one_way is driven one way only: it runs the way its road's geometry runs and carries
     "oneway": true (the Ring Road's carriageways and Danquah Circle, ONE_WAY_ROADS, and every carriageway
-    find_carriageways() found)."""
-    src = []
+    find_carriageways() found).
+
+    Slivers (under 2 m clipped, under 1 m noded) are left out, except a road's last piece up to the district's edge,
+    one end on the edge and the other on the rest of the network: the road goes on in the area next door, whose own
+    piece starts at that point of the edge, and without it the two areas' roads stop a metre or two apart (Ogbamey
+    Street, Nii Nortey Manko Close and Angola Avenue at osu-poc's edge with adabraka, 0.9 to 1.8 m)."""
+    edge = clip.boundary
+    shapely.prepare(edge)
+    on_edge = lambda p: edge.distance(Point(p)) < 0.05
+    # A short piece's (line, the end off the edge), when it reaches the edge with one end only.
+    def edge_tail(line):
+        a, b = line.coords[0], line.coords[-1]
+        if on_edge(a) != on_edge(b):
+            return b if on_edge(a) else a
+        return None
+    src, tails = [], []
     for rid, cls, name, g in roads:
         if cls not in TRAFFIC_CLASSES:
             continue
         g = g.intersection(clip)
         for line in ([g] if isinstance(g, LineString) else list(getattr(g, "geoms", []))):
-            if isinstance(line, LineString) and line.length >= 2:
+            if not isinstance(line, LineString) or line.length <= 0:
+                continue
+            if line.length >= 2:
                 src.append((cls, name, line, rid))
+            elif (inner := edge_tail(line)) is not None:
+                tails.append(((cls, name, line, rid), inner))
+    # The edge pieces kept are those whose inner end is on a road kept.
+    if src and tails:
+        kept = shapely.STRtree([l for _, _, l, _ in src])
+        src += [t for t, inner in tails if len(kept.query(Point(inner), predicate="dwithin", distance=0.05))]
     if not src:
         return []
     tree = shapely.STRtree([l for _, _, l, _ in src])
     noded = shapely.union_all([l for _, _, l, _ in src])
     pieces = [noded] if isinstance(noded, LineString) else list(getattr(noded, "geoms", []))
+    pieces = [p for p in pieces if isinstance(p, LineString) and p.length > 0]
+    ends = Counter((round(c[0], 2), round(c[1], 2)) for p in pieces for c in (p.coords[0], p.coords[-1]))
     out = []
     for piece in pieces:
-        if not isinstance(piece, LineString) or piece.length < 1.0:
-            continue
+        if piece.length < 1.0:
+            inner = edge_tail(piece)
+            if inner is None or ends[(round(inner[0], 2), round(inner[1], 2))] < 2:
+                continue
         mid = piece.interpolate(0.5, normalized=True)
         cls, name, line, rid = src[int(tree.nearest(mid))]
         pts = list(piece.simplify(0.5).coords)
