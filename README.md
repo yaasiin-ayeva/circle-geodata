@@ -281,6 +281,19 @@ Three areas in Osu's frame, chunked like Legon, so the first load carries only t
 - **`labadi`** (slice `coast-east`, 5.535–5.585 N, −0.195 to −0.095): a corridor 220 m either side of `LABADI_ROADS` (La Road along the sea, Teshie Road, the Ring Road East's end at La), plus La Pleasure Beach and La Palm whole (`LABADI_BEACH`), Osu Castle's grounds (`OSU_CASTLE_BOX`) and Starlets '91 Road's east end to Castle Road and Lokko Street (`STARLETS_EAST_BOX`, 5.5505–5.5545 N, −0.1900 to −0.1880: the blocks east of the road's northbound stretch, Access Bank's head office among them, which fell between central's east edge and Labadi's roads; 361 footprints, 191 of them within 150 m of the road), minus Osu's, the Ring Road's and `central`. Lap (`LABADI_LAP`) 19.9 km: La Road from Osu past Labadi to Teshie and back, the night run by the sea.
 - **Tests:** `python3 tests/test_west.py` (slices, boxes, laps, rules).
 
+### Adabraka, Asylum Down and Kokomlemle, the city between Circle and the vertical slice
+
+The area is `adabraka` in `AREAS`, from the slice `milestone-2` (`aoi/slices.geojson`, 5.542–5.575 N, −0.220 to −0.137; `overture_slice.py export --release 2026-10-21.0 --name milestone-2 --out data/work/slice-m2`). The whole box is taken as a district, less the areas already built (`"minus"`: osu-poc, ring-road, liberation, central, kaneshie, labadi), which it meets along their edges; it fills the fabric the corridors leave — Adabraka, Asylum Down and Kokomlemle, Ridge's offices, and the pockets inside the vertical slice. Chunked like Legon, in Osu's frame. Its rules (`DISTRICT_RULES["adabraka"]`): walled yards as in Osu, the surveyed facade palette (cream first, then salmon, light blue, mint and grey), a roof mix heavy in rusted sheet (`ROOF_PALETTES["adabraka"]`), a storey draw from the lap count (35% one storey, 38% two, 18% three, 9% four or more; median 2) for the larger unmapped footprints, the shop signs read in full along the lap, and cars parked along the side streets (circle-reference `adabraka-identity-survey.md`, Street View at 40 points on 24 Nov 2026, captures of August to October 2024). Lap (`ADABRAKA_LAP`): from Circle through Adabraka on Farrar Avenue, up the Kanda Highway and back west on the Ring Road Central.
+
+```sh
+python3 scripts/build_district.py --slice data/work/slice-m2 --name adabraka --out data/work/adabraka
+python3 scripts/export_glb.py data/work/adabraka/adabraka.obj --uv-only M_Wall_ --tile-m 500 --gltfpack gltfpack --out data/work/web/adabraka.glb
+python3 scripts/export_scene.py --district data/work/adabraka/adabraka.json --tiles data/work/web/adabraka/tiles.json --chunk --out data/work/web/adabraka-scene.json
+python3 tests/test_milestone2.py
+```
+
+- **The 24 November build, after the survey's rules** (Overture 2026-10-21.0): 31,084 buildings, 190.9 km of road, 498 street lights (341 lit), 5,063 parked places (624 taxis), 942 places, 5 garages, 5 fuel stations, 42 hiding places, 1.66 km of medians; 92 tiles of 500 m, 15.1 MB packed, 2.9 MB of tile data; scene 306 KB. Massing: 14,717 hipped roofs, 1,767 bulkheads, 313 frame storeys, 281 km of compound wall with 9,422 gates.
+
 ### Dual carriageways, found in the geometry
 
 OpenStreetMap maps a boulevard with a central reservation as one one-way road per carriageway, drawn the way its traffic runs. Before, only the Ring Road's surveyed carriageways (`DUAL_CARRIAGEWAYS`) were treated as such; the others were drawn at their class's width (18 m for a trunk), two-way, and covered their median.
