@@ -184,6 +184,13 @@ LABADI_BEACH = {"south": 5.5540, "north": 5.5670, "west": -0.1500, "east": -0.13
 # Drive, 28th February Road and Nii Owuo Street, cut there, go on in central's tiles: a gap between the two left the
 # castle's streets cut off from every route.
 OSU_CASTLE_BOX = {"south": 5.5440, "north": 5.5505, "west": -0.1900, "east": -0.1800}
+# Starlets '91 Road's east end (circle-game docs/starlets-91-plan.md, "The east end", stage 1b): the road's last 300 m
+# turn north round the stadium along central's east edge (CENTRAL, -0.1900) to Castle Road and Lokko Street (5.5530 N),
+# so the blocks east of it, Access Bank's head office and the shops on Castle Road and Lokko Street (191 footprints
+# within 150 m of the road, 5.5505 to 5.5537 N, -0.1900 to -0.1886) fell in no area. The box takes them in Labadi's
+# corridor, whose slice (coast-east) holds them, rather than widening CENTRAL, whose slice (accra-central) stops at
+# -0.1900. It sits on the Osu Castle box, from its north edge, and meets central along the same edge.
+STARLETS_EAST_BOX = {"south": 5.5505, "north": 5.5545, "west": -0.1900, "east": -0.1880}
 # Its lap: La Road from Osu east to Labadi, Teshie Road to Teshie and back (a single carriageway mostly: "penalty" 1).
 LABADI_LAP = {"route": [(5.553498, -0.174993), (5.559395, -0.150092), (5.564775, -0.137170), (5.578105, -0.109933),
                         (5.564775, -0.137170), (5.559395, -0.150092)], "penalty": 1.0}
@@ -221,7 +228,7 @@ AREAS = {
                               "boxes": (KANESHIE_MARKET,)},
                  "minus": ["central"], "origin": OSU_ORIGIN, "lap": KANESHIE_LAP, "district": "ring-road"},
     "labadi": {"corridor": {"roads": LABADI_ROADS, "half_width_m": 220.0, "within": LABADI,
-                            "boxes": (LABADI_BEACH, OSU_CASTLE_BOX)},
+                            "boxes": (LABADI_BEACH, OSU_CASTLE_BOX, STARLETS_EAST_BOX)},
                "minus": ["osu-poc", "ring-road", "central"], "origin": OSU_ORIGIN, "lap": LABADI_LAP, "district": "ring-road"},
 }
 
