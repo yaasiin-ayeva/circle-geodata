@@ -622,6 +622,10 @@ def road_width(cls, name="", widths=None, rid=None):
         return CARRIAGEWAY_M
     if rid is not None and rid in CARRIAGEWAY_W:
         return CARRIAGEWAY_W[rid]
+    if rid is not None and rid in LINKS and cls in LANE_M:
+        # A slip road OSM gives no lane count: two lanes (lanes_of()'s default, as the traffic network drives it),
+        # not its class's width (a trunk link drawn 18 m wide covered the road it leaves, Tetteh Quarshie's west side).
+        return round(lanes_of(rid, cls, name) * LANE_M[cls] + EDGE_M, 1)
     if cls in MAJOR_CLASSES:
         if name in DUAL_CARRIAGEWAYS:
             return CARRIAGEWAY_M
@@ -1179,6 +1183,8 @@ def build(args):
         narrowed = [rid for rid, cls, _, _ in roads if rid in LINKS and rid in LANES and cls in LANE_M and not is_carriageway(rid, cls, "")
                     and LANES[rid] * LANE_M[cls] + EDGE_M < ROAD_WIDTH[cls]]
         print(f"slip roads at their lanes' width: {len(narrowed)} segments")
+    bare = [rid for rid, cls, _, _ in roads if rid in LINKS and rid not in LANES and cls in LANE_M and rid not in CARRIAGEWAY_W]
+    print(f"slip roads with no lane count, drawn two lanes wide: {len(bare)} segments")
     if CARRIAGEWAY_W:
         named = sorted({n for rid, _, n, _ in roads if rid in CARRIAGEWAY_W and n})
         print(f"dual carriageways: {len(CARRIAGEWAY_W)} carriageway segments, median between them"
