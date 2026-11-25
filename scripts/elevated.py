@@ -481,6 +481,7 @@ def build(ways, to_utm):
     level_merges(pieces)
     print(f"elevated: {part_forks(pieces, [(wid, LineString([pos[v] for v in vs])) for wid, vs in wverts.items() if len(vs) >= 2])} slip roads parted from their roads")
     beside_cuts(pieces, wverts, pos, wby, sites, covered)
+    print(f"elevated: {part_mains(pieces, wverts, pos)} roads moved off the slip roads they fork from")
     return pieces, feet, sorted(flyover), sorted(tunnels)
 
 
@@ -1165,6 +1166,155 @@ def part_forks(pieces, ground):
             moved += 1
             print(f"  fork {b['id']} {b['name'] or b['cls']}: moved up to {shift.max():.1f} m"
                   f"{' from the start of ' + pieces[ups[0]]['id'] if lead is not None else ''}, {max(short, 0):.1f} m still short")
+            break
+    return moved
+
+
+MAIN_RATE = FORK_RATE   # a main road moved off its drawn line moves at most this far sideways per metre
+MAIN_MAX_M = 6.0        # ... and at most this far
+MAIN_SHORT_M = 1.0      # ... and only where that leaves the slip road at most this short of parted
+
+
+def part_mains(pieces, wverts, pos):
+    """Where part_forks() could not move a slip road off the road it forks from (a carriageway the other side of it:
+    Nsawam Road's connector up out of Circle's underpass, between the trunk's two carriageways, its fill 3.8 m over
+    the northbound trunk's lanes; the ramps audit's last stop), the road moves instead, to the side away from the slip
+    road where nothing at another level runs: the piece leaving the fork, the pieces of its way after it and its way's
+    points on the ground beyond, by what the slip road lacks (half widths and FORK_GAP_M wherever their levels differ
+    by more than FORK_DY_M), MAIN_RATE per metre from the fork and back to its line after, at most MAIN_MAX_M, and only
+    where that parts them (MAIN_SHORT_M: a move that does not clear the slip road is no fix). Its
+    points on the ground become a piece at the ground's level (kind F, a G end, "level"), so that the road the game
+    draws there is the moved one (build_district.py cut_structures() takes Overture's off along `drawn`). Not made
+    where the moved road would come nearer than parted to a road at another level, nor where its ground run ends
+    before it is back on its line. Returns the roads moved."""
+    def unit(a, b):
+        v = np.subtract(b, a, dtype=np.float64)
+        n = np.linalg.norm(v)
+        return v / n if n > 1e-9 else None
+
+    def cum(pts):
+        return np.concatenate([[0], np.cumsum([math.dist(pts[i], pts[i + 1]) for i in range(len(pts) - 1)])])
+
+    def oriented(p, start):
+        """A piece's pts, off and kind from its point at `start` (an end)."""
+        if math.dist(p["pts"][0], start) < 0.05:
+            return list(p["pts"]), list(p["off"]), p["kind"]
+        return p["pts"][::-1], p["off"][::-1], p["kind"][::-1]
+
+    cos_fork = math.cos(math.radians(FORK_DEG))
+    moved = 0
+    for b in [p for p in pieces if p.get("oneway") and not p.get("level") and "drawn" not in p and len(p["pts"]) >= 3]:
+        for e in (0, len(b["pts"]) - 1):
+            fork = b["pts"][e]
+            bp, bo, _ = oriented(b, fork)
+            tb = unit(bp[0], bp[1])
+            mains = [m for m in pieces if m is not b and m["osm"] != b["osm"] and not m.get("level") and "drawn" not in m
+                     and any(math.dist(m["pts"][k], fork) < 0.05 for k in (0, -1))
+                     and (m["w"], len(m["pts"])) > (b["w"], len(b["pts"]))]
+            mains = [m for m in mains if (u := unit(*oriented(m, fork)[0][:2])) is not None and float(u @ tb) > cos_fork]
+            if len(mains) != 1:
+                continue
+            m = mains[0]
+            # The main road's run from the fork: its piece, its way's pieces after it, its way's points on after them.
+            run, roff, rkind, parts = [], [], "", []
+            cur, at = m, fork
+            while cur is not None:
+                cp, co, ck = oriented(cur, at)
+                parts.append((cur, len(run) - (1 if run else 0), len(cp)))
+                run += cp[1:] if run else cp
+                roff += co[1:] if roff else co
+                rkind += ck[1:] if rkind else ck
+                at = cp[-1]
+                cur = next((q for q in pieces if q is not cur and q["osm"] == m["osm"] and q not in [x for x, _, _ in parts]
+                            and any(math.dist(q["pts"][k], at) < 0.05 for k in (0, -1))), None)
+            vs = wverts.get(m["osm"], [])
+            k0 = next((k for k, v in enumerate(vs) if math.dist(pos[v], at) < 0.05), None)
+            ground = []
+            if k0 is not None:
+                tail = [list(pos[v]) for v in vs[k0 + 1:]]
+                back = [list(pos[v]) for v in vs[:k0][::-1]]
+                nxt = tail if tail and unit(run[-2], run[-1]) is not None and unit(at, tail[0]) is not None \
+                    and float(unit(run[-2], run[-1]) @ unit(at, tail[0])) > 0 else back
+                ground = [[round(q[0], 2), round(q[1], 2)] for q in nxt]
+            full = run + ground
+            fs = cum(full)
+            # What the slip road lacks beside each point of the run, where their levels differ.
+            bl = LineString(bp)
+            bs = cum(bp)
+            lack, side = np.zeros(len(full)), 0.0
+            for k, q in enumerate(full):
+                pt = shapely.Point(q)
+                d = bl.project(pt)
+                if d <= 0.01 or d >= bl.length - 0.01:
+                    continue
+                qo = roff[k] if k < len(roff) else 0.0
+                if abs(float(np.interp(d, bs, bo)) - qo) <= FORK_DY_M:
+                    continue
+                c = np.array(bl.interpolate(d).coords[0])
+                need = b["w"] / 2 + m["w"] / 2 + FORK_GAP_M - float(np.linalg.norm(np.asarray(q) - c))
+                if need > lack[k]:
+                    lack[k] = need
+                    t = unit(full[max(0, k - 1)], full[min(len(full) - 1, k + 1)])
+                    side += -1.0 if float((c - np.asarray(q)) @ np.array([-t[1], t[0]])) > 0 else 1.0
+            # Only where the slip road's asphalt at another level covers the road's lanes FORK_COVER_M or more from the
+            # fork (as part_forks()): nearer, a gore's nose, the lanes part round it.
+            rl, rs = LineString(full), cum(full)
+            cover = [bs[k] for k, q in enumerate(bp) if 0.01 < rl.project(shapely.Point(q)) < rl.length - 0.01
+                     and rl.distance(shapely.Point(q)) < m["w"] / 2 + FORK_CAR_M
+                     and abs(bo[k] - float(np.interp(rl.project(shapely.Point(q)), rs, roff + [0.0] * len(ground)))) > FORK_DY_M]
+            if lack.max() <= 0.5 or not cover or max(cover) < FORK_COVER_M:
+                continue
+            last = float(fs[lack > 0].max())
+            sh = np.array([max([0.0] + [lack[j] - MAIN_RATE * abs(fs[k] - fs[j]) for j in range(len(full)) if lack[j] > 0])
+                           for k in range(len(full))])
+            sh = np.minimum(sh, np.minimum(MAIN_RATE * fs, MAIN_MAX_M))
+            sh = np.minimum(sh, MAIN_RATE * np.maximum(0.0, fs[-1] - fs))
+            if fs[-1] - last < float(lack.max()) / MAIN_RATE:
+                print(f"  main {m['id']} {m['name'] or m['cls']}: left as drawn (its way ends {fs[-1] - last:.0f} m "
+                      f"after the slip road {b['id']})")
+                break
+            sh = np.minimum(np.array([sh[np.abs(fs - fs[k]) <= 7.5].mean() for k in range(len(full))]),
+                            np.minimum(MAIN_RATE * fs, MAIN_RATE * (fs[-1] - fs)))
+            short = max(0.0, float((lack - sh).max()))
+            if short > MAIN_SHORT_M:
+                print(f"  main {m['id']} {m['name'] or m['cls']}: left as drawn (moved, still {short:.1f} m short of "
+                      f"the slip road {b['id']})")
+                break
+            sgn = 1.0 if side >= 0 else -1.0
+            new = []
+            for k, q in enumerate(full):
+                t = unit(full[max(0, k - 1)], full[min(len(full) - 1, k + 1)])
+                r = np.asarray(q, dtype=np.float64) + np.array([-t[1], t[0]]) * sgn * sh[k]
+                new.append([round(float(r[0]), 2), round(float(r[1]), 2)])
+            # Not into another road at another level (a piece; the ground's ways are at the ground's).
+            far = [k for k in range(len(full)) if sh[k] > 0.5]
+            nl = shapely.MultiPoint([new[k] for k in far])
+            ol = shapely.MultiPoint([full[k] for k in far])
+            hits = [q["id"] for q in pieces if q is not m and q is not b and q["osm"] != m["osm"]
+                    and max(abs(o) for o in q["off"]) > FORK_DY_M
+                    and (dq := LineString(q["pts"]).distance(nl)) < (q["w"] + m["w"]) / 2 + FORK_GAP_M
+                    and dq < LineString(q["pts"]).distance(ol) - 0.1]
+            if hits:
+                print(f"  main {m['id']} {m['name'] or m['cls']}: left as drawn (moved, it comes nearer {', '.join(hits)})")
+                break
+            for p, i0, n in parts:
+                fwd = math.dist(p["pts"][0], full[i0]) < 0.05
+                p["drawn"] = [list(q) for q in p["pts"]]
+                seg = new[i0:i0 + n]
+                p["pts"] = seg if fwd else seg[::-1]
+            if ground:
+                g0 = len(run) - 1
+                gp = new[g0:]
+                last_k = int(np.nonzero(sh[g0:] > 0.01)[0].max()) + 2 if (sh[g0:] > 0.01).any() else 1
+                gp, gd = gp[:last_k + 1], full[g0:g0 + last_k + 1]
+                if len(gp) >= 2:
+                    pieces.append({**{k: m[k] for k in ("osm", "cls", "name", "w", "site", "style") if k in m},
+                                   **({k: m[k] for k in ("lanes", "oneway") if k in m}),
+                                   "id": f"{m['osm']}/m{e}", "pts": gp, "drawn": gd, "off": [0.0] * len(gp),
+                                   "kind": "F" * (len(gp) - 1) + "G", "level": True})
+            moved += 1
+            print(f"  main {m['id']} {m['name'] or m['cls']}: moved up to {sh.max():.1f} m off the slip road {b['id']}, "
+                  f"{short:.1f} m still short")
             break
     return moved
 
