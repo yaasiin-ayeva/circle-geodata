@@ -427,6 +427,14 @@ roads it lays on the ground, and `relief.py` gives them absolute heights (`relie
 under Ako Adjei and Tetteh Quarshie into the ground. The method is in the script's docstring; the game's side is
 circle-game `src/world/interchanges.ts`.
 
+Beside a walled cut the relief's 8 m grid leaves a pit up to 7.5 m deep (the floor held a cell beyond the road), where
+Ako Adjei's roundabout and the Ring Road's service roads lay. `elevated.py beside_cuts` carries the roads on the ground
+within that reach as pieces at the ground's level (`"level": true`), except one that comes down onto the cut's road,
+and not at Tetteh Quarshie (grassed banks) or the Tema Motorway (roads over its tunnels). `relief.py cut_shelves` writes
+each walled cut's shelf, per point its width each side and its top (`"shelf"`): from the wall's coping out to where the
+ground comes back up, stopping short of a ground road and of a road in a cut 0.3 m or more under it; `onto_shelves`
+sets the level roads on it. The game lays the shelf as a slab (circle-game docs/world.md).
+
 ## Publishing under ODbL
 
 The game itself (meshes, textures, code) is a "produced work" and stays proprietary, with the attribution block in its credits. The merged roads, footprints and heights are a "derivative database": once the game is public, that database must be offered free online under ODbL 1.0. The plan is to publish it on day one, as a release of this repository made public, or of a public mirror, with a README that lists sources and processing.

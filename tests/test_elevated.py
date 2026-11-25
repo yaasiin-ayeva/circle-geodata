@@ -218,6 +218,22 @@ xs_ = [q[0] for q in side[0]["pts"]] if side else [0]
 check("from a point before the cut is deep to past where it comes up", min(xs_) <= 0.0 and 90.0 <= max(xs_) <= 100.0,
       f"x {min(xs_):.0f} to {max(xs_):.0f}")
 check("not beside a cut with grassed banks", beside("tetteh-quarshie")[0] == 0)
+# A road that comes down beside the cut onto its road (a service road onto Nsawam Road at Circle) lies in the pit by
+# right: not carried at the banks' top, where the shelf roofed it.
+xs5 = np.arange(0.0, 101.0, 5.0)
+cut5 = piece("c", [(x, 0.0) for x in xs5], [-6.0] * len(xs5))
+cut5.update(site="s", style="circle")
+pos5, wv5 = {}, {}
+for k, (x, z) in enumerate([(20.0, 25.0), (30.0, 18.0), (40.0, 12.0), (50.0, 7.0), (55.0, 2.0)]):
+    pos5[(9, k)] = (x, z)
+wv5[9] = [(9, k) for k in range(5)]
+n5 = el.beside_cuts([cut5], wv5, pos5, {9: {"tags": {"highway": "service"}}}, [], set())
+check("a road that comes down onto the cut's road is not carried at the banks' top", n5 == 0, f"{n5} pieces")
+# A road beyond the cut's end, within the floor's reach round it but not abreast of it (Nsawam Road on past its own
+# cut's mouth at Circle, 25 m from the next cut's end): on the ground, as it was.
+pos6 = {(8, k): (110.0 + 5.0 * k, 14.0) for k in range(10)}
+n6 = el.beside_cuts([cut5], {8: [(8, k) for k in range(10)]}, pos6, {8: {"tags": {"highway": "primary"}}}, [], set())
+check("a road beyond a cut's end is not carried", n6 == 0, f"{n6} pieces")
 
 # relief.py's shelves: a cut 6.5 m deep in flat ground at 10 m, the floor and the pit beside it at 3 m to 16 m off the
 # line (the 8 m grid back at the banks' top at 24 m): a shelf from its wall's coping to the ground, both sides; one
@@ -240,12 +256,46 @@ rl.cut_shelves([c5], low_pit, g3)
 m5 = c5["shelf"][len(xs3) // 2]
 check("where the ground beyond lies under the banks' top, the shelf is at the ground's level", all(abs(t - 9.0) < 0.05 for t in m5[2:]) and
       all(w < want + 1.0 for w in m5[:2]), f"{m5}")
+# A cut drawn as two pieces end to end (a junction along it): the shelf at their joint as wide as either side of it.
+ca = {**c3, "pts": [[float(x), 0.0] for x in xs3 if x <= 0], "y": [3.5] * 9, "off": [-6.5] * 9, "kind": "C" * 9}
+cb = {**c3, "pts": [[float(x), 0.0] for x in xs3 if x >= 0], "y": [3.5] * 9, "off": [-6.5] * 9, "kind": "C" * 9}
+rl.cut_shelves([ca, cb], pit, g3)
+ja, jb = ca["shelf"][-1], cb["shelf"][0]
+check("a cut's shelf runs on across the joint of two of its pieces", all(want - 1.5 < w < want + 1.0 for w in ja[:2] + jb[:2]),
+      f"{ja}, {jb}")
 c4 = {**c3, "pts": [[float(x), 0.0] for x in xs3]}
 low = {"pts": [[-40.0, 13.0], [40.0, 13.0]], "w": 7.6, "y": [3.5, 3.5], "off": [-6.5, -6.5], "kind": "CC", "style": "ako-adjei"}
 rl.cut_shelves([c4, low], pit, g3)
 m4 = c4["shelf"][len(xs3) // 2]
 # Game's left is (tz, -tx): along +x, the left is -z; the lower road is at +z, on the right.
 check("a shelf stops short of a lower road beside it", m4[1] < 13.0 - 3.8 - 3.8 - rl.SHELF_FROM_M + 0.01 and m4[0] > want - 1.5, f"{m4}")
+# Near a mouth the other carriageway's cut is under a metre below the shelf (Ako Adjei's eastern mouth): the shelf
+# stops short of it as well, not over its lanes.
+c6 = {**c3, "pts": [[float(x), 0.0] for x in xs3]}
+shallow = {**low, "y": [9.3, 9.3], "off": [-0.7, -0.7]}
+rl.cut_shelves([c6, shallow], pit, g3)
+m6 = c6["shelf"][len(xs3) // 2]
+check("a shelf stops short of a cut beside it under a metre deep", m6[1] < 13.0 - 3.8 - 3.8 - rl.SHELF_FROM_M + 0.01, f"{m6}")
+# A cut drawn within a few metres of this one, not carrying it on from an end (Nsawam Road beside the connector's cut
+# at Circle): the shelf stops at it, never over its lanes.
+c7 = {**c3, "pts": [[float(x), 0.0] for x in xs3]}
+close = {**low, "pts": [[-40.0, 4.5], [40.0, 4.5]]}
+rl.cut_shelves([c7, close], pit, g3)
+m7 = c7["shelf"][len(xs3) // 2]
+check("a shelf stops at a cut drawn within its own road's reach", m7[1] < 0.5 and m7[0] > want - 1.5, f"{m7}")
+# Two cuts forking from one point the same way (the connector leaving Nsawam Road's cut at Circle): each one's shelf
+# stops at the other, not over its lanes; and a cut carried on by a piece drawn the other way (its end on this one's
+# end): the shelf runs on across the joint.
+c8 = {**c3, "pts": [[float(x), 0.0] for x in xs3]}
+fork = {**low, "pts": [[-40.0, 0.0], [0.0, 3.0], [40.0, 6.0]], "y": [3.5] * 3, "off": [-6.5] * 3, "kind": "CCC"}
+rl.cut_shelves([c8, fork], pit, g3)
+m8 = c8["shelf"][len(xs3) // 2]
+check("a shelf stops at a cut forking from its own start", m8[1] < 2.0, f"{m8}")
+ra = {**c3, "pts": [[float(x), 0.0] for x in xs3 if x <= 0], "y": [3.5] * 9, "off": [-6.5] * 9, "kind": "C" * 9}
+rb = {**c3, "pts": [[float(x), 0.0] for x in xs3[::-1] if x >= 0], "y": [3.5] * 9, "off": [-6.5] * 9, "kind": "C" * 9}
+rl.cut_shelves([ra, rb], pit, g3)
+check("and runs on across a joint with a piece drawn the other way", all(want - 1.5 < w < want + 1.0 for w in ra["shelf"][-1][:2] + rb["shelf"][-1][:2]),
+      f"{ra['shelf'][-1]}, {rb['shelf'][-1]}")
 
 # A zigzag at a piece's end (Graphic Road's slip road off Obetsebi Lamptey's fork): straightened from the end.
 import math as _m  # noqa: E402

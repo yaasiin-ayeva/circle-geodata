@@ -489,6 +489,7 @@ def build(ways, to_utm):
 # deep, its 8 m grid's node off the line and the cell over which the ground comes back up to the banks' top.
 SHELF_FLOOR_M, SHELF_MOUTH_M, SHELF_CELL_M = 12.0, 1.5, 12.0
 SHELF_DEPTH_M = 1.0     # a cut shallower than this keeps the ground beside it
+SHELF_PAST_M = 3.0      # a point further than this beyond a cut's end is not beside it
 NO_SHELF = ("tetteh-quarshie", "tema")   # the sites whose cuts have none (their banks grassed; roads over tunnels)
 
 
@@ -522,9 +523,30 @@ def beside_cuts(pieces, wverts, pos, wby, sites, covered):
                 continue
             lat = line.distance(pt)
             floor = p["w"] / 2 + SHELF_FLOOR_M * min(1.0, depth / SHELF_MOUTH_M)
-            if p["w"] / 2 + 1.0 < lat < floor + SHELF_CELL_M + half:
+            if p["w"] / 2 + 1.0 < lat < floor + SHELF_CELL_M + half and not past_end(n, pt, d):
                 return p
         return None
+
+    def past_end(n, pt, d):
+        """Whether a point lies more than SHELF_PAST_M beyond an end of cut n, along it (not abreast of it): the reach
+        round an end took Nsawam Road on beyond its own cut's mouth at Circle, on the ground, for a cut 25 m off."""
+        P = walled[n]["pts"]
+        if 1e-6 < d < cums[n][-1] - 1e-6:
+            return False
+        e, o = (P[0], P[1]) if d <= 1e-6 else (P[-1], P[-2])
+        t = np.subtract(e, o)
+        return float(np.dot(np.subtract(pt.coords[0], e), t / (np.hypot(*t) or 1.0))) > SHELF_PAST_M
+
+    def in_cut(v):
+        """Whether a point lies on a walled cut's road, down in it (not a point of a piece: a bridge over the cut)."""
+        if v in covered:
+            return False
+        pt = shapely.Point(pos[v])
+        for n in tree.query(pt.buffer(reach_max)):
+            line, p = lines[n], walled[n]
+            if -float(np.interp(line.project(pt), cums[n], p["off"])) >= SHELF_DEPTH_M and line.distance(pt) <= p["w"] / 2 + 1.0:
+                return True
+        return False
 
     added = 0
     for wid, vs in wverts.items():
@@ -543,6 +565,11 @@ def beside_cuts(pieces, wverts, pos, wby, sites, covered):
                 j += 1
             a, b = max(0, i - 1), min(len(vs) - 1, j + 1)
             run = vs[a:b + 1]
+            # Not a road that comes down beside the cut into it, its end on the cut's road (a service road onto Nsawam
+            # Road at Circle): it lies in the pit by right, and a shelf over it roofed it, 3.8 m over its asphalt.
+            if (a < i and in_cut(vs[a])) or (b > j and in_cut(vs[b])):
+                i = j + 1
+                continue
             if len(run) >= 2:
                 cut = next(c for c in near[i:j + 1] if c is not None)
                 # On the ground (G) only where it is off the cut's reach and off another piece: an end on a bridge or a
