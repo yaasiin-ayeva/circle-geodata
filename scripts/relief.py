@@ -387,6 +387,7 @@ SHELF_MAX_M = 30.0     # the furthest a shelf reaches from the wall: over the fl
 SHELF_STEP_M = 0.5
 SHELF_SEAM_M = 0.05    # the ground this near the banks' top meets the shelf
 SHELF_DEPTH_M = 0.6    # a cut shallower than this under the ground has no wall (interchanges.ts CUT_FROM), nor a shelf
+SHELF_UNDER_CUT_M = 0.3   # a road in a cut this far under a shelf's top stops it (the game lays it under one less deep)
 
 
 def cut_shelves(pieces, h, grid, roads=()):
@@ -415,6 +416,15 @@ def cut_shelves(pieces, h, grid, roads=()):
         P = np.array(p["pts"], dtype=np.float64)
         y, off = np.array(p["y"]), np.array(p["off"])
         shelf = []
+        # A piece that carries this one on from an end (the next piece of the same carriageway, going on the other way
+        # from their shared point) lies across the walk from that end point, which stopped the shelf at its first
+        # step: a wedge 20 m wide was missing at each joint between two pieces of a cut. Such a piece counts only off
+        # this cut's own road and wall; any other, wherever it runs: a cut drawn within a few metres of this one, or
+        # one that forks from the same point the same way (the connector from Nsawam Road's cut at Circle, whose
+        # shelf ran 28 m over Nsawam Road's lanes, 1.3 m over them).
+        own = lines[n].buffer(p["w"] / 2 + SHELF_FROM_M)
+        inward = [(P[0], P[1] - P[0]), (P[-1], P[-2] - P[-1])]
+        clipped = {}
         for k in range(len(P)):
             if -off[k] < SHELF_DEPTH_M:
                 shelf.append([0.0, 0.0, round(float(y[k] - off[k]), 2), round(float(y[k] - off[k]), 2)])
@@ -442,15 +452,24 @@ def cut_shelves(pieces, h, grid, roads=()):
                     if m == n or pieces[m].get("level"):
                         continue
                     o = pieces[m]
-                    on = np.nonzero(shapely.distance(lines[m], pts) <= o["w"] / 2 + SHELF_FROM_M)[0]
+                    if m not in clipped:
+                        Q = np.array(pieces[m]["pts"], dtype=np.float64)
+                        carries = any(np.hypot(*(e - q)) < 0.5 and float(np.dot(u, w)) < 0
+                                      for e, u in inward for q, w in ((Q[0], Q[1] - Q[0]), (Q[-1], Q[-2] - Q[-1])))
+                        clipped[m] = lines[m].difference(own) if carries else lines[m]
+                    if clipped[m].is_empty:
+                        continue
+                    on = np.nonzero(shapely.distance(clipped[m], pts) <= o["w"] / 2 + SHELF_FROM_M)[0]
                     if not len(on):
                         continue
                     d = shapely.line_locate_point(lines[m], pts[on])
                     oy = np.interp(d, cums[m], o["y"])
                     # A road in a cut or a tunnel there (a ramp's foot that came down into the pit is lifted onto
-                    # the shelf after, onto_shelves()).
+                    # the shelf after, onto_shelves()), SHELF_UNDER_CUT_M or more under the banks' top: the other
+                    # carriageway's cut near the mouths, 1.1 m deep at Ako Adjei's eastern one, which a shelf held
+                    # to roads 1 m down covered, 0.3 m over its lanes. Shallower, the game lays the shelf under it.
                     kc = np.array([o["kind"][int(np.argmin(np.abs(cums[m] - v)))] in "CT" for v in d])
-                    low = on[(oy < bank - 1.0) & kc]
+                    low = on[(oy < bank - SHELF_UNDER_CUT_M) & kc]
                     if len(low):
                         stop = min(stop, int(low[0]))
                 up = np.nonzero(g[:stop] >= bank - SHELF_SEAM_M)[0]
