@@ -394,6 +394,11 @@ DUAL_CLASSES = ("motorway", "trunk", "primary", "secondary")
 # Accra's main roads (16 Nov 2026: Liberation Road 3 each way, the Ring Road and Independence Avenue 2). The user's
 # night drive on the Madina-Adenta road, 16 Nov 2026: the boulevards read too narrow.
 LANES = {}
+# The slip roads (Overture's subclass "link": OpenStreetMap's *_link ways): road ids. One with a lane count is drawn at
+# its lanes' width, not floored at its class's: a two-lane one-way link (Tetteh Quarshie's, from the Spintex side onto
+# Liberation Road) was drawn 18 m wide as a trunk, over Liberation Road's lanes for 60 m at another height, the line
+# where the two met cutting across them (the director's drive from East Legon, 24 Nov 2026). Filled by build().
+LINKS = set()
 OSM_LANES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "aoi", "osm-lanes.geojson")
 # A lane on a main road (m): Ghana's trunk roads are built with 3.65 m lanes, the city's boulevards a little less;
 # plus 0.25 m of edge strip on each side.
@@ -648,12 +653,19 @@ def road_width(cls, name="", widths=None, rid=None):
             if gap:
                 w = min(w, max(6.0, gap - MEDIAN_MIN_M))
             return round(w, 1)
+        # A slip road: its lanes' width (LINKS).
+        if rid in LINKS:
+            return round(w, 1)
         # A two-way road: never narrower than its class draws it (the class widths include the parking edges).
         return max(round(w, 1), widths[cls])
     if cls in MAJOR_CLASSES and name in DUAL_CARRIAGEWAYS:
         return CARRIAGEWAY_M
     if rid is not None and rid in CARRIAGEWAY_W:
         return CARRIAGEWAY_W[rid]
+    if rid is not None and rid in LINKS and cls in LANE_M:
+        # A slip road OSM gives no lane count: two lanes (lanes_of()'s default, as the traffic network drives it),
+        # not its class's width (a trunk link drawn 18 m wide covered the road it leaves, Tetteh Quarshie's west side).
+        return round(lanes_of(rid, cls, name) * LANE_M[cls] + EDGE_M, 1)
     if cls in MAJOR_CLASSES:
         if name in DUAL_CARRIAGEWAYS:
             return CARRIAGEWAY_M
@@ -1160,6 +1172,11 @@ def build(args):
     con = connect()
     road_rows = [(rid, cls, name or "", shapely.from_wkb(bytes(blob)))
                  for rid, cls, name, blob in load(con, os.path.join(args.slice, "roads.parquet"), "id, class, name")]
+    LINKS.clear()
+    roads_pq = os.path.join(args.slice, "roads.parquet")
+    # Overture's subclass; a slice without the column (the tests' small ones) has no slip roads marked.
+    if "subclass" in {r[0] for r in con.execute(f"DESCRIBE SELECT * FROM '{roads_pq}'").fetchall()}:
+        LINKS.update(rid for rid, sub, _ in load(con, roads_pq, "id, subclass") if sub == "link")
     clip, region, minus = area_outline(area, road_rows, local, lonlat)
     # Buildings belong to the area whose box (or corridor, less the boxes it leaves out) holds their centroid.
     lonlat_box = area_box(area) if "corridor" not in area else lonlat(region)
@@ -1206,6 +1223,11 @@ def build(args):
     if LANES:
         by_n = Counter(LANES.values())
         print(f"OSM lane counts: {len(LANES)} road segments ({', '.join(f'{v} with {k}' for k, v in sorted(by_n.items()))})")
+        narrowed = [rid for rid, cls, _, _ in roads if rid in LINKS and rid in LANES and cls in LANE_M and not is_carriageway(rid, cls, "")
+                    and LANES[rid] * LANE_M[cls] + EDGE_M < ROAD_WIDTH[cls]]
+        print(f"slip roads at their lanes' width: {len(narrowed)} segments")
+    bare = [rid for rid, cls, _, _ in roads if rid in LINKS and rid not in LANES and cls in LANE_M and rid not in CARRIAGEWAY_W]
+    print(f"slip roads with no lane count, drawn two lanes wide: {len(bare)} segments")
     if CARRIAGEWAY_W:
         named = sorted({n for rid, _, n, _ in roads if rid in CARRIAGEWAY_W and n})
         print(f"dual carriageways: {len(CARRIAGEWAY_W)} carriageway segments, median between them"
