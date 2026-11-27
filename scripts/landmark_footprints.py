@@ -16,8 +16,10 @@ about 1). An entry may also name car parks ("sheds_on"): the small roofs Overtur
 Microsoft's machine-learned footprints, not on OpenStreetMap) go too, when the landmark builds its car park itself.
 An entry may also name its grounds ("grounds": ways of a walled site the game lays out itself, its own wall, lawns and
 drives): no generated compound wall, parked car or hiding place is put on them, so none stands across the game's lawns
-or the drives in from the road. The buildings on the grounds stay as they are (only the listed ones go). "grounds_out"
-grows an entry's grounds by that many metres, for a plot whose generated walls stand just outside its mapped edge.
+or the drives in from the road. The buildings on the grounds stay as they are (only the listed ones go), unless the
+entry sets "sheds_on_grounds": the small roofs traced on its grounds then go too, as on a listed car park (a yard the
+game lays out with its own shelters). "grounds_out" grows an entry's grounds by that many metres, for a plot whose
+generated walls stand just outside its mapped edge.
 
 The file is checked in, so a build needs no network and gives the same city each time; refresh it from the Ghana
 extract after an id changes here:
@@ -39,7 +41,9 @@ FOOTPRINTS = os.path.join(HERE, "..", "aoi", "landmark-footprints.geojson")
 # The landmarks circle-game builds (its docs/<name>.md and src/data/<name>.json name these ids). "ways" and
 # "relations": the buildings themselves; "sheds_on": car parks (ways) whose sheds go with the landmark; "places": the
 # named places on the landmark whose category the data has wrong, set right (fix_places()); "grounds": the site the
-# game lays out itself (ways), kept clear of the generated walls, cars and hiding places (grounds()).
+# game lays out itself (ways), kept clear of the generated walls, cars and hiding places (grounds());
+# "sheds_on_grounds": the sheds on those grounds go too, as on "sheds_on" (load() gives each such way a car park's
+# outline beside its grounds').
 LANDMARKS = [
     # The bowl and the main stand only (circle-game docs/accra-stadium.md): the rest of compound 11526929 (its
     # offices, the gates, the hockey stadium beside it) stays generic.
@@ -66,9 +70,12 @@ LANDMARKS = [
     # Villaggio Vista towers (Alto 608141167, Azure 608141164 and its strip 608141163, its wing 608141162, Aqua
     # 608141169; their building:part ways are not buildings), City Galleria (1137453837), the African Regent Hotel
     # (512899518), The Gallery (741876793) and the commercial block on Tetteh Quarshie Road (628661574). The Accra Mall
-    # Bus Terminal's yard (300519834, amenity=bus_station) is the game's too: its islands, lanes and trotros.
+    # Bus Terminal's yard (300519834, amenity=bus_station) is the game's too: its islands, lanes, shelters and trotros.
+    # The six small roofs Overture traced in it (15 to 135 m2) go with it ("sheds_on_grounds"), as on Accra Mall's car
+    # parks, so the game no longer masks the yard at load.
     {"name": "Accra Mall's surroundings", "ways": [608141167, 608141164, 608141163, 608141162, 608141169, 1137453837,
-                                                   512899518, 741876793, 628661574], "grounds": [300519834]},
+                                                   512899518, 741876793, 628661574], "grounds": [300519834],
+     "sheds_on_grounds": True},
     # Black Star Square (circle-game docs/black-star-square.md): its stands (building=grandstand), its gate, and the
     # Independence Arch at the seaward end (docs/independence-arch.md: way 169866122, not the gate).
     {"name": "Black Star Square's stands", "ways": [169866121, 169866123, 169866124, 169866125, 169866127, 169866128,
@@ -135,20 +142,25 @@ def grounds(outlines, local):
 
 def load(path=FOOTPRINTS):
     """The outlines of aoi/landmark-footprints.geojson for the ids LANDMARKS names (an id dropped from the list is
-    dropped here, even before the file is refreshed): dicts with osm, landmark, role and geom (WGS84, lon/lat). An
-    empty list without the file (the build then leaves nothing out)."""
+    dropped here, even before the file is refreshed): dicts with osm, landmark, role and geom (WGS84, lon/lat). The
+    grounds of an entry with "sheds_on_grounds" come twice, as grounds and as a car park (Matcher takes the sheds on
+    it). An empty list without the file (the build then leaves nothing out)."""
     if not path or not os.path.exists(path):
         return []
     with open(path) as f:
         feats = json.load(f)["features"]
     want = osm_ids()
+    sheds = {lm["name"] for lm in LANDMARKS if lm.get("sheds_on_grounds")}
     out = []
     for ft in feats:
         p = ft["properties"]
         if p["osm"] not in want:
             continue
         g = shapely.make_valid(shape(ft["geometry"]))
-        out.append({"osm": p["osm"], "landmark": want[p["osm"]][0], "role": want[p["osm"]][1], "geom": g})
+        name, role = want[p["osm"]]
+        out.append({"osm": p["osm"], "landmark": name, "role": role, "geom": g})
+        if role == "grounds" and name in sheds:
+            out.append({"osm": p["osm"], "landmark": name, "role": "car park", "geom": g})
     return out
 
 
