@@ -203,6 +203,20 @@ def unit_checks():
     check("Accra Mall's surroundings: nine buildings (the towers, City Galleria, the Regent, The Gallery, the commercial block) and the terminal's yard",
           {k for k in sur if ids[k][1] == "building"} == {f"way/{w}" for w in (608141167, 608141164, 608141163, 608141162, 608141169, 1137453837, 512899518, 741876793, 628661574)}
           and {k for k in sur if ids[k][1] == "grounds"} == {"way/300519834"})
+    # The terminal's yard: its small roofs go too ("sheds_on_grounds"), so the game no longer masks it at load. load()
+    # gives it a car park's outline beside its grounds'; the Matcher takes a shed on it and leaves a large building.
+    yard = [o for o in outlines if o["osm"] == "way/300519834"]
+    check("the terminal's yard is grounds and, for its sheds, a car park",
+          sorted(o["role"] for o in yard) == ["car park", "grounds"] and all(o["landmark"] == "Accra Mall's surroundings" for o in yard))
+    to_m = Transformer.from_crs("EPSG:4326", "EPSG:32630", always_xy=True)
+    metres = lambda g: shapely.transform(g, lambda xy: np.column_stack(to_m.transform(xy[:, 0], xy[:, 1])))
+    ym = lf.Matcher(yard, metres)
+    yc = metres(yard[0]["geom"]).representative_point() if yard else Point(0, 0)
+    check("a shed in the yard is matched to it, a building as large as a hall is not",
+          ym.match(box(yc.x - 4, yc.y - 4, yc.x + 4, yc.y + 4)) == "way/300519834"
+          and ym.match(box(yc.x - 15, yc.y - 15, yc.x + 15, yc.y + 15)) is None)
+    check("no other grounds lose their buildings (Jubilee House's, The Signature's plot)",
+          {o["osm"] for o in outlines if o["role"] == "car park" and o["osm"] in {f"way/{w}" for lm in lf.LANDMARKS for w in lm.get("grounds", [])}} == {"way/300519834"})
     plot = next((o for o in outlines if o["osm"] == "way/1124774601"), None)
     towers = [o for o in outlines if o["osm"] in ("way/1124774602", "way/1124774603")]
     check("The Signature's plot (way 1124774601) is its grounds, round both towers", plot is not None and plot["role"] == "grounds"
